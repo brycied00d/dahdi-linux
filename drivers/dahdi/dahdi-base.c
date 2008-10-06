@@ -4975,6 +4975,8 @@ static int dahdi_chan_ioctl(struct inode *inode, struct file *file, unsigned int
 				chan->ppp = kzalloc(sizeof(struct ppp_channel), GFP_KERNEL);
 				if (chan->ppp) {
 					struct echo_can_state *tec;
+					const struct dahdi_echocan *ec_current;
+
 					chan->ppp->private = chan;
 					chan->ppp->ops = &ztppp_ops;
 					chan->ppp->mtu = DAHDI_DEFAULT_MTU_MRU;
@@ -4996,6 +4998,8 @@ static int dahdi_chan_ioctl(struct inode *inode, struct file *file, unsigned int
 					}
 					tec = chan->ec_state;
 					chan->ec_state = NULL;
+					ec_current = chan->ec_current;
+					chan->ec_current = NULL;
 					chan->echocancel = 0;
 					chan->echostate = ECHO_STATE_IDLE;
 					chan->echolastupdate = 0;
@@ -5010,8 +5014,10 @@ static int dahdi_chan_ioctl(struct inode *inode, struct file *file, unsigned int
 					chan->flags |= (DAHDI_FLAG_PPP | DAHDI_FLAG_HDLC | DAHDI_FLAG_FCS);
 					hw_echocancel_off(chan);
 
-					if (tec)
-						chan->ec_current->echo_can_free(tec);
+					if (tec) {
+						ec_current->echo_can_free(tec);
+						release_echocan(ec_current)
+					}
 				} else
 					return -ENOMEM;
 			}
