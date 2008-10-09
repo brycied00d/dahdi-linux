@@ -7008,6 +7008,11 @@ static inline void __putbuf_chunk(struct dahdi_chan *ss, unsigned char *rxb, int
 						}
 						if (ms->outreadbuf < 0) { /* start out buffer if not already */
 							ms->outreadbuf = oldbuf;
+							/* if there are processes waiting in poll() on this channel,
+							   wake them up */
+							if (!ms->rxdisable) {
+								wake_up_interruptible(&ms->sel);
+							}
 						}
 /* In the very orignal driver, it was quite well known to me (Jim) that there
 was a possibility that a channel sleeping on a receive block needed to
@@ -7018,7 +7023,10 @@ of missing the wakeup (between where it senses the (lack of) active condition
 in the read or iomux call, etc). That is why the read and iomux calls start
 with an infinite loop that gets broken out of upon an active condition,
 otherwise keeps sleeping and looking. The part in this code got "optimized"
-out in the later versions, and is put back now. */
+out in the later versions, and is put back now. Note that this is *NOT*
+needed for poll() waiters, because the poll_wait() function that is used there
+is atomic enough for this purpose; it will not go to sleep before ensuring
+that the waitqueue is empty. */
 						if (!ms->rxdisable) { /* if receiver enabled */
 							/* Notify a blocked reader that there is data available
 							to be read, unless we're waiting for it to be full */
@@ -7026,7 +7034,6 @@ out in the later versions, and is put back now. */
 							module_printk(KERN_NOTICE, "Notifying reader data in block %d\n", oldbuf);
 #endif
 							wake_up_interruptible(&ms->readbufq);
-							wake_up_interruptible(&ms->sel);
 							if (ms->iomask & DAHDI_IOMUX_READ)
 								wake_up_interruptible(&ms->eventbufq);
 						}
