@@ -2846,6 +2846,7 @@ wctc4xxp_watchdog(unsigned long data)
 				/* Move this to the local list because we're
 				 * going to resend it once we free the locks */
 				list_move_tail(&cmd->node, &cmds_to_retry);
+				cmd->flags &= ~(TX_COMPLETE);
 			} else {
 				/* The command is still sitting on the tx
 				 * descriptor ring.  We don't want to move it
