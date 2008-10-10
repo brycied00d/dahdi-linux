@@ -212,7 +212,7 @@ __find_free_channel(struct list_head *list, const struct dahdi_transcoder_format
 	unsigned int match = 0;
 
 	list_for_each_entry(tc, list, node) {
-		if ((tc->dstfmts & fmts->dstfmt)) {
+		if ((tc->dstfmts & fmts->dstfmt) && (tc->srcfmts & fmts->srcfmt)) {
 			/* We found a transcoder that can handle our formats.
 			 * Now look for an available channel. */
 			match = 1; 
