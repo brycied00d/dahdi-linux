@@ -1582,11 +1582,16 @@ static int __devinit te12xp_init_one(struct pci_dev *pdev, const struct pci_devi
 	unsigned int x;
 	int res;
 	int startinglatency;
+	unsigned int index = -1;
 
-	for (x = 0; x < sizeof(ifaces) / sizeof(ifaces[0]); x++)
-		if (!ifaces[x]) break;
+	for (x = 0; x < sizeof(ifaces) / sizeof(ifaces[0]); x++) {
+		if (!ifaces[x]) {
+			index = x;
+			break;
+		}
+	}
 
-	if (x >= sizeof(ifaces) / sizeof(ifaces[0])) {
+	if (-1 == index) {
 		module_printk("Too many interfaces\n");
 		return -EIO;
 	}
@@ -1596,18 +1601,19 @@ retry:
 		return -ENOMEM;
 	}
 
-	ifaces[x] = wc;
+	ifaces[index] = wc;
 	memset(wc, 0, sizeof(*wc));
 	spin_lock_init(&wc->reglock);
 	wc->variety = d->name;
 	wc->txident = 1;
 
 	init_waitqueue_head(&wc->regq);
-	snprintf(wc->name, sizeof(wc->name)-1, "wcte12xp%d", x);
+	snprintf(wc->name, sizeof(wc->name)-1, "wcte12xp%d", index);
 	if ((res = voicebus_init(pdev, SFRAME_SIZE, wc->name,
 				 t1_handle_receive, t1_handle_transmit, wc, &wc->vb))) {
 		WARN_ON(1);
 		kfree(wc);
+		ifaces[index] = NULL;
 		return res;
 	}
 	
@@ -1627,6 +1633,7 @@ retry:
 			}
 
 			kfree(wc);
+			ifaces[index] = NULL;
 			return -ENOMEM;
 		}
 		memset(wc->chans[x], 0, sizeof(*wc->chans[x]));
