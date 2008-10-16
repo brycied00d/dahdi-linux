@@ -172,9 +172,11 @@ static void xpp_drift_step(xbus_t *xbus, const struct timeval *tv)
 		if(lost_ticks) {
 			driftinfo->lost_ticks++;
 			driftinfo->lost_tick_count += abs(lost_ticks);
-			XBUS_DBG(SYNC, xbus, "Lost %d tick%s\n",
-				lost_ticks,
-				(abs(lost_ticks) > 1) ? "s": "");
+			if(printk_ratelimit()) {
+				XBUS_DBG(SYNC, xbus, "Lost %d tick%s\n",
+					lost_ticks,
+					(abs(lost_ticks) > 1) ? "s": "");
+			}
 			ticker->cycle = SYNC_ADJ_QUICK;
 			if(abs(lost_ticks) > 100)
 				ticker->count = ref_ticker->count;
@@ -362,6 +364,10 @@ void xbus_request_sync(xbus_t *xbus, enum sync_mode mode)
 	BUG_ON(!xbus);
 	XBUS_DBG(SYNC, xbus, "sent request (mode=%d)\n", mode);
 	CALL_PROTO(GLOBAL, SYNC_SOURCE, xbus, NULL, mode, 0);
+	if(mode == SYNC_MODE_NONE) {
+		xbus->self_ticking = 0;
+		xbus_set_command_timer(xbus, 1);
+	}
 }
 
 static void reset_sync_counters(void)
@@ -370,7 +376,7 @@ static void reset_sync_counters(void)
 
 	//DBG(SYNC, "%d\n", atomic_read(&xpp_tick_counter));
 	for(i = 0; i < MAX_BUSES; i++) {
-		xbus_t	*xbus = get_xbus(i);
+		xbus_t	*xbus = xbus_num(i);
 
 		if(!xbus)
 			continue;
@@ -380,20 +386,15 @@ static void reset_sync_counters(void)
 		 *  - Or maybe they didn't answer us in the first place
 		      (e.g: wrong firmware version, etc).
 		 */
-		if (TRANSPORT_RUNNING(xbus) && xbus->self_ticking) {
-			if(XBUS_GET(xbus)) {
+		if(xbus->self_ticking) {
+			if(XBUS_IS(xbus, DISCONNECTED)) {
+				XBUS_DBG(GENERAL, xbus,
+					"Dropped packet. Is shutting down.\n");
+			} else {
 				/* Reset sync LEDs once in a while */
 				CALL_PROTO(GLOBAL, RESET_SYNC_COUNTERS, xbus, NULL);
-				XBUS_PUT(xbus);
-			} else {
-				static int	rate_limit;
-
-				if((rate_limit++ % 1003) == 0)
-					XBUS_DBG(GENERAL, xbus,
-						"Dropped packet. Is shutting down. (%d)\n", rate_limit);
 			}
 		}
-		put_xbus(xbus);
 	}
 }
 
@@ -520,16 +521,15 @@ static void update_sync_master(xbus_t *new_syncer)
 	DBG(SYNC, "stop unwanted syncers\n");
 	/* Shut all down except the wanted sync master */
 	for(i = 0; i < MAX_BUSES; i++) {
-		xbus_t	*xbus = get_xbus(i);
+		xbus_t	*xbus = xbus_num(i);
 		if(!xbus)
 			continue;
-		if(TRANSPORT_RUNNING(xbus) && xbus != new_syncer) {
+		if(!XBUS_IS(xbus, DISCONNECTED) && xbus != new_syncer) {
 			if(xbus->self_ticking)
 				xbus_request_sync(xbus, SYNC_MODE_PLL);
 			else
 				XBUS_DBG(SYNC, xbus, "Not self_ticking yet. Ignore\n");
 		}
-		put_xbus(xbus);
 	}
 }
 
@@ -542,12 +542,12 @@ void elect_syncer(const char *msg)
 	xbus_t	*the_xbus = NULL;
 
 	for(i = 0; i < MAX_BUSES; i++) {
-		xbus_t	*xbus = get_xbus(i);
+		xbus_t	*xbus = xbus_num(i);
 		if(!xbus)
 			continue;
 		if(!the_xbus)
 			the_xbus = xbus;
-		if (TRANSPORT_RUNNING(xbus)) {
+		if(XBUS_IS(xbus, READY)) {
 			for(j = 0; j < MAX_XPDS; j++) {
 				xpd_t	*xpd = xpd_of(xbus, j);
 
@@ -559,7 +559,6 @@ void elect_syncer(const char *msg)
 				}
 			}
 		}
-		put_xbus(xbus);
 	}
 	if(best_xpd) {
 		the_xbus = best_xpd->xbus;
@@ -726,7 +725,7 @@ static inline void pcm_frame_out(xbus_t *xbus, xframe_t *xframe)
 
 	spin_lock_irqsave(&xbus->lock, flags);
 	do_gettimeofday(&now);
-	if(unlikely(disable_pcm || !TRANSPORT_RUNNING(xbus)))
+	if(unlikely(disable_pcm || !XBUS_IS(xbus, READY)))
 		goto dropit;
 	if(XPACKET_ADDR_SYNC((xpacket_t *)xframe->packets)) {
 		usec = usec_diff(&now, &xbus->last_tx_sync);
@@ -1124,7 +1123,7 @@ static int proc_sync_read(char *page, char **start, off_t off, int count, int *e
 static int proc_sync_write(struct file *file, const char __user *buffer, unsigned long count, void *data)
 {
 	char		buf[MAX_PROC_WRITE];
-	int		xbus_num;
+	int		xbusno;
 	int		xpd_num;
 	xbus_t		*xbus;
 	xpd_t		*xpd;
@@ -1139,40 +1138,36 @@ static int proc_sync_write(struct file *file, const char __user *buffer, unsigne
 		DBG(SYNC, "DAHDI\n");
 		force_dahdi_sync=1;
 		update_sync_master(NULL);
-	} else if(sscanf(buf, "SYNC=%d", &xbus_num) == 1) {
-		DBG(SYNC, "SYNC=%d\n", xbus_num);
-		if((xbus = get_xbus(xbus_num)) == NULL) {
-			ERR("No bus %d exists\n", xbus_num);
+	} else if(sscanf(buf, "SYNC=%d", &xbusno) == 1) {
+		DBG(SYNC, "SYNC=%d\n", xbusno);
+		if((xbus = xbus_num(xbusno)) == NULL) {
+			ERR("No bus %d exists\n", xbusno);
 			return -ENXIO;
 		}
 		update_sync_master(xbus);
-		put_xbus(xbus);
-	} else if(sscanf(buf, "QUERY=%d", &xbus_num) == 1) {
-		DBG(SYNC, "QUERY=%d\n", xbus_num);
-		if((xbus = get_xbus(xbus_num)) == NULL) {
-			ERR("No bus %d exists\n", xbus_num);
+	} else if(sscanf(buf, "QUERY=%d", &xbusno) == 1) {
+		DBG(SYNC, "QUERY=%d\n", xbusno);
+		if((xbus = xbus_num(xbusno)) == NULL) {
+			ERR("No bus %d exists\n", xbusno);
 			return -ENXIO;
 		}
 		CALL_PROTO(GLOBAL, SYNC_SOURCE, xbus, NULL, SYNC_MODE_QUERY, 0);
-		put_xbus(xbus);
-	} else if(sscanf(buf, "%d %d", &xbus_num, &xpd_num) == 2) {
+	} else if(sscanf(buf, "%d %d", &xbusno, &xpd_num) == 2) {
 		NOTICE("Using deprecated syntax to update %s file\n", 
 				PROC_SYNC);
 		if(xpd_num != 0) {
 			ERR("Currently can only set sync for XPD #0\n");
 			return -EINVAL;
 		}
-		if((xbus = get_xbus(xbus_num)) == NULL) {
-			ERR("No bus %d exists\n", xbus_num);
+		if((xbus = xbus_num(xbusno)) == NULL) {
+			ERR("No bus %d exists\n", xbusno);
 			return -ENXIO;
 		}
 		if((xpd = xpd_of(xbus, xpd_num)) == NULL) {
 			XBUS_ERR(xbus, "No xpd %d exists\n", xpd_num);
-			put_xbus(xbus);
 			return -ENXIO;
 		}
 		update_sync_master(xbus);
-		put_xbus(xbus);
 	} else {
 		ERR("%s: cannot parse '%s'\n", __FUNCTION__, buf);
 		count = -EINVAL;

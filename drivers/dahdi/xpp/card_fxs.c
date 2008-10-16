@@ -382,7 +382,7 @@ static xpd_t *FXS_card_new(xbus_t *xbus, int unit, int subunit, const xproto_tab
 	channels = regular_channels;
 	if(unit == 0)
 		channels += 6;	/* 2 DIGITAL OUTPUTS, 4 DIGITAL INPUTS */
-	xpd = xpd_alloc(sizeof(struct FXS_priv_data), proto_table, channels);
+	xpd = xpd_alloc(xbus, unit, subunit, subtype, subunits, sizeof(struct FXS_priv_data), proto_table, channels);
 	if(!xpd)
 		return NULL;
 	if(unit == 0) {
@@ -392,8 +392,6 @@ static xpd_t *FXS_card_new(xbus_t *xbus, int unit, int subunit, const xproto_tab
 	}
 	xpd->direction = TO_PHONE;
 	xpd->type_name = "FXS";
-	if(xpd_common_init(xbus, xpd, unit, subunit, subtype, subunits) < 0)
-		goto err;
 	if(fxs_proc_create(xbus, xpd) < 0)
 		goto err;
 	priv = xpd->priv;
@@ -765,7 +763,7 @@ static int FXS_card_ioctl(xpd_t *xpd, int pos, unsigned int cmd, unsigned long a
 	BUG_ON(!priv);
 	xbus = xpd->xbus;
 	BUG_ON(!xbus);
-	if(!TRANSPORT_RUNNING(xbus))
+	if(!XBUS_IS(xbus, READY))
 		return -ENODEV;
 	if (pos < 0 || pos >= xpd->channels) {
 		XPD_NOTICE(xpd, "Bad channel number %d in %s(), cmd=%u\n",
@@ -1466,8 +1464,47 @@ static int proc_xpd_metering_write(struct file *file, const char __user *buffer,
 }
 #endif
 
+static int fxs_xpd_probe(struct device *dev)
+{
+	xpd_t	*xpd;
+
+	xpd = dev_to_xpd(dev);
+	/* Is it our device? */
+	if(xpd->type != XPD_TYPE_FXS) {
+		XPD_ERR(xpd, "drop suggestion for %s (%d)\n",
+			dev->bus_id, xpd->type);
+		return -EINVAL;
+	}
+	XPD_DBG(DEVICES, xpd, "SYSFS\n");
+	return 0;
+}
+
+static int fxs_xpd_remove(struct device *dev)
+{
+	xpd_t	*xpd;
+
+	xpd = dev_to_xpd(dev);
+	XPD_DBG(DEVICES, xpd, "SYSFS\n");
+	return 0;
+}
+
+static struct xpd_driver	fxs_driver = {
+	.type		= XPD_TYPE_FXS,
+	.driver		= {
+		.name = "fxs",
+		.owner = THIS_MODULE,
+		.probe = fxs_xpd_probe,
+		.remove = fxs_xpd_remove
+	}
+};
+
 static int __init card_fxs_startup(void)
 {
+	int	ret;
+
+	if((ret = xpd_driver_register(&fxs_driver.driver)) < 0)
+		return ret;
+
 	INFO("revision %s\n", XPP_VERSION);
 #ifdef	POLL_DIGITAL_INPUTS
 	INFO("FEATURE: with DIGITAL INPUTS support (polled every %d msec)\n",
@@ -1492,6 +1529,7 @@ static int __init card_fxs_startup(void)
 static void __exit card_fxs_cleanup(void)
 {
 	xproto_unregister(&PROTO_TABLE(FXS));
+	xpd_driver_unregister(&fxs_driver.driver);
 }
 
 MODULE_DESCRIPTION("XPP FXS Card Driver");

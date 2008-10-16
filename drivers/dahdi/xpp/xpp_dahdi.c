@@ -49,8 +49,10 @@ static const char rcsid[] = "$Id$";
 #ifdef CONFIG_PROC_FS
 struct proc_dir_entry *xpp_proc_toplevel = NULL;
 #define	PROC_DIR		"xpp"
+#ifdef	OLD_PROC
 #define	PROC_XPD_ZTREGISTER	"dahdi_registration"
 #define	PROC_XPD_BLINK		"blink"
+#endif
 #define	PROC_XPD_SUMMARY	"summary"
 #endif
 
@@ -107,26 +109,53 @@ int total_registered_spans(void)
 	return atomic_read(&num_registered_spans);
 }
 
-static int dahdi_register_xpd(xpd_t *xpd);
-static int dahdi_unregister_xpd(xpd_t *xpd);
 static int xpd_read_proc(char *page, char **start, off_t off, int count, int *eof, void *data);
+#ifdef	OLD_PROC
 static int proc_xpd_ztregister_read(char *page, char **start, off_t off, int count, int *eof, void *data);
 static int proc_xpd_ztregister_write(struct file *file, const char __user *buffer, unsigned long count, void *data);
 static int proc_xpd_blink_read(char *page, char **start, off_t off, int count, int *eof, void *data);
 static int proc_xpd_blink_write(struct file *file, const char __user *buffer, unsigned long count, void *data);
+#endif
 
 /*------------------------- XPD Management -------------------------*/
+
+atomic_t *refcount_xpd(xpd_t *xpd)
+{
+	struct kref *kref = &xpd->xpd_dev.kobj.kref;
+
+	return &kref->refcount;
+}
+
+xpd_t *get_xpd(const char *msg, xpd_t *xpd)
+{
+	struct device	*dev;
+
+	XPD_DBG(DEVICES, xpd, "%s: refcount_xpd=%d\n",
+		msg, atomic_read(refcount_xpd(xpd)));
+	dev = get_device(&xpd->xpd_dev);
+	return dev_to_xpd(dev);
+}
+
+void put_xpd(const char *msg, xpd_t *xpd)
+{
+	XPD_DBG(DEVICES, xpd, "%s: refcount_xpd=%d\n",
+		msg, atomic_read(refcount_xpd(xpd)));
+	put_device(&xpd->xpd_dev);
+}
 
 static void xpd_proc_remove(xbus_t *xbus, xpd_t *xpd)
 {
 #ifdef CONFIG_PROC_FS
 	if(xpd->proc_xpd_dir) {
+#ifdef	OLD_PROC
 		chip_proc_remove(xbus, xpd);
+#endif
 		if(xpd->proc_xpd_summary) {
 			XPD_DBG(PROC, xpd, "Removing proc '%s'\n", PROC_XPD_SUMMARY);
 			remove_proc_entry(PROC_XPD_SUMMARY, xpd->proc_xpd_dir);
 			xpd->proc_xpd_summary = NULL;
 		}
+#ifdef	OLD_PROC
 		if(xpd->proc_xpd_ztregister) {
 			XPD_DBG(PROC, xpd, "Removing proc '%s'\n", PROC_XPD_ZTREGISTER);
 			remove_proc_entry(PROC_XPD_ZTREGISTER, xpd->proc_xpd_dir);
@@ -137,6 +166,7 @@ static void xpd_proc_remove(xbus_t *xbus, xpd_t *xpd)
 			remove_proc_entry(PROC_XPD_BLINK, xpd->proc_xpd_dir);
 			xpd->proc_xpd_blink = NULL;
 		}
+#endif
 		XPD_DBG(PROC, xpd, "Removing %s/%s proc directory\n",
 				xbus->busname, xpd->xpdname);
 		remove_proc_entry(xpd->xpdname, xbus->proc_xbus_dir);
@@ -161,6 +191,7 @@ static int xpd_proc_create(xbus_t *xbus, xpd_t *xpd)
 		goto err;
 	}
 	xpd->proc_xpd_summary->owner = THIS_MODULE;
+#ifdef	OLD_PROC
 	xpd->proc_xpd_ztregister = create_proc_entry(PROC_XPD_ZTREGISTER, 0644, xpd->proc_xpd_dir);
 	if (!xpd->proc_xpd_ztregister) {
 		XPD_ERR(xpd, "Failed to create proc file '%s'\n", PROC_XPD_ZTREGISTER);
@@ -181,6 +212,7 @@ static int xpd_proc_create(xbus_t *xbus, xpd_t *xpd)
 	xpd->proc_xpd_blink->write_proc = proc_xpd_blink_write;
 	if(chip_proc_create(xbus, xpd) < 0)
 		goto err;
+#endif
 #endif
 	return 0;
 err:
@@ -203,45 +235,19 @@ void xpd_free(xpd_t *xpd)
 		return;
 	XPD_DBG(DEVICES, xpd, "\n");
 	xpd_proc_remove(xbus, xpd);
-	xbus_unregister_xpd(xbus, xpd);
+	xbus_xpd_unbind(xbus, xpd);
 	for (x = 0; x < xpd->channels; x++) {
-		if (xpd->chans[x]) {
-			kfree(xpd->chans[x]);
-		}
+		if (xpd->chans[x])
+			KZFREE(xpd->chans[x]);
 	}
 	KZFREE(xpd);
-}
-
-
-__must_check int xpd_common_init(xbus_t *xbus, xpd_t *xpd, int unit, int subunit, int subtype, int subunits)
-{
-	int	ret;
-
-	MKADDR(&xpd->addr, unit, subunit);
-	xpd->xbus_idx = XPD_IDX(unit,subunit);
-	snprintf(xpd->xpdname, XPD_NAMELEN, "XPD-%1d%1d", unit, subunit);
-	xpd->subtype = subtype;
-	xpd->subunits = subunits;
-	xpd->offhook = 0;
-
-	/* For USB-1 disable some channels */
-	if(MAX_SEND_SIZE(xbus) < RPACKET_SIZE(GLOBAL, PCM_WRITE)) {
-		xpp_line_t	no_pcm;
-
-		no_pcm = 0x7F | xpd->digital_outputs | xpd->digital_inputs;
-		xpd->no_pcm = no_pcm;
-		XBUS_NOTICE(xbus, "max xframe size = %d, disabling some PCM channels. no_pcm=0x%04X\n",
-				MAX_SEND_SIZE(xbus), xpd->no_pcm);
-	}
-	if((ret = xpd_proc_create(xbus, xpd)) < 0)
-		return ret;
-	xbus_register_xpd(xbus, xpd);
-	return 0;
+	DBG(DEVICES, "refcount_xbus=%d\n", refcount_xbus(xbus));
+	put_xbus(__FUNCTION__, xbus);		/* was taken in xpd_alloc() */
 }
 
 /*
  * Synchronous part of XPD detection.
- * Called from xbus_poll()
+ * Called from new_card()
  */
 int create_xpd(xbus_t *xbus, const xproto_table_t *proto_table,
 		int unit,
@@ -253,7 +259,6 @@ int create_xpd(xbus_t *xbus, const xproto_table_t *proto_table,
 {
 	xpd_t			*xpd = NULL;
 	bool			to_phone;
-	int			ret = -EINVAL;
 
 	BUG_ON(type == XPD_TYPE_NOMODULE);
 	to_phone = BIT(subunit) & port_dir;
@@ -262,20 +267,15 @@ int create_xpd(xbus_t *xbus, const xproto_table_t *proto_table,
 	if(xpd) {
 		XPD_NOTICE(xpd, "XPD at %d%d already exists\n",
 			unit, subunit);
-		goto out;
+		return 0;
 	}
 	xpd = proto_table->xops.card_new(xbus, unit, subunit, proto_table, subtype, subunits, to_phone);
 	if(!xpd) {
 		XBUS_NOTICE(xbus, "card_new(%d,%d,%d,%d,%d) failed. Ignored.\n",
 			unit, subunit, proto_table->type, subtype, to_phone);
-		goto err;
+		return -EINVAL;
 	}
-out:
 	return 0;
-err:
-	if(xpd)
-		xpd_free(xpd);
-	return ret;
 }
 
 void xpd_post_init(xpd_t *xpd)
@@ -317,6 +317,10 @@ static int xpd_read_proc(char *page, char **start, off_t off, int count, int *eo
 			xpd->timing_priority,
 			xpd->timer_count, xpd->span.mainttimer
 			);
+	len += sprintf(page + len, "xpd_state: %s (%d)\n",
+		xpd_statename(xpd->xpd_state), xpd->xpd_state);
+	len += sprintf(page + len, "open_counter=%d refcount=%d\n",
+		atomic_read(&xpd->open_counter), atomic_read(refcount_xpd(xpd)));
 	len += sprintf(page + len, "Address: U=%d S=%d\n", xpd->addr.unit, xpd->addr.subunit);
 	len += sprintf(page + len, "Subunits: %d\n", xpd->subunits);
 	len += sprintf(page + len, "Type: %d.%d\n\n", xpd->type, xpd->subtype);
@@ -418,11 +422,70 @@ out:
 
 #endif
 
+const char *xpd_statename(enum xpd_state st)
+{
+	switch(st) {
+		case XPD_STATE_START:		return "START";
+		case XPD_STATE_INIT_REGS:		return "INIT_REGS";
+		case XPD_STATE_READY:		return "READY";
+		case XPD_STATE_NOHW:		return "NOHW";
+	}
+	return NULL;
+}
+
+bool xpd_setstate(xpd_t *xpd, enum xpd_state newstate)
+{
+	BUG_ON(!xpd);
+	XPD_DBG(DEVICES, xpd, "%s: %s (%d) -> %s (%d)\n", __FUNCTION__,
+		xpd_statename(xpd->xpd_state), xpd->xpd_state,
+		xpd_statename(newstate), newstate);
+	switch(newstate) {
+	case XPD_STATE_START:
+		goto badstate;
+	case XPD_STATE_INIT_REGS:
+		if(xpd->xpd_state != XPD_STATE_START)
+			goto badstate;
+		if(xpd->addr.subunit != 0) {
+			XPD_NOTICE(xpd,
+				"%s: Moving to %s allowed only for subunit 0\n",
+				__FUNCTION__, xpd_statename(newstate));
+			goto badstate;
+		}
+		break;
+	case XPD_STATE_READY:
+		if(xpd->addr.subunit == 0) {
+			/* Unit 0 script initialize registers of all subunits */
+			if(xpd->xpd_state != XPD_STATE_INIT_REGS)
+				goto badstate;
+		} else {
+			if(xpd->xpd_state != XPD_STATE_START)
+				goto badstate;
+		}
+		break;
+	case XPD_STATE_NOHW:
+		break;
+	default:
+		XPD_ERR(xpd, "%s: Unknown newstate=%d\n", __FUNCTION__, newstate);
+	}
+	xpd->xpd_state = newstate;
+	return 1;
+badstate:
+	XPD_NOTICE(xpd, "%s: cannot transition: %s (%d) -> %s (%d)\n",
+		__FUNCTION__,
+		xpd_statename(xpd->xpd_state), xpd->xpd_state,
+		xpd_statename(newstate), newstate);
+	return 0;
+}
+
+
 /*
  * xpd_alloc - Allocator for new XPD's
  *
  */
-xpd_t *xpd_alloc(size_t privsize, const xproto_table_t *proto_table, int channels)
+__must_check xpd_t *xpd_alloc(xbus_t *xbus,
+	int unit, int subunit,
+	int subtype, int subunits,
+	size_t privsize, const xproto_table_t *proto_table, int channels)
 {
 	xpd_t		*xpd = NULL;
 	size_t		alloc_size = sizeof(xpd_t) + privsize;
@@ -430,22 +493,21 @@ xpd_t *xpd_alloc(size_t privsize, const xproto_table_t *proto_table, int channel
 	unsigned int	x;
 
 	BUG_ON(!proto_table);
-	DBG(DEVICES, "type=%d channels=%d (alloc_size=%zd)\n",
+	XBUS_DBG(DEVICES, xbus, "type=%d channels=%d (alloc_size=%zd)\n",
 		type, channels, alloc_size);
 	if(channels > CHANNELS_PERXPD) {
-		ERR("%s: type=%d: too many channels %d\n",
+		XBUS_ERR(xbus, "%s: type=%d: too many channels %d\n",
 			__FUNCTION__, type, channels);
 		goto err;
 	}
 
 	if((xpd = KZALLOC(alloc_size, GFP_KERNEL)) == NULL) {
-		ERR("%s: type=%d: Unable to allocate memory\n",
+		XBUS_ERR(xbus, "%s: type=%d: Unable to allocate memory\n",
 			__FUNCTION__, type);
 		goto err;
 	}
 	xpd->priv = (byte *)xpd + sizeof(xpd_t);
 	spin_lock_init(&xpd->lock);
-	xpd->xbus_idx = -1;
 	xpd->channels = channels;
 	xpd->card_present = 0;
 	xpd->offhook = 0x0;	/* ONHOOK */
@@ -454,21 +516,37 @@ xpd_t *xpd_alloc(size_t privsize, const xproto_table_t *proto_table, int channel
 	xpd->xops = &proto_table->xops;
 	xpd->digital_outputs = 0;
 	xpd->digital_inputs = 0;
+	xpd->xpd_state = XPD_STATE_START;
+	xpd->subtype = subtype;
+	xpd->subunits = subunits;
 
 	atomic_set(&xpd->dahdi_registered, 0);
 	atomic_set(&xpd->open_counter, 0);
 
+	/* For USB-1 disable some channels */
+	if(MAX_SEND_SIZE(xbus) < RPACKET_SIZE(GLOBAL, PCM_WRITE)) {
+		xpp_line_t	no_pcm;
+
+		no_pcm = 0x7F | xpd->digital_outputs | xpd->digital_inputs;
+		xpd->no_pcm = no_pcm;
+		XBUS_NOTICE(xbus, "max xframe size = %d, disabling some PCM channels. no_pcm=0x%04X\n",
+				MAX_SEND_SIZE(xbus), xpd->no_pcm);
+	}
 	for (x = 0; x < xpd->channels; x++) {
 		if (!(xpd->chans[x] = kmalloc(sizeof(*xpd->chans[x]), GFP_KERNEL))) {
 			ERR("%s: Unable to allocate channel %d\n", __FUNCTION__, x);
 			goto err;
 		}
 	}
-
-	xproto_get(type);	/* will be returned in xpd_free() */
+	xbus_xpd_bind(xbus, xpd, unit, subunit);
+	if(xpd_proc_create(xbus, xpd) < 0)
+		goto err;
+	xbus = get_xbus(__FUNCTION__, xbus);	/* returned in xpd_free() */
+	xproto_get(type);			/* will be returned in xpd_free() */
 	return xpd;
 err:
 	if(xpd) {
+		xpd_proc_remove(xbus, xpd);
 		for (x = 0; x < xpd->channels; x++) {
 			if (xpd->chans[x]) {
 				kfree(xpd->chans[x]);
@@ -479,30 +557,33 @@ err:
 	return NULL;
 }
 
-void xpd_disconnect(xpd_t *xpd)
+void xpd_unreg_request(xpd_t *xpd)
 {
 	unsigned long	flags;
 
 	BUG_ON(!xpd);
 
+	XPD_DBG(DEVICES, xpd, "\n");
 	spin_lock_irqsave(&xpd->lock, flags);
-	XPD_DBG(DEVICES, xpd, "(%p)\n", xpd->xproto);
-	if(!xpd->card_present)	/* Multiple reports */
-		goto out;
 	xpd->card_present = 0;
+	xpd_setstate(xpd, XPD_STATE_NOHW);
 	if(SPAN_REGISTERED(xpd)) {
 		int i;
 
 		update_xpd_status(xpd, DAHDI_ALARM_NOTOPEN);
 		/* TODO: Should this be done before releasing the spinlock? */
-		XPD_DBG(DEVICES, xpd, "Queuing DAHDI_EVENT_REMOVED on all channels to ask user to release them\n");
-		for (i=0; i<xpd->span.channels; i++)
+		XPD_DBG(DEVICES, xpd, "Queuing DAHDI_EVENT_REMOVED on all channels to ask user to close them\n");
+		for (i=0; i<xpd->span.channels; i++) {
 			dahdi_qevent_lock(xpd->chans[i],DAHDI_EVENT_REMOVED);
+		}
 	}
-out:
 	spin_unlock_irqrestore(&xpd->lock, flags);
+	xpd_device_unregister(xpd);
 }
 
+/*
+ * The xpd isn't open by anyone, we can unregister it and free it
+ */
 void xpd_remove(xpd_t *xpd)
 {
 	xbus_t	*xbus;
@@ -513,6 +594,9 @@ void xpd_remove(xpd_t *xpd)
 	dahdi_unregister_xpd(xpd);
 	CALL_XMETHOD(card_remove, xbus, xpd);
 	xpd_free(xpd);
+	if(atomic_dec_and_test(&xbus->xbus_ref_count)) {
+		XBUS_DBG(DEVICES, xbus, "%s: Last ref to xbus. Removing\n", __FUNCTION__);
+	}
 }
 
 void update_xpd_status(xpd_t *xpd, int alarm_flag)
@@ -570,6 +654,7 @@ void update_line_status(xpd_t *xpd, int pos, bool to_offhook)
 }
 
 #ifdef CONFIG_PROC_FS
+#ifdef	OLD_PROC
 static int proc_xpd_ztregister_read(char *page, char **start, off_t off, int count, int *eof, void *data)
 {
 	int		len = 0;
@@ -577,8 +662,9 @@ static int proc_xpd_ztregister_read(char *page, char **start, off_t off, int cou
 	xpd_t		*xpd = data;
 
 	BUG_ON(!xpd);
+	XPD_NOTICE(xpd, "%s: DEPRECATED: %s[%d] read from /proc interface instead of /sys\n",
+		__FUNCTION__, current->comm, current->tgid);
 	spin_lock_irqsave(&xpd->lock, flags);
-
 	len += sprintf(page + len, "%d\n", SPAN_REGISTERED(xpd) ? xpd->span.spanno : 0);
 	spin_unlock_irqrestore(&xpd->lock, flags);
 	if (len <= off+count)
@@ -600,6 +686,8 @@ static int proc_xpd_ztregister_write(struct file *file, const char __user *buffe
 	int		ret;
 
 	BUG_ON(!xpd);
+	XPD_NOTICE(xpd, "%s: DEPRECATED: %s[%d] wrote to /proc interface instead of /sys\n",
+		__FUNCTION__, current->comm, current->tgid);
 	if(count >= MAX_PROC_WRITE)
 		return -EINVAL;
 	if(copy_from_user(buf, buffer, count))
@@ -608,6 +696,8 @@ static int proc_xpd_ztregister_write(struct file *file, const char __user *buffe
 	ret = sscanf(buf, "%d", &dahdi_reg);
 	if(ret != 1)
 		return -EINVAL;
+	if(!XBUS_IS(xpd->xbus, READY))
+		return -ENODEV;
 	XPD_DBG(GENERAL, xpd, "%s\n", (dahdi_reg) ? "register" : "unregister");
 	if(dahdi_reg)
 		ret = dahdi_register_xpd(xpd);
@@ -623,8 +713,9 @@ static int proc_xpd_blink_read(char *page, char **start, off_t off, int count, i
 	xpd_t		*xpd = data;
 
 	BUG_ON(!xpd);
+	XPD_NOTICE(xpd, "%s: DEPRECATED: %s[%d] read from /proc interface instead of /sys\n",
+		__FUNCTION__, current->comm, current->tgid);
 	spin_lock_irqsave(&xpd->lock, flags);
-
 	len += sprintf(page + len, "0x%lX\n", xpd->blink_mode);
 	spin_unlock_irqrestore(&xpd->lock, flags);
 	if (len <= off+count)
@@ -647,6 +738,8 @@ static int proc_xpd_blink_write(struct file *file, const char __user *buffer, un
 
 
 	BUG_ON(!xpd);
+	XPD_NOTICE(xpd, "%s: DEPRECATED: %s[%d] wrote to /proc interface instead of /sys\n",
+		__FUNCTION__, current->comm, current->tgid);
 	if(count >= MAX_PROC_WRITE)
 		return -EINVAL;
 	if(copy_from_user(buf, buffer, count))
@@ -661,6 +754,7 @@ static int proc_xpd_blink_write(struct file *file, const char __user *buffer, un
 	xpd->blink_mode = blink;
 	return count;
 }
+#endif
 
 #endif
 
@@ -692,25 +786,30 @@ int xpp_open(struct dahdi_chan *chan)
 		return -EINVAL;
 	}
 	xpd = chan->pvt;
+	xpd = get_xpd(__FUNCTION__, xpd);	/* Returned in xpp_close() */
 	if (!xpd) {
 		NOTICE("open called on a chan with no pvt (xpd)\n");
-		return -EINVAL;
+		BUG();
 	}
 	xbus = xpd->xbus;
 	if (!xbus) {
 		NOTICE("open called on a chan with no xbus\n");
-		return -EINVAL;
+		BUG();
 	}
 	pos = chan->chanpos - 1;
+	if(!xpd->card_present) {
+		LINE_NOTICE(xpd, pos, "Cannot open -- device not ready\n");
+		put_xpd(__FUNCTION__, xpd);
+		return -ENODEV;
+	}
 #endif
-
 	spin_lock_irqsave(&xbus->lock, flags);
-	atomic_inc(&xbus->xbus_ref_count);
 	atomic_inc(&xpd->open_counter);
+	LINE_DBG(DEVICES, xpd, pos, "%s[%d]: open_counter=%d\n",
+		current->comm, current->pid,
+		atomic_read(&xpd->open_counter));
 	if(IS_SET(xpd->digital_signalling, pos))	/* D-chan offhook */
 		BIT_SET(xpd->offhook, pos);
-	DBG(DEVICES, "chan=%d (xbus_ref_count=%d)\n",
-		pos, atomic_read(&xbus->xbus_ref_count));
 	spin_unlock_irqrestore(&xbus->lock, flags);
 	if(xpd->xops->card_open)
 		xpd->xops->card_open(xpd, pos);
@@ -725,16 +824,16 @@ int xpp_close(struct dahdi_chan *chan)
 	unsigned long	flags;
 
 	spin_lock_irqsave(&xbus->lock, flags);
-	atomic_dec(&xpd->open_counter);
 	if(IS_SET(xpd->digital_signalling, pos))	/* D-chan onhook */
 		BIT_CLR(xpd->offhook, pos);
 	spin_unlock_irqrestore(&xbus->lock, flags);
 	if(xpd->xops->card_close)
 		xpd->xops->card_close(xpd, pos);
-	XPD_DBG(GENERAL, xpd, "pid=%d: chan=%d (xbus_ref_count=%d)\n",
-		current->pid, pos, atomic_read(&xbus->xbus_ref_count));
-	if(atomic_dec_and_test(&xbus->xbus_ref_count))
-		xbus_remove(xbus);
+	LINE_DBG(DEVICES, xpd, pos, "%s[%d]: open_counter=%d\n",
+		current->comm, current->pid,
+		atomic_read(&xpd->open_counter));
+	atomic_dec(&xpd->open_counter);		/* from xpp_open() */
+	put_xpd(__FUNCTION__, xpd);					/* from xpp_open() */
 	return 0;
 }
 
@@ -861,7 +960,7 @@ static int xpp_watchdog(struct dahdi_span *span, int cause)
  * 	- User action through /proc
  * 	- During xpd_remove()
  */
-static int dahdi_unregister_xpd(xpd_t *xpd)
+int dahdi_unregister_xpd(xpd_t *xpd)
 {
 	unsigned long	flags;
 
@@ -874,6 +973,7 @@ static int dahdi_unregister_xpd(xpd_t *xpd)
 		return -EIDRM;
 	}
 	update_xpd_status(xpd, DAHDI_ALARM_NOTOPEN);
+	/* We should now have only a ref from the xbus (from create_xpd()) */
 	if(atomic_read(&xpd->open_counter)) {
 		XPD_NOTICE(xpd, "Busy (open_counter=%d). Skipping.\n", atomic_read(&xpd->open_counter));
 		spin_unlock_irqrestore(&xpd->lock, flags);
@@ -891,7 +991,7 @@ static int dahdi_unregister_xpd(xpd_t *xpd)
 	return 0;
 }
 
-static int dahdi_register_xpd(xpd_t *xpd)
+int dahdi_register_xpd(xpd_t *xpd)
 {
 	struct dahdi_span	*span;
 	xbus_t		*xbus;
@@ -953,7 +1053,7 @@ static int dahdi_register_xpd(xpd_t *xpd)
 	 *  - The modern "/sys/bus/astribanks/devices/xbus-??/connector" attribute
 	 * So let's also export it via the newfangled "location" field.
 	 */
-	snprintf(span->location, sizeof(span->location) - 1, "%s", xbus->location); 
+	snprintf(span->location, sizeof(span->location) - 1, "%s", xbus->connector); 
 	/*
 	 * Who said a span and irq have 1-1 relationship?
 	 * Also exporting this low-level detail isn't too wise.
@@ -1058,12 +1158,13 @@ static void __exit xpp_dahdi_cleanup(void)
 }
 
 EXPORT_SYMBOL(debug);
-EXPORT_SYMBOL(xpd_common_init);
 EXPORT_SYMBOL(create_xpd);
 EXPORT_SYMBOL(xpd_post_init);
+EXPORT_SYMBOL(get_xpd);
+EXPORT_SYMBOL(put_xpd);
 EXPORT_SYMBOL(xpd_alloc);
 EXPORT_SYMBOL(xpd_free);
-EXPORT_SYMBOL(xpd_disconnect);
+EXPORT_SYMBOL(xpd_unreg_request);
 EXPORT_SYMBOL(update_xpd_status);
 EXPORT_SYMBOL(update_line_status);
 EXPORT_SYMBOL(xpp_open);

@@ -1,6 +1,9 @@
 #! /usr/bin/perl -w
 use strict;
 
+# Make warnings fatal
+local $SIG{__WARN__} = sub { die @_ };
+
 #
 # Written by Oron Peled <oron@actcom.co.il>
 # Copyright (C) 2006, Xorcom
@@ -48,16 +51,13 @@ BEGIN { $init_dir = dirname($0); unshift(@INC, "$init_dir", "$init_dir/zconf"); 
 use XppConfig $init_dir;
 my $unit_id;
 my %opts;
-$ENV{XPP_BASE} = '/proc/xpp';
 
 getopts('o:', \%opts);
 
 my %settings;
 $settings{debug} = 0;
 $settings{fxs_skip_calib} = 0;
-
-my $xpd_name = sprintf("XPD-%1d0", $ENV{UNIT_NUMBER});
-my $chipregs = "$ENV{XPP_BASE}/$ENV{XBUS_NAME}/$xpd_name/chipregs";
+my $chipregs;
 
 sub logit {
 	print STDERR "$unit_id: @_\n";
@@ -70,11 +70,34 @@ sub debug {
 # Arrange for error logging
 if (-t STDERR) {
 	$unit_id = 'Interactive';
-	logit "Interactive startup";
+	main::debug "Interactive startup";
 } else {
 	$unit_id = "$ENV{XBUS_NAME}/UNIT-$ENV{UNIT_NUMBER}";
 	open (STDERR, "| logger -t $program -p kern.info") || die;
-	logit "Non Interactive startup";
+	main::debug "Non Interactive startup";
+	foreach my $k (qw(
+			XBUS_NAME
+			XBUS_NUMBER
+			UNIT_NUMBER
+			UNIT_TYPE
+			UNIT_SUBUNITS
+			UNIT_SUBUNITS_DIR
+			XBUS_REVISION
+			XBUS_CONNECTOR
+			XBUS_LABEL)) {
+		unless(defined $ENV{$k}) {
+			logit "Missing ENV{$k}\n";
+			die;
+		}
+	}
+	$chipregs = sprintf "/sys/bus/xpds/devices/%02d:%1d:0/chipregs",
+		$ENV{XBUS_NUMBER}, $ENV{UNIT_NUMBER};
+	if(! -f $chipregs) {
+		my $xpd_name = sprintf("XPD-%1d0", $ENV{UNIT_NUMBER});
+		$chipregs = "/proc/xpp/$ENV{XBUS_NAME}/$xpd_name/chipregs";
+		logit "OLD DRIVER: does not use /sys chipregs. Falling back to /proc"
+			if -f $chipregs;
+	}
 }
 
 sub set_output() {
@@ -88,7 +111,7 @@ sub set_output() {
 	}
 	open(REG, ">$output") || die "Failed to open '$output': $!\n";
 	my $oldfh = select REG;
-	print "# Setting output\n" if $opts{o};
+	main::logit "# Setting output" if $opts{o};
 	return $oldfh;
 }
 

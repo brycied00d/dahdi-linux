@@ -40,6 +40,7 @@ extern	int debug;
 
 /*---------------- GLOBAL PROC handling -----------------------------------*/
 
+#ifdef	OLD_PROC
 static int proc_xpd_register_read(char *page, char **start, off_t off, int count, int *eof, void *data)
 {
 	int			len = 0;
@@ -51,6 +52,8 @@ static int proc_xpd_register_read(char *page, char **start, off_t off, int count
 
 	if(!xpd)
 		return -ENODEV;
+	XPD_NOTICE(xpd, "%s: DEPRECATED: %s[%d] read from /proc interface instead of /sys\n",
+		__FUNCTION__, current->comm, current->tgid);
 	spin_lock_irqsave(&xpd->lock, flags);
 	info = &xpd->last_reply;
 	len += sprintf(page + len, "# Writing bad data into this file may damage your hardware!\n");
@@ -88,6 +91,7 @@ static int proc_xpd_register_read(char *page, char **start, off_t off, int count
 		len = 0;
 	return len;
 }
+#endif
 
 static int parse_hexbyte(const char *buf)
 {
@@ -289,7 +293,7 @@ out:
 	return ret;
 }
 
-static int parse_chip_command(xpd_t *xpd, char *cmdline)
+int parse_chip_command(xpd_t *xpd, char *cmdline)
 {
 	xbus_t			*xbus;
 	int			ret = -EBADR;
@@ -303,8 +307,9 @@ static int parse_chip_command(xpd_t *xpd, char *cmdline)
 
 	BUG_ON(!xpd);
 	xbus = xpd->xbus;
-	if(!XBUS_GET(xbus)) {
-		XBUS_DBG(GENERAL, xbus, "Dropped packet. Is shutting down.\n");
+	if(XBUS_IS(xbus, DISCONNECTED)) {
+		XBUS_DBG(GENERAL, xbus, "Dropped packet. In state %s.\n",
+			xbus_statename(XBUS_STATE(xbus)));
 		return -EBUSY;
 	}
 	strlcpy(buf, cmdline, MAX_PROC_WRITE);	/* Save a copy */
@@ -335,11 +340,10 @@ static int parse_chip_command(xpd_t *xpd, char *cmdline)
 	else
 		ret = 0;	/* empty command - no op */
 out:
-	XBUS_PUT(xbus);
 	return ret;
 }
 
-
+#ifdef	OLD_PROC
 static int proc_xpd_register_write(struct file *file, const char __user *buffer, unsigned long count, void *data)
 {
 	xpd_t		*xpd = data;
@@ -350,6 +354,8 @@ static int proc_xpd_register_write(struct file *file, const char __user *buffer,
 
 	if(!xpd)
 		return -ENODEV;
+	XPD_NOTICE(xpd, "%s: DEPRECATED: %s[%d] wrote to /proc interface instead of /sys\n",
+		__FUNCTION__, current->comm, current->tgid);
 	for(i = 0; i < count; /* noop */) {
 		for(p = buf; p < buf + MAX_PROC_WRITE; p++) {	/* read a line */
 			if(i >= count)
@@ -405,6 +411,7 @@ err:
 	chip_proc_remove(xbus, xpd);
 	return -EINVAL;
 }
+#endif
 
 /*---------------- GLOBAL Protocol Commands -------------------------------*/
 
@@ -415,7 +422,7 @@ static void global_packet_dump(const char *msg, xpacket_t *pack);
 
 /* 0x07 */ HOSTCMD(GLOBAL, AB_REQUEST)
 {
-	int		ret = 0;
+	int		ret = -ENODEV;
 	xframe_t	*xframe;
 	xpacket_t	*pack;
 
@@ -427,7 +434,8 @@ static void global_packet_dump(const char *msg, xpacket_t *pack);
 	RPACKET_FIELD(pack, GLOBAL, AB_REQUEST, rev) = XPP_PROTOCOL_VERSION;
 	RPACKET_FIELD(pack, GLOBAL, AB_REQUEST, reserved) = 0;
 	XBUS_DBG(DEVICES, xbus, "Protocol Version %d\n", XPP_PROTOCOL_VERSION);
-	ret = send_cmd_frame(xbus, xframe);
+	if(xbus_setstate(xbus, XBUS_STATE_SENT_REQUEST))
+		ret = send_cmd_frame(xbus, xframe);
 	return ret;
 }
 
@@ -590,6 +598,10 @@ HANDLER_DEF(GLOBAL, AB_DESCRIPTION)	/* 0x08 */
 		ret = -EPROTO;
 		goto proto_err;
 	}
+	if(!xbus_setstate(xbus, XBUS_STATE_RECVD_DESC)) {
+		ret = -EPROTO;
+		goto proto_err;
+	}
 	XBUS_INFO(xbus, "DESCRIPTOR: %d cards, protocol revision %d\n", count_units, rev);
 	xbus->revision = rev;
 	if(!worker) {
@@ -631,19 +643,8 @@ HANDLER_DEF(GLOBAL, AB_DESCRIPTION)	/* 0x08 */
 		list_add_tail(&card_desc->card_list, &worker->card_list);
 		spin_unlock_irqrestore(&worker->worker_lock, flags);
 	}
-	/* Initialize the work. (adapt to kernel API changes). */
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,20)
-	INIT_WORK(&worker->xpds_init_work, xbus_populate);
-#else
-	INIT_WORK(&worker->xpds_init_work, xbus_populate, worker);
-#endif
-	xbus = get_xbus(xbus->num);	/* released in xbus_populate() */
-	BUG_ON(!xbus);
-	/* Now send it */
-	if(!queue_work(worker->wq, &worker->xpds_init_work)) {
-		XBUS_ERR(xbus, "Failed to queue xpd initialization work\n");
+	if(!xbus_process_worker(xbus))
 		return -ENODEV;
-	}
 	return 0;
 proto_err:
 	dump_packet("AB_DESCRIPTION", pack, DBG_ANY);
@@ -762,12 +763,14 @@ int run_initialize_registers(xpd_t *xpd)
 	int	ret;
 	xbus_t	*xbus;
 	char	busstr[MAX_ENV_STR];
+	char	busnumstr[MAX_ENV_STR];
 	char	unitstr[MAX_ENV_STR];
 	char	subunitsstr[MAX_ENV_STR];
 	char	typestr[MAX_ENV_STR];
 	char	directionstr[MAX_ENV_STR];
 	char	revstr[MAX_ENV_STR];
 	char	connectorstr[MAX_ENV_STR];
+	char	xbuslabel[MAX_ENV_STR];
 	char	init_card[MAX_PATH_STR];
 	byte	direction_mask;
 	int	i;
@@ -777,12 +780,14 @@ int run_initialize_registers(xpd_t *xpd)
 	};
 	char	*envp[] = {
 		busstr,
+		busnumstr,
 		unitstr,
 		subunitsstr,
 		typestr,
 		directionstr,
 		revstr,
 		connectorstr,
+		xbuslabel,
 		NULL
 	};
 
@@ -791,6 +796,10 @@ int run_initialize_registers(xpd_t *xpd)
 	if(!initdir || !initdir[0]) {
 		XPD_NOTICE(xpd, "Missing initdir parameter\n");
 		return -EINVAL;
+	}
+	if(!xpd_setstate(xpd, XPD_STATE_INIT_REGS)) {
+		ret = -EINVAL;
+		goto err;
 	}
 	direction_mask = 0;
 	for(i = 0; i < xpd->subunits; i++) {
@@ -805,21 +814,25 @@ int run_initialize_registers(xpd_t *xpd)
 		direction_mask |= (su->direction == TO_PHONE) ? BIT(i) : 0;
 	}
 	snprintf(busstr, MAX_ENV_STR, "XBUS_NAME=%s", xbus->busname);
+	snprintf(busnumstr, MAX_ENV_STR, "XBUS_NUMBER=%d", xbus->num);
 	snprintf(unitstr, MAX_ENV_STR, "UNIT_NUMBER=%d", xpd->addr.unit);
 	snprintf(typestr, MAX_ENV_STR, "UNIT_TYPE=%d", xpd->type);
 	snprintf(subunitsstr, MAX_ENV_STR, "UNIT_SUBUNITS=%d", xpd->subunits);
 	snprintf(directionstr, MAX_ENV_STR, "UNIT_SUBUNITS_DIR=%d", direction_mask);
 	snprintf(revstr, MAX_ENV_STR, "XBUS_REVISION=%d", xbus->revision);
-	snprintf(connectorstr, MAX_ENV_STR, "XBUS_CONNECTOR=%s", xbus->location);
-	snprintf(connectorstr, MAX_ENV_STR, "XBUS_LABEL=%s", xbus->label);
+	snprintf(connectorstr, MAX_ENV_STR, "XBUS_CONNECTOR=%s", xbus->connector);
+	snprintf(xbuslabel, MAX_ENV_STR, "XBUS_LABEL=%s", xbus->label);
 	if(snprintf(init_card, MAX_PATH_STR, "%s/init_card_%d_%d",
 				initdir, xpd->type, xbus->revision) > MAX_PATH_STR) {
 		XPD_NOTICE(xpd, "Cannot initialize. pathname is longer than %d characters.\n", MAX_PATH_STR);
-		return -E2BIG;
+		ret = -E2BIG;
+		goto err;
 	}
-	if(!XBUS_GET(xbus)) {
-		XBUS_ERR(xbus, "Skipped register initialization. XBUS is going down\n");
-		return -ENODEV;
+	if(!XBUS_IS(xbus, RECVD_DESC)) {
+		XBUS_ERR(xbus, "Skipped register initialization. In state %s.\n",
+			xbus_statename(XBUS_STATE(xbus)));
+		ret = -ENODEV;
+		goto err;
 	}
 	XPD_DBG(DEVICES, xpd, "running '%s' for type=%d revision=%d\n",
 			init_card, xpd->type, xbus->revision);
@@ -842,7 +855,7 @@ int run_initialize_registers(xpd_t *xpd)
 		}
 		ret = -EINVAL;
 	}
-	XBUS_PUT(xbus);
+err:
 	return ret;
 }
 

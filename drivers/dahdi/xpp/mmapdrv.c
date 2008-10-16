@@ -113,7 +113,7 @@ static irqreturn_t xpp_mmap_rx_irq(int irq, void *dev_id)
 	if (unlikely(disconnecting))
 		return IRQ_HANDLED;
 
-	xbus = get_xbus(global_xbus->num);
+	xbus = xbus_num(global_xbus->num);
 	BUG_ON(!xbus);
 	if(!XBUS_GET(xbus)) {
 		if (printk_ratelimit())
@@ -186,7 +186,6 @@ free:
 out:
 	if (in_use)
 		XBUS_PUT(xbus);
-	put_xbus(xbus);
 #ifdef	DEBUG_VIA_GPIO
 	rx_intr_counter++;
 #endif
@@ -230,11 +229,10 @@ static irqreturn_t xpp_mmap_tx_irq(int irq, void *dev_id)
 	spin_unlock_irqrestore(&tx_ready_lock, flags);
 	xbus = (xbus_t *)xframe->priv;
 	BUG_ON(!xbus);
-	xbus = get_xbus(xbus->num);
+	xbus = xbus_num(xbus->num);
 	BUG_ON(!xbus);
 	send_buffer(xframe->packets, XFRAME_LEN(xframe));
 	FREE_SEND_XFRAME(xbus, xframe);
-	put_xbus(xbus);
 	update_counter(&tx_counter, &tv1);
 	return IRQ_HANDLED;
 }
@@ -532,7 +530,7 @@ static int __init xpp_mmap_init(void)
 		ret = -ENOMEM;
 		goto fail_xbus;
 	}
-	strncpy(global_xbus->location, "mmap", XBUS_DESCLEN);
+	strncpy(global_xbus->connector, "mmap", XBUS_DESCLEN);
 	strncpy(global_xbus->label, "mmap:0", LABEL_SIZE);
 	
 	xframe_queue_init(&txpool, 10, 200, "mmap_txpool", global_xbus);
@@ -575,10 +573,10 @@ static void __exit xpp_mmap_exit(void)
 	xbus_t *xbus;
 	DBG(GENERAL, "\n");
 	disconnecting = 1;
-	xbus = get_xbus(global_xbus->num);
+	xbus = xbus_num(global_xbus->num);
 	remove_proc_entry("xpp_mmap", xbus->proc_xbus_dir);
 	xframe_queue_clear(&txpool);
-	xbus_disconnect(xbus);			/* xbus_disconnect() calls put_xbus() */
+	xbus_disconnect(xbus);
 	kmem_cache_destroy(xframe_cache);
 
 	release_region((resource_size_t)FPGA_BASE_ADDR, 8);
