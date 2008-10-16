@@ -1,0 +1,26 @@
+#! /bin/sh
+
+me=`basename $0`
+LOGGER="logger -i -t '$me'"
+
+set -e
+
+echo "starting($ACTION): '$*'" | $LOGGER
+
+case "$ACTION" in
+add)
+	;;
+remove)
+	;;
+online)
+	;;
+offline)
+	;;
+*)
+	echo "$0: Unknown ACTION='$ACTION'" | $LOGGER
+	echo "$0: ARGS='$*'" | $LOGGER
+	echo "$0: ENV:" | $LOGGER
+	env | $LOGGER
+	exit 1
+esac
+

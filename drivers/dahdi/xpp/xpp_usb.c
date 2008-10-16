@@ -439,7 +439,7 @@ static int xframe_send_cmd(xbus_t *xbus, xframe_t *xframe)
  */
 static bool xusb_listen(xusb_t *xusb)
 {
-	xbus_t			*xbus = get_xbus(xusb->xbus_num);
+	xbus_t			*xbus = xbus_num(xusb->xbus_num);
 	xframe_t		*xframe;
 	struct uframe		*uframe;
 	int			ret = 0;
@@ -465,7 +465,6 @@ static bool xusb_listen(xusb_t *xusb)
 	atomic_inc(&xusb->pending_reads);
 	ret = 1;
 out:
-	put_xbus(xbus);
 	return ret;
 }
 
@@ -710,7 +709,7 @@ static int xusb_probe(struct usb_interface *interface, const struct usb_device_i
 	xusb->present = 1;
 
 	/* we can register the device now, as it is ready */
-	usb_set_intfdata (interface, xusb);
+	usb_set_intfdata(interface, xusb);
 	retval = usb_register_dev (interface, &xusb_class);
 	if (retval) {
 		/* something prevented us from registering this driver */
@@ -739,12 +738,12 @@ static int xusb_probe(struct usb_interface *interface, const struct usb_device_i
 		goto probe_failed;
 	}
 	usb_make_path(udev, xusb->path, XBUS_DESCLEN);	// May trunacte... ignore
-	snprintf(xbus->location, XBUS_DESCLEN, "%s", xusb->path);
+	snprintf(xbus->connector, XBUS_DESCLEN, "%s", xusb->path);
 	if(xusb->serial && xusb->serial[0])
 		snprintf(xbus->label, LABEL_SIZE, "usb:%s", xusb->serial);
 	xusb->index = i;
 	xusb_array[i] = xusb;
-	XUSB_DBG(DEVICES, xusb, "GOT XPP USB BUS: %s\n", xbus->location);
+	XUSB_DBG(DEVICES, xusb, "GOT XPP USB BUS: %s\n", xbus->connector);
 
 #ifdef CONFIG_PROC_FS
 	DBG(PROC, "Creating proc entry " PROC_USBXPP_SUMMARY " in bus proc dir.\n");
@@ -763,11 +762,11 @@ static int xusb_probe(struct usb_interface *interface, const struct usb_device_i
 	/* prepare several pending frames for receive side */
 	for(i = 0; i < 10; i++)
 			xusb_listen(xusb);
-	xbus_activate(xbus);
+	xbus_connect(xbus);
 	return retval;
 probe_failed:
 	ERR("Failed to initialize xpp usb bus: %d\n", retval);
-	usb_set_intfdata (interface, NULL);
+	usb_set_intfdata(interface, NULL);
 	if(xusb) {
 		if(xusb->minor) {	// passed registration phase
 			ERR("Calling usb_deregister_dev()\n");
@@ -801,18 +800,20 @@ probe_failed:
  */
 static void xusb_disconnect(struct usb_interface *interface)
 {
+	struct usb_host_interface	*iface_desc = usb_altnum_to_altsetting(interface, 0);
 	xusb_t			*xusb;
 	xbus_t			*xbus;
 	int			minor;
 	int			i;
 
-	DBG(DEVICES, "CALLED\n");
+	DBG(DEVICES, "CALLED on interface #%d\n", iface_desc->desc.bInterfaceNumber);
 	/* prevent races with open() */
 	down (&disconnect_sem);
 
-	xusb = usb_get_intfdata (interface);
+	xusb = usb_get_intfdata(interface);
+	usb_set_intfdata(interface, NULL);
 	xusb->present = 0;
-	xbus = get_xbus(xusb->xbus_num);
+	xbus = xbus_num(xusb->xbus_num);
 
 	/* find our xusb */
 	for(i = 0; i < MAX_BUSES; i++) {
@@ -828,17 +829,13 @@ static void xusb_disconnect(struct usb_interface *interface)
 		remove_proc_entry(PROC_USBXPP_SUMMARY, xbus->proc_xbus_dir);
 	}
 #endif
-	/*
-	 * put_xbus() would be called during xbus_disconnect()
-	 */
 	xbus_disconnect(xbus);		// Blocking until fully deactivated!
-	usb_set_intfdata (interface, NULL);
 
 	down (&xusb->sem);
 	minor = xusb->minor;
 
 	/* give back our minor */
-	usb_deregister_dev (interface, &xusb_class);
+	usb_deregister_dev(interface, &xusb_class);
 
 	up (&xusb->sem);
 	DBG(DEVICES, "Semaphore released\n");
@@ -853,7 +850,7 @@ static void xpp_send_callback(USB_PASS_CB(urb))
 	struct uframe	*uframe = urb_to_uframe(urb);
 	xframe_t	*xframe = &uframe->xframe;
 	xusb_t		*xusb = uframe->xusb;
-	xbus_t		*xbus = get_xbus(xusb->xbus_num);
+	xbus_t		*xbus = xbus_num(xusb->xbus_num);
 	struct timeval	now;
 	long		usec;
 	int		writes = atomic_read(&xusb->pending_writes);
@@ -904,7 +901,6 @@ static void xpp_send_callback(USB_PASS_CB(urb))
 	FREE_SEND_XFRAME(xbus, xframe);
 	if(!xusb->present)
 		XUSB_ERR(xusb, "A urb from non-connected device?\n");
-	put_xbus(xbus);
 }
 
 static void xpp_receive_callback(USB_PASS_CB(urb))
@@ -912,7 +908,7 @@ static void xpp_receive_callback(USB_PASS_CB(urb))
 	struct uframe	*uframe = urb_to_uframe(urb);
 	xframe_t	*xframe = &uframe->xframe;
 	xusb_t		*xusb = uframe->xusb;
-	xbus_t		*xbus = get_xbus(xusb->xbus_num);
+	xbus_t		*xbus = xbus_num(xusb->xbus_num);
 	size_t		size;
 	bool		do_resubmit = 1;
 	bool		is_inuse = 0;
@@ -923,11 +919,6 @@ static void xpp_receive_callback(USB_PASS_CB(urb))
 	if(!xbus) {
 		XUSB_ERR(xusb, "Received URB does not belong to a valid xbus anymore...\n");
 		return;
-	}
-	if(!XBUS_GET(xbus)) {
-		XUSB_ERR(xusb, "Dropping urb. Is shutting down.\n");
-		do_resubmit = 0;
-		goto err;
 	}
 	is_inuse = 1;
 	if(!xusb->present) {
@@ -957,11 +948,8 @@ static void xpp_receive_callback(USB_PASS_CB(urb))
 	/* Send UP */
 	xbus_receive_xframe(xbus, xframe);
 end:
-	if(is_inuse)
-		XBUS_PUT(xbus);
 	if(do_resubmit)
 		xusb_listen(xusb);
-	put_xbus(xbus);
 	return;
 err:
 	FREE_RECV_XFRAME(xbus, xframe);

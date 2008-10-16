@@ -9,6 +9,8 @@ SYSFS{idVendor}=="e4e4", SYSFS{idProduct}=="11[345][01]", \
 LABEL="xpp_usb_add_end"
 
 # Hotplug hook for Astribank up/down
+# If you need this functionality, copy the astribank_hook.sample
+# to $XPP_INIT_DIR/astribank_hook
+#
 # By default XPP_INIT_DIR="/usr/share/dahdi"
-KERNEL=="xbus*" RUN+="%E{XPP_INIT_DIR}/astribank_hook udev $kernel $sysfs{status} $sysfs{connector}"
-
+#KERNEL=="xbus*" RUN+="%E{XPP_INIT_DIR}/astribank_hook udev $kernel $sysfs{status} $sysfs{connector}"

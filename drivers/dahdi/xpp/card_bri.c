@@ -616,13 +616,11 @@ static xpd_t *BRI_card_new(xbus_t *xbus, int unit, int subunit, const xproto_tab
 	int		channels = min(3, CHANNELS_PERXPD);
 
 	XBUS_DBG(GENERAL, xbus, "\n");
-	xpd = xpd_alloc(sizeof(struct BRI_priv_data), proto_table, channels);
+	xpd = xpd_alloc(xbus, unit, subunit, subtype, subunits, sizeof(struct BRI_priv_data), proto_table, channels);
 	if(!xpd)
 		return NULL;
 	xpd->direction = (to_phone) ? TO_PHONE : TO_PSTN;
 	xpd->type_name = (to_phone) ? "BRI_NT" : "BRI_TE";
-	if(xpd_common_init(xbus, xpd, unit, subunit, subtype, subunits) < 0)
-		goto err;
 	if(bri_proc_create(xbus, xpd) < 0)
 		goto err;
 	return xpd;
@@ -924,7 +922,7 @@ static int BRI_card_tick(xbus_t *xbus, xpd_t *xpd)
 static int BRI_card_ioctl(xpd_t *xpd, int pos, unsigned int cmd, unsigned long arg)
 {
 	BUG_ON(!xpd);
-	if(!TRANSPORT_RUNNING(xpd->xbus))
+	if(!XBUS_IS(xpd->xbus, READY))
 		return -ENODEV;
 	switch (cmd) {
 		case DAHDI_TONEDETECT:
@@ -1021,7 +1019,7 @@ static int bri_startup(struct dahdi_span *span)
 	BUG_ON(!xpd);
 	priv = xpd->priv;
 	BUG_ON(!priv);
-	if(!TRANSPORT_RUNNING(xpd->xbus)) {
+	if(!XBUS_IS(xpd->xbus, READY)) {
 		XPD_DBG(GENERAL, xpd, "Startup called by dahdi. No Hardware. Ignored\n");
 		return -ENODEV;
 	}
@@ -1054,7 +1052,7 @@ static int bri_shutdown(struct dahdi_span *span)
 	BUG_ON(!xpd);
 	priv = xpd->priv;
 	BUG_ON(!priv);
-	if(!TRANSPORT_RUNNING(xpd->xbus)) {
+	if(!XBUS_IS(xpd->xbus, READY)) {
 		XPD_DBG(GENERAL, xpd, "Shutdown called by dahdi. No Hardware. Ignored\n");
 		return -ENODEV;
 	}
@@ -1479,10 +1477,46 @@ static int proc_bri_info_read(char *page, char **start, off_t off, int count, in
 	return len;
 }
 
+static int bri_xpd_probe(struct device *dev)
+{
+	xpd_t	*xpd;
+
+	xpd = dev_to_xpd(dev);
+	/* Is it our device? */
+	if(xpd->type != XPD_TYPE_BRI) {
+		XPD_ERR(xpd, "drop suggestion for %s (%d)\n",
+			dev->bus_id, xpd->type);
+		return -EINVAL;
+	}
+	XPD_DBG(DEVICES, xpd, "SYSFS\n");
+	return 0;
+}
+
+static int bri_xpd_remove(struct device *dev)
+{
+	xpd_t	*xpd;
+
+	xpd = dev_to_xpd(dev);
+	XPD_DBG(DEVICES, xpd, "SYSFS\n");
+	return 0;
+}
+
+static struct xpd_driver	bri_driver = {
+	.type		= XPD_TYPE_BRI,
+	.driver		= {
+		.name = "bri",
+		.owner = THIS_MODULE,
+		.probe = bri_xpd_probe,
+		.remove = bri_xpd_remove
+	}
+};
+
 static int __init card_bri_startup(void)
 {
-	DBG(GENERAL, "\n");
+	int	ret;
 
+	if((ret = xpd_driver_register(&bri_driver.driver)) < 0)
+		return ret;
 	INFO("revision %s\n", XPP_VERSION);
 	xproto_register(&PROTO_TABLE(BRI));
 	return 0;
@@ -1492,6 +1526,7 @@ static void __exit card_bri_cleanup(void)
 {
 	DBG(GENERAL, "\n");
 	xproto_unregister(&PROTO_TABLE(BRI));
+	xpd_driver_unregister(&bri_driver.driver);
 }
 
 MODULE_DESCRIPTION("XPP BRI Card Driver");

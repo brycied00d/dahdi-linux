@@ -3,7 +3,7 @@ EXTRA_CFLAGS	=	$(XPP_LOCAL_CFLAGS)	\
 			-DPOLL_DIGITAL_INPUTS	\
 			-DDEBUG_PCMTX		\
 			-DPROTOCOL_DEBUG	\
-			-g
+			-g # -DOLD_PROC
 			#
 
 WITH_BRISTUFF	:= $(shell grep -c '^[[:space:]]*\#[[:space:]]*define[[:space:]]\+CONFIG_DAHDI_BRI_DCHANS\>' $(src)/../dahdi_config.h)
@@ -80,7 +80,8 @@ $(obj)/init_fxo_modes: $(obj)/print_fxo_modes
 
 $(obj)/init_fxo_modes.verified: $(obj)/init_card_2_$(XPP_PROTOCOL_VERSION) $(obj)/init_fxo_modes
 	@echo '  CHECK   $(obj)/init_card_2_$(XPP_PROTOCOL_VERSION)'
-	$(Q)$(FXO_VERIFY) && touch $@ || (rm -f $@; exit 1)
+	$(Q)$(FXO_VERIFY) || (rm -f $@; exit 1)
+	touch $@
 
 $(obj)/init_card_%_$(XPP_PROTOCOL_VERSION).verified: $(src)/init_card_%_$(XPP_PROTOCOL_VERSION)
 	@echo '  VERIFY  $<'

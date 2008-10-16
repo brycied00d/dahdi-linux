@@ -113,6 +113,18 @@ typedef unsigned char		byte;
 					kfree(p);			\
 				} while(0);
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,14)
+#define	DEVICE_ATTR_READER(name,dev,buf)	\
+		ssize_t name(struct device *dev, struct device_attribute *attr, char *buf)
+#define	DEVICE_ATTR_WRITER(name,dev,buf, count)	\
+		ssize_t name(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
+#else
+#define	DEVICE_ATTR_READER(name,dev,buf)	\
+		ssize_t name(struct device *dev, char *buf)
+#define	DEVICE_ATTR_WRITER(name,dev,buf, count)	\
+		ssize_t name(struct device *dev, const char *buf, size_t count)
+#endif
+
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,19)
 /* Also don't define this for later RHEL >= 5.2 . hex_asc is from the 
  * same linux-2.6-net-infrastructure-updates-to-mac80211-iwl4965.patch

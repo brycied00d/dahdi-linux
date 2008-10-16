@@ -38,6 +38,7 @@
 #include "xpd.h"
 #include "xpp_dahdi.h"
 #include "xbus-core.h"
+#include "card_global.h"
 #ifdef	XPP_DEBUGFS
 #include "xpp_log.h"
 #endif
@@ -48,7 +49,6 @@ static const char rcsid[] = "$Id$";
 /* Command line parameters */
 extern int debug;
 
-
 /* Kernel versions... */
 /*
  * Hotplug replaced with uevent in 2.6.16
@@ -57,186 +57,36 @@ extern int debug;
 #define	OLD_HOPLUG_SUPPORT	// for older kernels
 #endif
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,14)
-#define	DEVICE_ATTR_READER(name,dev,buf)	\
-		ssize_t name(struct device *dev, struct device_attribute *attr, char *buf)
-#define	DEVICE_ATTR_WRITER(name,dev,buf, count)	\
-		ssize_t name(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
-#else
-#define	DEVICE_ATTR_READER(name,dev,buf)	\
-		ssize_t name(struct device *dev, char *buf)
-#define	DEVICE_ATTR_WRITER(name,dev,buf, count)	\
-		ssize_t name(struct device *dev, const char *buf, size_t count)
-#endif
-
 /*--------- Sysfs Bus handling ----*/
-static int xpp_bus_match(struct device *dev, struct device_driver *driver)
-{
-	DBG(GENERAL, "dev->bus_id = %s, driver->name = %s\n", dev->bus_id, driver->name);
-	return 1;
-}
-
-#ifdef OLD_HOPLUG_SUPPORT
-static int xpp_bus_hotplug(struct device *dev, char **envp, int envnum, char *buff, int bufsize)
-{
-	xbus_t	*xbus;
-
-	if(!dev)
-		return -ENODEV;
-	xbus = dev_to_xbus(dev);
-	envp[0] = buff;
-	if(snprintf(buff, bufsize, "XBUS_NAME=%s", xbus->busname) >= bufsize)
-		return -ENOMEM;
-	envp[1] = NULL;
-	return 0;
-}
-#else
-
-#define	XBUS_VAR_BLOCK	\
-	do {		\
-		XBUS_ADD_UEVENT_VAR("XPP_INIT_DIR=%s", initdir);	\
-		XBUS_ADD_UEVENT_VAR("XBUS_NUM=%02d", xbus->num);	\
-		XBUS_ADD_UEVENT_VAR("XBUS_NAME=%s", xbus->busname);	\
-	} while(0)
-
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,24)
-#define XBUS_ADD_UEVENT_VAR(fmt, val...)			\
-	do {							\
-		int err = add_uevent_var(envp, num_envp, &i,	\
-				buffer, buffer_size, &len,	\
-				fmt, val);			\
-		if (err)					\
-			return err;				\
-	} while (0)
-
-static int xpp_bus_uevent(struct device *dev, char **envp, int num_envp, char *buffer, int buffer_size)
-{
-	xbus_t		*xbus;
-	int		i = 0;
-	int		len = 0;
-	extern char	*initdir;
-
-	if(!dev)
-		return -ENODEV;
-	xbus = dev_to_xbus(dev);
-	DBG(GENERAL, "bus_id=%s xbus=%s\n", dev->bus_id, xbus->busname);
-	XBUS_VAR_BLOCK;
-	envp[i] = NULL;
-	return 0;
-}
-#else
-#define XBUS_ADD_UEVENT_VAR(fmt, val...)			\
-	do {							\
-		int err = add_uevent_var(kenv, fmt, val);	\
-		if (err)					\
-			return err;				\
-	} while (0)
-
-static int xpp_bus_uevent(struct device *dev, struct kobj_uevent_env *kenv)
-{
-	xbus_t		*xbus;
-	extern char	*initdir;
-
-	if(!dev)
-		return -ENODEV;
-	xbus = dev_to_xbus(dev);
-	DBG(GENERAL, "bus_id=%s xbus=%s\n", dev->bus_id, xbus->busname);
-	XBUS_VAR_BLOCK;
-	return 0;
-}
-#endif
-
-#endif	/* OLD_HOPLUG_SUPPORT */
-
-static void xpp_bus_release(struct device *dev)
-{
-	DBG(GENERAL, "\n");
-}
-
-static void xpp_dev_release(struct device *dev)
-{
-	xbus_t	*xbus;
-
-	BUG_ON(!dev);
-	xbus = dev_to_xbus(dev);
-	XBUS_DBG(GENERAL, xbus, "\n");
-}
-
-static struct bus_type xpp_bus_type = {
-	.name           = "astribanks",
-	.match          = xpp_bus_match,
-#ifdef OLD_HOPLUG_SUPPORT
-	.hotplug 	= xpp_bus_hotplug,
-#else
-	.uevent         = xpp_bus_uevent,
-#endif
-};
-
-static struct device xpp_bus = {
-	.bus_id		= "xppbus",
-	.release	= xpp_bus_release
-};
-
-static struct device_driver xpp_driver = {
-	.name		= "xppdrv",
-	.bus		= &xpp_bus_type,
-#ifndef OLD_HOPLUG_SUPPORT
-	.owner		= THIS_MODULE
-#endif
-};
-
-int register_xpp_bus(void)
-{
-	int	ret;
-
-	if((ret = bus_register(&xpp_bus_type)) < 0) {
-		ERR("%s: bus_register failed. Error number %d", __FUNCTION__, ret);
-		goto failed_bus;
-	}
-	if((ret = device_register(&xpp_bus)) < 0) {
-		ERR("%s: registration of xpp_bus failed. Error number %d",
-			__FUNCTION__, ret);
-		goto failed_busdevice;
-	}
-	if((ret = driver_register(&xpp_driver)) < 0) {
-		ERR("%s: driver_register failed. Error number %d", __FUNCTION__, ret);
-		goto failed_driver;
-	}
-	return 0;
-failed_driver:
-	device_unregister(&xpp_bus);
-failed_busdevice:
-	bus_unregister(&xpp_bus_type);
-failed_bus:
-	return ret;
-}
-
-void unregister_xpp_bus(void)
-{
-	driver_unregister(&xpp_driver);
-	device_unregister(&xpp_bus);
-	bus_unregister(&xpp_bus_type);
-}
-
-/*--------- Sysfs Device handling ----*/
-static DEVICE_ATTR_READER(connector_show, dev, buf)
+static DEVICE_ATTR_READER(xbus_state_show, dev, buf)
 {
 	xbus_t	*xbus;
 	int	ret;
 
 	xbus = dev_to_xbus(dev);
-	ret = snprintf(buf, PAGE_SIZE, "%s\n", xbus->location);
+	ret = XBUS_STATE(xbus);
+	ret = snprintf(buf, PAGE_SIZE, "%s (%d)\n",
+			xbus_statename(ret), ret);
 	return ret;
 }
 
-static DEVICE_ATTR_READER(label_show, dev, buf)
+static DEVICE_ATTR_WRITER(xbus_state_store, dev, buf, count)
 {
-	xbus_t	*xbus;
-	int	ret;
+	xbus_t			*xbus;
 
 	xbus = dev_to_xbus(dev);
-	ret = snprintf(buf, PAGE_SIZE, "%s\n", xbus->label);
-	return ret;
+	XBUS_DBG(GENERAL, xbus, "%s\n", buf);
+	if(strncmp(buf, "stop", 4) == 0)
+		xbus_deactivate(xbus, 0);
+	else if(XBUS_IS(xbus, IDLE) && strncmp(buf, "start", 5) == 0)
+		xbus_activate(xbus);
+	else {
+		XBUS_NOTICE(xbus, "%s: Illegal action %s in state %s. Ignored.\n",
+			__FUNCTION__, buf,
+			xbus_statename(XBUS_STATE(xbus)));
+		return -EINVAL;
+	}
+	return count;
 }
 
 static DEVICE_ATTR_READER(status_show, dev, buf)
@@ -245,7 +95,7 @@ static DEVICE_ATTR_READER(status_show, dev, buf)
 	int	ret;
 
 	xbus = dev_to_xbus(dev);
-	ret = snprintf(buf, PAGE_SIZE, "%s\n", (TRANSPORT_RUNNING(xbus))?"connected":"missing");
+	ret = snprintf(buf, PAGE_SIZE, "%s\n", (!XBUS_IS(xbus, DISCONNECTED))?"connected":"missing");
 	return ret;
 }
 
@@ -338,34 +188,464 @@ static DEVICE_ATTR_WRITER(cls_store, dev, buf, count)
 	return count;
 }
 
-static	DEVICE_ATTR(connector, S_IRUGO, connector_show, NULL);
-static	DEVICE_ATTR(label, S_IRUGO, label_show, NULL);
-static	DEVICE_ATTR(status, S_IRUGO, status_show, NULL);
-static	DEVICE_ATTR(timing, S_IRUGO, timing_show, NULL);
-static	DEVICE_ATTR(cls, S_IWUSR, NULL, cls_store);
+static DEVICE_ATTR_READER(waitfor_xpds_show, dev, buf)
+{
+	xbus_t			*xbus;
+	int			len;
+
+	xbus = dev_to_xbus(dev);
+	len = waitfor_xpds(xbus, buf);
+	return len;
+}
+
+#define xbus_attr(field, format_string)                              \
+static ssize_t                                                             \
+field##_show(struct device *dev, struct device_attribute *attr, char *buf) \
+{                                                                          \
+        xbus_t	*xbus;                                                     \
+                                                                           \
+        xbus = dev_to_xbus(dev);                                           \
+        return sprintf (buf, format_string, xbus->field);                  \
+}
+
+xbus_attr(connector, "%s\n");
+xbus_attr(label, "%s\n");
+
+struct device_attribute xbus_dev_attrs[] = {
+        __ATTR_RO(connector),
+        __ATTR_RO(label),
+	__ATTR_RO(status),
+	__ATTR_RO(timing),
+	__ATTR_RO(waitfor_xpds),
+	__ATTR(cls,		S_IWUSR, NULL, cls_store),
+	__ATTR(xbus_state,	S_IRUGO | S_IWUSR, xbus_state_show, xbus_state_store),
 #ifdef	SAMPLE_TICKS
-static	DEVICE_ATTR(samples, S_IWUSR | S_IRUGO, samples_show, samples_store);
+	__ATTR(samples,		S_IWUSR | S_IRUGO, samples_show, samples_store),
 #endif
+        __ATTR_NULL,
+};
+
+
+static int astribank_match(struct device *dev, struct device_driver *driver)
+{
+	DBG(DEVICES, "SYSFS MATCH: dev->bus_id = %s, driver->name = %s\n",
+		dev->bus_id, driver->name);
+	return 1;
+}
+
+#ifdef OLD_HOPLUG_SUPPORT
+static int astribank_hotplug(struct device *dev, char **envp, int envnum, char *buff, int bufsize)
+{
+	xbus_t	*xbus;
+
+	if(!dev)
+		return -ENODEV;
+	xbus = dev_to_xbus(dev);
+	envp[0] = buff;
+	if(snprintf(buff, bufsize, "XBUS_NAME=%s", xbus->busname) >= bufsize)
+		return -ENOMEM;
+	envp[1] = NULL;
+	return 0;
+}
+#else
+
+#define	XBUS_VAR_BLOCK	\
+	do {		\
+		XBUS_ADD_UEVENT_VAR("XPP_INIT_DIR=%s", initdir);	\
+		XBUS_ADD_UEVENT_VAR("XBUS_NUM=%02d", xbus->num);	\
+		XBUS_ADD_UEVENT_VAR("XBUS_NAME=%s", xbus->busname);	\
+	} while(0)
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,24)
+#define XBUS_ADD_UEVENT_VAR(fmt, val...)			\
+	do {							\
+		int err = add_uevent_var(envp, num_envp, &i,	\
+				buffer, buffer_size, &len,	\
+				fmt, val);			\
+		if (err)					\
+			return err;				\
+	} while (0)
+
+static int astribank_uevent(struct device *dev, char **envp, int num_envp, char *buffer, int buffer_size)
+{
+	xbus_t		*xbus;
+	int		i = 0;
+	int		len = 0;
+	extern char	*initdir;
+
+	if(!dev)
+		return -ENODEV;
+	xbus = dev_to_xbus(dev);
+	DBG(GENERAL, "SYFS bus_id=%s xbus=%s\n", dev->bus_id, xbus->busname);
+	XBUS_VAR_BLOCK;
+	envp[i] = NULL;
+	return 0;
+}
+
+#else
+#define XBUS_ADD_UEVENT_VAR(fmt, val...)			\
+	do {							\
+		int err = add_uevent_var(kenv, fmt, val);	\
+		if (err)					\
+			return err;				\
+	} while (0)
+
+static int astribank_uevent(struct device *dev, struct kobj_uevent_env *kenv)
+{
+	xbus_t		*xbus;
+	extern char	*initdir;
+
+	if(!dev)
+		return -ENODEV;
+	xbus = dev_to_xbus(dev);
+	DBG(GENERAL, "SYFS bus_id=%s xbus=%s\n", dev->bus_id, xbus->busname);
+	XBUS_VAR_BLOCK;
+	return 0;
+}
+
+#endif
+
+void astribank_uevent_send(xbus_t *xbus, enum kobject_action act)
+{
+	struct kobject	*kobj;
+
+	kobj = &xbus->astribank.kobj;
+	XBUS_DBG(DEVICES, xbus, "SYFS bus_id=%s action=%d\n",
+		xbus->astribank.bus_id, act);
+	kobject_uevent(kobj, act);
+}
+
+#endif	/* OLD_HOPLUG_SUPPORT */
+
+static void xpp_release(struct device *dev)
+{
+	DBG(DEVICES, "SYSFS %s\n", dev->bus_id);
+}
+
+static void astribank_release(struct device *dev)
+{
+	xbus_t	*xbus;
+
+	BUG_ON(!dev);
+	xbus = dev_to_xbus(dev);
+	if(!XBUS_IS(xbus, DISCONNECTED)) {
+		XBUS_ERR(xbus, "Try to release in state %s\n",
+			xbus_statename(XBUS_STATE(xbus)));
+		BUG();
+	}
+	XBUS_INFO(xbus, "[%s] Astribank Release\n", xbus->label);
+	xbus_free(xbus);
+}
+
+static struct bus_type toplevel_bus_type = {
+	.name           = "astribanks",
+	.match          = astribank_match,
+#ifdef OLD_HOPLUG_SUPPORT
+	.hotplug 	= astribank_hotplug,
+#else
+	.uevent         = astribank_uevent,
+#endif
+	.dev_attrs	= xbus_dev_attrs,
+};
+
+static struct device toplevel_device = {
+	.bus_id		= "xpp",
+	.release	= xpp_release
+};
+
+static int astribank_probe(struct device *dev)
+{
+	xbus_t	*xbus;
+
+	xbus = dev_to_xbus(dev);
+	XBUS_DBG(DEVICES, xbus, "SYSFS\n");
+	return 0;
+}
+
+static int astribank_remove(struct device *dev)
+{
+	xbus_t	*xbus;
+
+	xbus = dev_to_xbus(dev);
+	XBUS_INFO(xbus, "[%s] Atribank Remove\n", xbus->label);
+	return 0;
+}
+
+static struct device_driver xpp_driver = {
+	.name		= "xppdrv",
+	.bus		= &toplevel_bus_type,
+	.probe		= astribank_probe,
+	.remove		= astribank_remove,
+#ifndef OLD_HOPLUG_SUPPORT
+	.owner		= THIS_MODULE
+#endif
+};
+
+/*--------- Sysfs XPD handling ----*/
+
+static DEVICE_ATTR_READER(chipregs_show, dev, buf)
+{
+	xpd_t		*xpd;
+	unsigned long	flags;
+	reg_cmd_t	*regs;
+	bool		do_datah;
+	char		datah_str[50];
+	int		len = 0;
+
+	BUG_ON(!dev);
+	xpd = dev_to_xpd(dev);
+	if(!xpd)
+		return -ENODEV;
+	spin_lock_irqsave(&xpd->lock, flags);
+	regs = &xpd->last_reply;
+	len += sprintf(buf + len, "# Writing bad data into this file may damage your hardware!\n");
+	len += sprintf(buf + len, "# Consult firmware docs first\n");
+	len += sprintf(buf + len, "#\n");
+	do_datah = REG_FIELD(regs, do_datah) ? 1 : 0;
+	if(do_datah) {
+		snprintf(datah_str, ARRAY_SIZE(datah_str), "\t%02X",
+			REG_FIELD(regs, data_high));
+	} else
+		datah_str[0] = '\0';
+	if(REG_FIELD(regs, do_subreg)) {
+		len += sprintf(buf + len, "#CH\tOP\tReg.\tSub\tDL%s\n",
+				(do_datah) ? "\tDH" : "");
+		len += sprintf(buf + len, "%2d\tRS\t%02X\t%02X\t%02X%s\n",
+				regs->portnum,
+				REG_FIELD(regs, regnum), REG_FIELD(regs, subreg),
+				REG_FIELD(regs, data_low), datah_str);
+	} else {
+		len += sprintf(buf + len, "#CH\tOP\tReg.\tDL%s\n",
+				(do_datah) ? "\tDH" : "");
+		len += sprintf(buf + len, "%2d\tRD\t%02X\t%02X%s\n",
+				regs->portnum,
+				REG_FIELD(regs, regnum),
+				REG_FIELD(regs, data_low), datah_str);
+	}
+	spin_unlock_irqrestore(&xpd->lock, flags);
+	return len;
+}
+
+static DEVICE_ATTR_WRITER(chipregs_store, dev, buf, count)
+{
+	xpd_t		*xpd;
+	const char	*p;
+	char		tmp[MAX_PROC_WRITE];
+	int		i;
+	int		ret;
+
+	BUG_ON(!dev);
+	xpd = dev_to_xpd(dev);
+	//XPD_DBG(GENERAL, xpd, "%s\n", buf);
+	if(!xpd)
+		return -ENODEV;
+	p = buf;
+	while((p - buf) < count) {
+		i = strcspn(p, "\r\n");
+		if(i > 0) {
+			if(i >= MAX_PROC_WRITE) {
+				XPD_NOTICE(xpd, "Command too long (%d chars)\n", i);
+				return -E2BIG;
+			}
+			memcpy(tmp, p, i);
+			tmp[i] = '\0';
+			ret = parse_chip_command(xpd, tmp);
+			if(ret < 0) {
+				XPD_NOTICE(xpd, "Failed writing command: '%s'\n", tmp);
+				return ret;
+			}
+		}
+		p += i + 1;
+	}
+	return count;
+}
+
+static DEVICE_ATTR_READER(blink_show, dev, buf)
+{
+	xpd_t		*xpd;
+	unsigned long	flags;
+	int		len = 0;
+
+	BUG_ON(!dev);
+	xpd = dev_to_xpd(dev);
+	if(!xpd)
+		return -ENODEV;
+	spin_lock_irqsave(&xpd->lock, flags);
+	len += sprintf(buf, "0x%lX\n", xpd->blink_mode);
+	spin_unlock_irqrestore(&xpd->lock, flags);
+	return len;
+}
+
+static DEVICE_ATTR_WRITER(blink_store, dev, buf, count)
+{
+	xpd_t		*xpd;
+	char		*endp;
+	unsigned long	blink;
+
+	BUG_ON(!dev);
+	xpd = dev_to_xpd(dev);
+	//XPD_DBG(GENERAL, xpd, "%s\n", buf);
+	if(!xpd)
+		return -ENODEV;
+	blink = simple_strtoul(buf, &endp, 0);
+	if(*endp != '\0' && *endp != '\n' && *endp != '\r')
+		return -EINVAL;
+	if(blink > 0xFFFF)
+		return -EINVAL;
+	XPD_DBG(GENERAL, xpd, "BLINK channels: 0x%lX\n", blink);
+	xpd->blink_mode = blink;
+	return count;
+}
+
+static DEVICE_ATTR_READER(span_show, dev, buf)
+{
+	xpd_t		*xpd;
+	unsigned long	flags;
+	int		len = 0;
+
+	BUG_ON(!dev);
+	xpd = dev_to_xpd(dev);
+	if(!xpd)
+		return -ENODEV;
+	spin_lock_irqsave(&xpd->lock, flags);
+	len += sprintf(buf, "%d\n", SPAN_REGISTERED(xpd) ? xpd->span.spanno : 0);
+	spin_unlock_irqrestore(&xpd->lock, flags);
+	return len;
+}
+
+static DEVICE_ATTR_WRITER(span_store, dev, buf, count)
+{
+	xpd_t		*xpd;
+	int		dahdi_reg;
+	int		ret;
+
+	BUG_ON(!dev);
+	xpd = dev_to_xpd(dev);
+	if(!xpd)
+		return -ENODEV;
+	ret = sscanf(buf, "%d", &dahdi_reg);
+	if(ret != 1)
+		return -EINVAL;
+	if(!XBUS_IS(xpd->xbus, READY))
+		return -ENODEV;
+	XPD_DBG(GENERAL, xpd, "%s\n", (dahdi_reg) ? "register" : "unregister");
+	if(dahdi_reg)
+		ret = dahdi_register_xpd(xpd);
+	else
+		ret = dahdi_unregister_xpd(xpd);
+	return (ret < 0) ? ret : count;
+}
+
+static int xpd_match(struct device *dev, struct device_driver *driver)
+{
+	struct xpd_driver	*xpd_driver;
+	xpd_t			*xpd;
+
+	xpd_driver = driver_to_xpd_driver(driver);
+	xpd = dev_to_xpd(dev);
+	if(xpd_driver->type != xpd->type) {
+		XPD_DBG(DEVICES, xpd, "SYSFS match fail: xpd->type = %d, xpd_driver->type = %d\n",
+			xpd->type,  xpd_driver->type);
+		return 0;
+	}
+	XPD_DBG(DEVICES, xpd, "SYSFS MATCH: type=%d dev->bus_id = %s, driver->name = %s\n",
+		xpd->type, dev->bus_id, driver->name);
+	return 1;
+}
+
+struct device_attribute xpd_dev_attrs[] = {
+	__ATTR(chipregs,	S_IRUGO | S_IWUSR, chipregs_show, chipregs_store),
+	__ATTR(blink,		S_IRUGO | S_IWUSR, blink_show, blink_store),
+	__ATTR(span,		S_IRUGO | S_IWUSR, span_show, span_store),
+        __ATTR_NULL,
+};
+
+static struct bus_type xpd_type = {
+	.name           = "xpds",
+	.match          = xpd_match,
+	.dev_attrs	= xpd_dev_attrs,
+};
+
+int xpd_driver_register(struct device_driver *driver)
+{
+	int	ret;
+
+	DBG(DEVICES, "%s\n", driver->name);
+	driver->bus = &xpd_type;
+	if((ret = driver_register(driver)) < 0) {
+		ERR("%s: driver_register(%s) failed. Error number %d",
+			__FUNCTION__, driver->name, ret);
+	}
+	return ret;
+}
+
+void xpd_driver_unregister(struct device_driver *driver)
+{
+	DBG(DEVICES, "%s\n", driver->name);
+	driver_unregister(driver);
+}
+
+static void xpd_release(struct device *dev)
+{
+	xpd_t	*xpd;
+
+	BUG_ON(!dev);
+	xpd = dev_to_xpd(dev);
+	XPD_DBG(DEVICES, xpd, "SYSFS\n");
+	xpd_remove(xpd);
+}
+
+int xpd_device_register(xbus_t *xbus, xpd_t *xpd)
+{
+	struct device	*dev = &xpd->xpd_dev;
+	int		ret;
+
+	XPD_DBG(DEVICES, xpd, "SYSFS\n");
+	dev->bus = &xpd_type;
+	dev->parent = &xbus->astribank;
+	snprintf(dev->bus_id, BUS_ID_SIZE, "%02d:%1x:%1x",
+		xbus->num, xpd->addr.unit, xpd->addr.subunit);
+	dev->driver_data = xpd;
+	dev->release = xpd_release;
+	ret = device_register(dev);
+	if(ret) {
+		XPD_ERR(xpd, "%s: device_register failed: %d\n", __FUNCTION__, ret);
+		return ret;
+	}
+	get_xpd(__FUNCTION__, xpd);
+	BUG_ON(!xpd);
+	return 0;
+}
+
+void xpd_device_unregister(xpd_t *xpd)
+{
+	xbus_t		*xbus;
+	struct device	*dev;
+
+	xbus = xpd->xbus;
+	BUG_ON(!xbus);
+	XPD_DBG(DEVICES, xpd, "SYSFS\n");
+	dev = &xpd->xpd_dev;
+	if(!dev->driver_data)
+		return;
+	BUG_ON(dev->driver_data != xpd);
+	device_unregister(dev);
+	dev->driver_data = NULL;
+}
+
+/*--------- Sysfs Device handling ----*/
 
 void xbus_sysfs_remove(xbus_t *xbus)
 {
 	struct device	*astribank;
 
 	BUG_ON(!xbus);
-	XBUS_DBG(GENERAL, xbus, "\n");
+	XBUS_DBG(DEVICES, xbus, "\n");
 	astribank = &xbus->astribank;
 	BUG_ON(!astribank);
 	if(!astribank->driver_data)
 		return;
 	BUG_ON(astribank->driver_data != xbus);
-#ifdef	SAMPLE_TICKS
-	device_remove_file(&xbus->astribank, &dev_attr_samples);
-#endif 
-	device_remove_file(&xbus->astribank, &dev_attr_cls);
-	device_remove_file(&xbus->astribank, &dev_attr_timing);
-	device_remove_file(&xbus->astribank, &dev_attr_status);
-	device_remove_file(&xbus->astribank, &dev_attr_label);
-	device_remove_file(&xbus->astribank, &dev_attr_connector);
 	device_unregister(&xbus->astribank);
 }
 
@@ -377,51 +657,64 @@ int xbus_sysfs_create(xbus_t *xbus)
 	BUG_ON(!xbus);
 	astribank = &xbus->astribank;
 	BUG_ON(!astribank);
-	XBUS_DBG(GENERAL, xbus, "\n");
-	device_initialize(astribank);
-	astribank->bus = &xpp_bus_type;
-	astribank->parent = &xpp_bus;
+	XBUS_DBG(DEVICES, xbus, "\n");
+	astribank->bus = &toplevel_bus_type;
+	astribank->parent = &toplevel_device;
 	snprintf(astribank->bus_id, BUS_ID_SIZE, "xbus-%02d", xbus->num);
-	astribank->driver_data = NULL;	/* override below */
-	astribank->release = xpp_dev_release;
+	astribank->driver_data = xbus;
+	astribank->release = astribank_release;
 	ret = device_register(astribank);
 	if(ret) {
-		XBUS_ERR(xbus, "%s: device_add failed: %d\n", __FUNCTION__, ret);
-		goto out;
+		XBUS_ERR(xbus, "%s: device_register failed: %d\n", __FUNCTION__, ret);
+		astribank->driver_data = NULL;
 	}
-	ret = device_create_file(astribank, &dev_attr_connector);
-	if(ret) {
-		XBUS_ERR(xbus, "%s: device_create_file failed: %d\n", __FUNCTION__, ret);
-		goto out;
-	}
-	ret = device_create_file(astribank, &dev_attr_label);
-	if(ret) {
-		XBUS_ERR(xbus, "%s: device_create_file failed: %d\n", __FUNCTION__, ret);
-		goto out;
-	}
-	ret = device_create_file(astribank, &dev_attr_status);
-	if(ret) {
-		XBUS_ERR(xbus, "%s: device_create_file failed: %d\n", __FUNCTION__, ret);
-		goto out;
-	}
-	ret = device_create_file(astribank, &dev_attr_timing);
-	if(ret) {
-		XBUS_ERR(xbus, "%s: device_create_file failed: %d\n", __FUNCTION__, ret);
-		goto out;
-	}
-	ret = device_create_file(astribank, &dev_attr_cls);
-	if(ret) {
-		XBUS_ERR(xbus, "%s: device_create_file failed: %d\n", __FUNCTION__, ret);
-		goto out;
-	}
-#ifdef	SAMPLE_TICKS
-	ret = device_create_file(astribank, &dev_attr_samples);
-	if(ret) {
-		XBUS_ERR(xbus, "%s: device_create_file failed: %d\n", __FUNCTION__, ret);
-		goto out;
-	}
-#endif 
-	astribank->driver_data = xbus;	/* Everything is good */
-out:
 	return ret;
 }
+
+int __init xpp_driver_init(void)
+{
+	int	ret;
+
+	DBG(DEVICES, "SYSFS\n");
+	if((ret = bus_register(&toplevel_bus_type)) < 0) {
+		ERR("%s: bus_register(%s) failed. Error number %d",
+			__FUNCTION__, toplevel_bus_type.name, ret);
+		goto failed_bus;
+	}
+	if((ret = device_register(&toplevel_device)) < 0) {
+		ERR("%s: device_register(%s) failed. Error number %d",
+			__FUNCTION__, toplevel_device.bus_id, ret);
+		goto failed_busdevice;
+	}
+	if((ret = driver_register(&xpp_driver)) < 0) {
+		ERR("%s: driver_register(%s) failed. Error number %d",
+			__FUNCTION__, xpp_driver.name, ret);
+		goto failed_xpp_driver;
+	}
+	if((ret = bus_register(&xpd_type)) < 0) {
+		ERR("%s: bus_register(%s) failed. Error number %d",
+			__FUNCTION__, xpd_type.name, ret);
+		goto failed_xpd_bus;
+	}
+	return 0;
+failed_xpd_bus:
+	driver_unregister(&xpp_driver);
+failed_xpp_driver:
+	device_unregister(&toplevel_device);
+failed_busdevice:
+	bus_unregister(&toplevel_bus_type);
+failed_bus:
+	return ret;
+}
+
+void xpp_driver_exit(void)
+{
+	DBG(DEVICES, "SYSFS\n");
+	bus_unregister(&xpd_type);
+	driver_unregister(&xpp_driver);
+	device_unregister(&toplevel_device);
+	bus_unregister(&toplevel_bus_type);
+}
+
+EXPORT_SYMBOL(xpd_driver_register);
+EXPORT_SYMBOL(xpd_driver_unregister);

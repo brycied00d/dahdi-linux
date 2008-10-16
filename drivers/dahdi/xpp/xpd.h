@@ -139,6 +139,16 @@ static struct xpd_counters {
 
 #define	XPD_COUNTER_MAX	(sizeof(xpd_counters)/sizeof(xpd_counters[0]))
 
+enum xpd_state {
+	XPD_STATE_START,
+	XPD_STATE_INIT_REGS,
+	XPD_STATE_READY,
+	XPD_STATE_NOHW,
+};
+
+bool		xpd_setstate(xpd_t *xpd, enum xpd_state newstate);
+const char	*xpd_statename(enum xpd_state st);
+
 /*
  * An XPD is a single Xorcom Protocol Device
  */
@@ -161,6 +171,10 @@ struct xpd {
 	xpp_line_t	digital_signalling;	/* BRI signalling channels */
 	uint		timing_priority;	/* from 'span' directives in chan_dahdi.conf */
 
+	enum xpd_state	xpd_state;
+	struct device	xpd_dev;
+#define	dev_to_xpd(dev)	container_of(dev, struct xpd, xpd_dev)
+
 	/* maintained by card drivers */
 	uint		pcm_len;		/* allocation length of PCM packet (dynamic) */
 	xpp_line_t	wanted_pcm_mask;
@@ -173,7 +187,7 @@ struct xpd {
 
 	spinlock_t	lock;
 	atomic_t	dahdi_registered;	/* Am I fully registered with dahdi */
-	atomic_t	open_counter;	/* Number of open channels */
+	atomic_t	open_counter;		/* open channels */
 
 	int		flags;
 	unsigned long	blink_mode;	/* bitmask of blinking ports */
@@ -182,9 +196,11 @@ struct xpd {
 #ifdef CONFIG_PROC_FS
 	struct proc_dir_entry	*proc_xpd_dir;
 	struct proc_dir_entry	*proc_xpd_summary;
+#ifdef	OLD_PROC
 	struct proc_dir_entry	*proc_xpd_ztregister;
 	struct proc_dir_entry	*proc_xpd_blink;
 	struct proc_dir_entry	*proc_xpd_chipregs;
+#endif
 #endif
 
 	int		counters[XPD_COUNTER_MAX];
@@ -225,6 +241,18 @@ static inline void *my_kzalloc(size_t size, gfp_t flags)
 		memset(p, 0, size);
 	return p;
 }
+
+struct xpd_driver {
+	xpd_type_t	type;
+
+	struct device_driver	driver;
+#define   driver_to_xpd_driver(driver) container_of(driver, struct xpd_driver, driver)
+};
+
+int	xpd_driver_register(struct device_driver *driver);
+void	xpd_driver_unregister(struct device_driver *driver);
+xpd_t	*get_xpd(const char *msg, xpd_t *xpd);
+void	put_xpd(const char *msg, xpd_t *xpd);
 
 #endif
 

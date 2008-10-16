@@ -50,7 +50,9 @@ static const char rcsid[] = "$Id$";
 #define	INITIALIZATION_TIMEOUT	(90*HZ)		/* in jiffies */
 #define	PROC_XBUSES		"xbuses"
 #define	PROC_XBUS_SUMMARY	"summary"
+#ifdef	OLD_PROC
 #define	PROC_XBUS_WAITFOR_XPDS	"waitfor_xpds"
+#endif
 
 #ifdef	PROTOCOL_DEBUG
 #define	PROC_XBUS_COMMAND	"command"
@@ -63,20 +65,35 @@ static DEF_PARM(uint, poll_timeout, 1000, 0644, "Timeout (in jiffies) waiting fo
 static DEF_PARM_BOOL(rx_tasklet, 0, 0644, "Use receive tasklets");
 
 static int xbus_read_proc(char *page, char **start, off_t off, int count, int *eof, void *data);
+#ifdef	OLD_PROC
 static int xbus_read_waitfor_xpds(char *page, char **start, off_t off, int count, int *eof, void *data);
+#endif
 static void transport_init(xbus_t *xbus, struct xbus_ops *ops, ushort max_send_size, void *priv);
 static void transport_destroy(xbus_t *xbus);
 
 /* Data structures */
 static spinlock_t		xbuses_lock = SPIN_LOCK_UNLOCKED;
-static int			bus_count = 0;
 static struct proc_dir_entry	*proc_xbuses = NULL;
 
 static struct xbus_desc {
 	xbus_t			*xbus;
-	atomic_t		xbus_refcount;
-	wait_queue_head_t	can_release_xbus;
 } xbuses_array[MAX_BUSES];
+
+const char *xbus_statename(enum xbus_state st)
+{
+	switch(st) {
+		case XBUS_STATE_START:		return "START";
+		case XBUS_STATE_IDLE:		return "IDLE";
+		case XBUS_STATE_SENT_REQUEST:	return "SENT_REQUEST";
+		case XBUS_STATE_RECVD_DESC:	return "RECVD_DESC";
+		case XBUS_STATE_READY:		return "READY";
+		case XBUS_STATE_DEACTIVATING:	return "DEACTIVATING";
+		case XBUS_STATE_DEACTIVATED:	return "DEACTIVATED";
+		case XBUS_STATE_DISCONNECTED:	return "DISCONNECTED";
+		case XBUS_STATE_FAIL:		return "FAIL";
+	}
+	return NULL;
+}
 
 static void init_xbus(uint num, xbus_t *xbus)
 {
@@ -85,70 +102,16 @@ static void init_xbus(uint num, xbus_t *xbus)
 	BUG_ON(num >= ARRAY_SIZE(xbuses_array));
 	desc = &xbuses_array[num];
 	desc->xbus = xbus;
-	atomic_set(&desc->xbus_refcount, 0);
-	init_waitqueue_head(&desc->can_release_xbus);
 }
 
-static int refcount_xbus(uint num)
-{
-	BUG_ON(num >= ARRAY_SIZE(xbuses_array));
-	return atomic_read(&xbuses_array[num].xbus_refcount);
-}
-
-xbus_t *get_xbus(uint num)
+xbus_t *xbus_num(uint num)
 {
 	struct xbus_desc	*desc;
 
 	if(num >= ARRAY_SIZE(xbuses_array))
 		return NULL;
 	desc = &xbuses_array[num];
-	atomic_inc(&desc->xbus_refcount);
-	if(!desc->xbus)
-		atomic_dec(&desc->xbus_refcount);
 	return desc->xbus;
-}
-
-void put_xbus(xbus_t *xbus)
-{
-	struct xbus_desc	*desc;
-	int			num;
-
-	BUG_ON(!xbus);
-	num = xbus->num;
-	BUG_ON(num >= ARRAY_SIZE(xbuses_array));
-	desc = &xbuses_array[num];
-	BUG_ON(desc->xbus != xbus);
-	if(atomic_dec_and_test(&desc->xbus_refcount)) {
-		static int	rate_limit;
-
-		if((rate_limit++ % 1003) == 0)
-			XBUS_DBG(DEVICES, xbus,
-				"wake_up(can_release_xbus) (%d)\n", rate_limit);
-		wake_up(&desc->can_release_xbus);
-	}
-}
-
-static bool __must_check wait_for_xbus_release(uint xbus_num)
-{
-	xbus_t	*xbus;
-	int	ret;
-
-	xbus = get_xbus(xbus_num);
-	if(!xbus) {
-		ERR("%s: xbus #%d is already removed. Skip.\n",
-			__FUNCTION__, xbus_num);
-		return 0;
-	}
-	put_xbus(xbus);
-	DBG(DEVICES, "Waiting... refcount_xbus=%d\n", refcount_xbus(xbus_num));
-	ret = wait_event_interruptible(xbuses_array[xbus_num].can_release_xbus,
-				refcount_xbus(xbus_num) == 0);
-	if(ret) {
-		ERR("%s: waiting for xbus #%d interrupted!!!\n",
-			__FUNCTION__, xbus_num);
-	} else
-		DBG(DEVICES, "Waiting for refcount_xbus done.\n");
-	return 1;
 }
 
 static void initialize_xbuses_array(void)
@@ -169,6 +132,30 @@ static void finalize_xbuses_array(void)
 			BUG();
 		}
 	}
+}
+
+xbus_t *get_xbus(const char *msg, xbus_t *xbus)
+{
+	struct device	*dev;
+
+	XBUS_DBG(DEVICES, xbus, "%s: refcount_xbus=%d\n",
+		msg, refcount_xbus(xbus));
+	dev = get_device(&xbus->astribank);
+	return dev_to_xbus(dev);
+}
+
+void put_xbus(const char *msg, xbus_t *xbus)
+{
+	XBUS_DBG(DEVICES, xbus, "%s: refcount_xbus=%d\n",
+		msg, refcount_xbus(xbus));
+	put_device(&xbus->astribank);
+}
+
+int refcount_xbus(xbus_t *xbus)
+{
+	struct kref *kref = &xbus->astribank.kobj.kref;
+
+	return atomic_read(&kref->refcount);
 }
 
 /*------------------------- Debugfs Handling -----------------------*/
@@ -314,7 +301,7 @@ static int debugfs_release(struct inode *inode, struct file *file)
 	BUG_ON(!d->xbus);
 	XBUS_DBG(GENERAL, d->xbus, "\n");
 	d->xbus->debugfs_data = NULL;
-	kfree(d);
+	KZFREE(d);
 	module_put(THIS_MODULE);
 	return 0;
 }
@@ -455,23 +442,6 @@ void dump_xframe(const char msg[], const xbus_t *xbus, const xframe_t *xframe, i
 	spin_unlock_irqrestore(&serialize_dump_xframe, flags);
 }
 
-static bool xbus_ready(const xbus_t *xbus, const char msg[])
-{
-	if(!xbus) {
-		ERR("null xbus: %s\n", msg);
-		return 0;
-	}
-	if (!TRANSPORT_RUNNING(xbus)) {
-		XBUS_ERR(xbus, "%s -- hardware is not ready.", msg);
-		return 0;
-	}
-	if(!xbus->transport.ops) {
-		XBUS_ERR(xbus, "%s -- hardware is gone.", msg);
-		return 0;
-	}
-	return 1;
-}
-
 /**
  *
  * Frame is freed:
@@ -484,7 +454,8 @@ int send_pcm_frame(xbus_t *xbus, xframe_t *xframe)
 	int		ret = -ENODEV;
 
 	BUG_ON(!xframe);
-	if(!xbus_ready(xbus, "Dropped a pcm frame")) {
+	if(!XBUS_IS(xbus, READY)) {
+		XBUS_ERR(xbus, "Dropped a pcm frame -- hardware is not ready.\n");
 		ret = -ENODEV;
 		goto error;
 	}
@@ -509,7 +480,9 @@ static int really_send_cmd_frame(xbus_t *xbus, xframe_t *xframe)
 	BUG_ON(!xbus);
 	BUG_ON(!xframe);
 	BUG_ON(xframe->xframe_magic != XFRAME_MAGIC);
-	if(!xbus_ready(xbus, "Dropped command before sending")) {
+	if(XBUS_IS(xbus, DISCONNECTED)) {
+		XBUS_ERR(xbus, "Dropped command before sending -- hardware deactivated.\n");
+		dump_xframe("Dropped", xbus, xframe, DBG_ANY);
 		FREE_SEND_XFRAME(xbus, xframe);
 		return -ENODEV;
 	}
@@ -531,15 +504,17 @@ int xbus_command_queue_tick(xbus_t *xbus)
 	xframe_t	*frm;
 	int		ret = 0;
 
+	xbus->command_tick_counter++;
 	frm = xframe_dequeue(&xbus->command_queue);
 	if(frm) {
 		BUG_ON(frm->xframe_magic != XFRAME_MAGIC);
 		ret = really_send_cmd_frame(xbus, frm);
-		if(ret < 0)
+		if(ret < 0) {
 			XBUS_ERR(xbus,
 				"Failed to send from command_queue (ret=%d)\n",
 				ret);
-		XBUS_PUT(xbus);
+			xbus_setstate(xbus, XBUS_STATE_FAIL);
+		}
 	} else
 		wake_up(&xbus->command_queue_empty);
 	return ret;
@@ -550,10 +525,9 @@ static void xbus_command_queue_clean(xbus_t *xbus)
 	xframe_t	*frm;
 
 	XBUS_DBG(DEVICES, xbus, "count=%d\n", xbus->command_queue.count);
-	xframe_queue_disable(&xbus->command_queue);
+	xframe_queue_disable(&xbus->command_queue, 1);
 	while((frm = xframe_dequeue(&xbus->command_queue)) != NULL) {
 		FREE_SEND_XFRAME(xbus, frm);
-		XBUS_PUT(xbus);
 	}
 }
 
@@ -577,23 +551,21 @@ int send_cmd_frame(xbus_t *xbus, xframe_t *xframe)
 
 
 	BUG_ON(xframe->xframe_magic != XFRAME_MAGIC);
-	if(!xbus_ready(xbus, "Dropped command before queueing")) {
+	if(XBUS_IS(xbus, DISCONNECTED)) {
+		XBUS_ERR(xbus, "Dropped command before queueing -- hardware deactivated.\n");
 		ret = -ENODEV;
 		goto err;
 	}
-	if(!XBUS_GET(xbus)) {
-		/* shutting down */
-		ret = -ENODEV;
-		goto err;
-	}
+	if(debug & DBG_COMMANDS)
+		dump_xframe(__FUNCTION__, xbus, xframe, DBG_ANY);
 	if(!xframe_enqueue(&xbus->command_queue, xframe)) {
 		if((rate_limit++ % 1003) == 0) {
 			XBUS_ERR(xbus,
 				"Dropped command xframe. Cannot enqueue (%d)\n",
 				rate_limit);
-			dump_xframe("send_cmd_frame", xbus, xframe, DBG_ANY);
+			dump_xframe(__FUNCTION__, xbus, xframe, DBG_ANY);
 		}
-		XBUS_PUT(xbus);
+		xbus_setstate(xbus, XBUS_STATE_FAIL);
 		ret = -E2BIG;
 		goto err;
 	}
@@ -644,7 +616,7 @@ void xbus_receive_xframe(xbus_t *xbus, xframe_t *xframe)
 	if(rx_tasklet) {
 		xframe_enqueue_recv(xbus, xframe);
 	} else {
-		if (likely(TRANSPORT_RUNNING(xbus)))
+		if(likely(!XBUS_IS(xbus, DISCONNECTED)))
 			xframe_receive(xbus, xframe);
 		else
 			FREE_RECV_XFRAME(xbus, xframe);	/* return to receive_pool */
@@ -666,75 +638,72 @@ xpd_t	*xpd_byaddr(const xbus_t *xbus, uint unit, uint subunit)
 	return xbus->xpds[XPD_IDX(unit,subunit)];
 }
 
-int xbus_register_xpd(xbus_t *xbus, xpd_t *xpd)
+int xbus_xpd_bind(xbus_t *xbus, xpd_t *xpd, int unit, int subunit)
 {
-	unsigned int	xpd_num = xpd->xbus_idx;
+	unsigned int	xpd_num;
 	unsigned long	flags;
-	int		ret = 0;
 
-	xbus = get_xbus(xbus->num);	/* until unregister */
 	BUG_ON(!xbus);
-	XBUS_DBG(DEVICES, xbus, "XPD #%d (xbus_refcount=%d)\n",
-		xpd_num, refcount_xbus(xbus->num));
+	xpd_num = XPD_IDX(unit,subunit);
+	XBUS_DBG(DEVICES, xbus, "XPD #%d\n", xpd_num);
 	spin_lock_irqsave(&xbus->lock, flags);
 	if(!VALID_XPD_NUM(xpd_num)) {
 		XBUS_ERR(xbus, "Bad xpd_num = %d\n", xpd_num);
-		ret = -EINVAL;
-		goto out;
+		BUG();
 	}
 	if(xbus->xpds[xpd_num] != NULL) {
 		xpd_t	*other = xbus->xpds[xpd_num];
 
 		XBUS_ERR(xbus, "xpd_num=%d is occupied by %p (%s)\n",
 				xpd_num, other, other->xpdname);
-		ret = -EINVAL;
-		goto out;
+		BUG();
 	}
+	snprintf(xpd->xpdname, XPD_NAMELEN, "XPD-%1d%1d", unit, subunit);
+	MKADDR(&xpd->addr, unit, subunit);
+	xpd->xbus_idx = xpd_num;
 	xbus->xpds[xpd_num] = xpd;
 	xpd->xbus = xbus;
-	xbus->num_xpds++;
-out:
+	atomic_inc(&xbus->xbus_ref_count);
+	atomic_inc(&xbus->num_xpds);
 	spin_unlock_irqrestore(&xbus->lock, flags);
-	return ret;
+	/* Must be done out of atomic context */
+	if(xpd_device_register(xbus, xpd) < 0) {
+		XPD_ERR(xpd, "%s: xpd_device_register() failed\n", __FUNCTION__);
+		/* FIXME: What to do? */
+	}
+	return 0;
 }
 
-int xbus_unregister_xpd(xbus_t *xbus, xpd_t *xpd)
+int xbus_xpd_unbind(xbus_t *xbus, xpd_t *xpd)
 {
 	unsigned int	xpd_num = xpd->xbus_idx;
 	unsigned long	flags;
-	int		ret = -EINVAL;
 
-	spin_lock_irqsave(&xbus->lock, flags);
-	XBUS_DBG(DEVICES, xbus, "XPD #%d (xbus_refcount=%d)\n",
-		xpd_num, refcount_xbus(xbus->num));
+	XBUS_DBG(DEVICES, xbus, "XPD #%d\n", xpd_num);
 	if(!VALID_XPD_NUM(xpd_num)) {
 		XBUS_ERR(xbus, "%s: Bad xpd_num = %d\n", __FUNCTION__, xpd_num);
-		goto out;
+		BUG();
 	}
 	if(xbus->xpds[xpd_num] == NULL) {
 		XBUS_ERR(xbus, "%s: slot xpd_num=%d is empty\n", __FUNCTION__, xpd_num);
-		goto out;
+		BUG();
 	}
 	if(xbus->xpds[xpd_num] != xpd) {
 		xpd_t	*other = xbus->xpds[xpd_num];
 
 		XBUS_ERR(xbus, "%s: slot xpd_num=%d is occupied by %p (%s)\n",
 				__FUNCTION__, xpd_num, other, other->xpdname);
-		goto out;
+		BUG();
 	}
-	xbus->xpds[xpd_num] = NULL;
-	xbus->num_xpds--;
+	spin_lock_irqsave(&xbus->lock, flags);
 	xpd->xbus = NULL;
-	put_xbus(xbus);		/* we got it in xbus_register_xpd() */
-	ret = 0;
-out:
+	xbus->xpds[xpd_num] = NULL;
+	if(atomic_dec_and_test(&xbus->num_xpds))
+		xbus_setstate(xbus, XBUS_STATE_IDLE);
 	spin_unlock_irqrestore(&xbus->lock, flags);
-	return ret;
+	return 0;
 }
 
-/*
- * Called with xbus->worker locked.
- */
 static int new_card(xbus_t *xbus,
 		int unit,
 		byte type,
@@ -773,7 +742,12 @@ static int new_card(xbus_t *xbus,
 	BUG_ON(!xops);
 	xbus->worker->num_units += subunits - 1;
 	for(i = 0; i < subunits; i++) {
-		if(!TRANSPORT_RUNNING(xbus)) {
+		if(!XBUS_IS(xbus, RECVD_DESC)) {
+			XBUS_NOTICE(xbus,
+				"Cannot create XPD=%d%d in state %s\n",
+				unit,
+				i,
+				xbus_statename(XBUS_STATE(xbus)));
 			ret = -ENODEV;
 			goto out;
 		}
@@ -782,13 +756,13 @@ static int new_card(xbus_t *xbus,
 				i,
 				type,
 				subtype);
-		if(!XBUS_GET(xbus)) {
-			XBUS_ERR(xbus, "Aborting creation. Is shutting down.\n");
+		if(!XBUS_IS(xbus, RECVD_DESC)) {
+			XBUS_ERR(xbus, "Aborting creation -- In bad state %s\n",
+				xbus_statename(XBUS_STATE(xbus)));
 			ret = -ENODEV;
 			goto out;
 		}
 		ret = create_xpd(xbus, proto_table, unit, i, type, subtype, subunits, port_dir);
-		XBUS_PUT(xbus);
 		if(ret < 0) {
 			XBUS_ERR(xbus, "Creation of XPD=%d%d failed %d\n",
 				unit, i, ret);
@@ -801,44 +775,77 @@ out:
 	return ret;
 }
 
+static void xbus_release_xpds(xbus_t *xbus)
+{
+	int			i;
+
+	XBUS_INFO(xbus, "[%s] Release XPDS\n", xbus->label);
+	for(i = 0; i < MAX_XPDS; i++) {
+		xpd_t *xpd = xpd_of(xbus, i);
+
+		if(xpd)
+			put_xpd(__FUNCTION__, xpd);	/* taken in xbus_xpd_bind() */
+	}
+}
+
+static int xpd_initialize(xpd_t *xpd)
+{
+	int	ret = -ENODEV;
+
+	if(CALL_XMETHOD(card_init, xpd->xbus, xpd) < 0) {
+		XPD_ERR(xpd, "Card Initialization failed\n");
+		goto out;
+	}
+	//CALL_XMETHOD(XPD_STATE, xpd->xbus, xpd, 0);	/* Turn off all channels */
+	xpd->card_present = 1;
+	CALL_XMETHOD(XPD_STATE, xpd->xbus, xpd, 1);		/* Turn on all channels */
+	if(!xpd_setstate(xpd, XPD_STATE_READY)) {
+		goto out;
+	}
+	XPD_INFO(xpd, "Initialized: %s\n", xpd->type_name);
+	xpd_post_init(xpd);
+	ret = 0;
+out:
+	return ret;
+}
+
 static int xbus_initialize(xbus_t *xbus)
 {
 	int	unit;
 	int	subunit;
 	xpd_t	*xpd;
 
+	XBUS_DBG(DEVICES, xbus, "refcount_xbus=%d\n",
+			refcount_xbus(xbus));
 	for(unit = 0; unit < MAX_UNIT; unit++) {
 		xpd = xpd_byaddr(xbus, unit, 0);
 		if(!xpd)
 			continue;
 		if(run_initialize_registers(xpd) < 0) {
-			XPD_ERR(xpd, "Register Initialization failed\n");
+			XBUS_ERR(xbus, "Register Initialization of card #%d failed\n", unit);
 			goto err;
 		}
 		for(subunit = 0; subunit < MAX_SUBUNIT; subunit++) {
+			int	ret;
+
 			xpd = xpd_byaddr(xbus, unit, subunit);
 			if(!xpd)
 				continue;
-			if(CALL_XMETHOD(card_init, xpd->xbus, xpd) < 0) {
-				XPD_ERR(xpd, "Card Initialization failed\n");
+			xpd = get_xpd(__FUNCTION__, xpd);
+			if(!xpd) {
+				XBUS_ERR(xbus,
+						"Aborting initialization. XPD-%d%d is gone.\n",
+						unit, subunit);
 				goto err;
 			}
-			//CALL_XMETHOD(XPD_STATE, xpd->xbus, xpd, 0);	/* Turn off all channels */
-			xpd->card_present = 1;
-			CALL_XMETHOD(XPD_STATE, xpd->xbus, xpd, 1);		/* Turn on all channels */
-			XPD_INFO(xpd, "Initialized: %s\n", xpd->type_name);
-			xpd_post_init(xpd);
+			ret = xpd_initialize(xpd);
+			put_xpd(__FUNCTION__, xpd);
+			if(ret < 0)
+				goto err;
 		}
 	}
 	return 0;
 err:
-	for(unit = 0; unit < MAX_UNIT; unit++) {
-		for(subunit = 0; subunit < MAX_SUBUNIT; subunit++) {
-			xpd = xpd_byaddr(xbus, unit, subunit);
-			if(!xpd)
-				xpd_free(xpd);
-		}
-	}
 	return -EINVAL;
 }
 
@@ -848,7 +855,7 @@ err:
  * initialized.
  */
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,20)
-void xbus_populate(struct work_struct *work)
+static void xbus_populate(struct work_struct *work)
 {
 	struct xbus_workqueue	*worker = container_of(work, struct xbus_workqueue, xpds_init_work);
 #else
@@ -863,10 +870,7 @@ void xbus_populate(void *data)
 	int			ret = 0;
 
 	xbus = worker->xbus;
-	if(!XBUS_GET(xbus)) {
-		XBUS_NOTICE(xbus, "Shutting down, aboring initialization\n");
-		return;
-	}
+	XBUS_DBG(DEVICES, xbus, "Entering %s\n", __FUNCTION__);
 	spin_lock_irqsave(&worker->worker_lock, flags);
 	list_for_each_safe(card, next_card, &worker->card_list) {
 		struct card_desc_struct	*card_desc = list_entry(card, struct card_desc_struct, card_list);
@@ -889,13 +893,17 @@ void xbus_populate(void *data)
 			break;
 	}
 	spin_unlock_irqrestore(&worker->worker_lock, flags);
-	xbus_initialize(xbus);
-	worker->xpds_init_done = 1;
-	ret = xbus_sysfs_create(xbus);
-	if(ret) {
-		XBUS_ERR(xbus, "SYSFS creation failed: %d\n", ret);
+	if(xbus_initialize(xbus) < 0) {
+		XBUS_NOTICE(xbus, "Initialization failed. Leave unused. refcount_xbus=%d\n",
+			refcount_xbus(xbus));
+		goto failed;
 	}
-	wake_up(&worker->wait_for_xpd_initialization);
+	if(!xbus_setstate(xbus, XBUS_STATE_READY)) {
+		XBUS_NOTICE(xbus, "Illegal transition. Leave unused. refcount_xbus=%d\n",
+			refcount_xbus(xbus));
+		goto failed;
+	}
+	worker->xpds_init_done = 1;
 	/*
 	 * Now request Astribank to start self_ticking.
 	 * This is the last initialization command. So
@@ -903,48 +911,108 @@ void xbus_populate(void *data)
 	 */
 	xbus_request_sync(xbus, SYNC_MODE_PLL);
 	elect_syncer("xbus_poll(end)");	/* FIXME: try to do it later */
-	put_xbus(xbus);	/* taken in AB_DESCRIPTION */
-	XBUS_PUT(xbus);
+out:
+	XBUS_DBG(DEVICES, xbus, "Leaving\n");
+	wake_up(&worker->wait_for_xpd_initialization);
+	XBUS_DBG(DEVICES, xbus, "populate release\n");
+	up(&xbus->in_worker);
+	return;
+failed:
+	goto out;
 }
 
-static void worker_destroy(struct xbus_workqueue *worker)
+int xbus_process_worker(xbus_t *xbus)
 {
-	xbus_t			*xbus;
+	struct xbus_workqueue	*worker = xbus->worker;
+
+	if(!xbus) {
+		ERR("%s: xbus gone -- skip initialization\n", __FUNCTION__);
+		return 0;
+	}
+	if(down_trylock(&xbus->in_worker)) {
+		ERR("%s: xbus is disconnected -- skip initialization\n", __FUNCTION__);
+		return 0;
+	}
+	XBUS_DBG(DEVICES, xbus, "\n");
+	/* Initialize the work. (adapt to kernel API changes). */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,20)
+	INIT_WORK(&worker->xpds_init_work, xbus_populate);
+#else
+	INIT_WORK(&worker->xpds_init_work, xbus_populate, worker);
+#endif
+	BUG_ON(!xbus);
+	/* Now send it */
+	if(!queue_work(worker->wq, &worker->xpds_init_work)) {
+		XBUS_ERR(xbus, "Failed to queue xpd initialization work\n");
+		up(&xbus->in_worker);
+		return 0;
+	}
+	return 1;
+}
+
+static void worker_reset(struct xbus_workqueue *worker)
+{
+	
 	struct list_head	*card;
 	struct list_head	*next_card;
 	unsigned long		flags;
+	xbus_t			*xbus = worker->xbus;
+	char			*name = (xbus) ? xbus->busname : "detached";
 
-	if(!worker)
-		return;
+	BUG_ON(!worker);
+	DBG(DEVICES, "%s\n", name);
+	if(!worker->xpds_init_done) {
+		NOTICE("%s: worker(%s)->xpds_init_done=%d\n",
+			__FUNCTION__, name, worker->xpds_init_done);
+	}
 	spin_lock_irqsave(&worker->worker_lock, flags);
-	xbus = worker->xbus;
 	list_for_each_safe(card, next_card, &worker->card_list) {
 		struct card_desc_struct	*card_desc = list_entry(card, struct card_desc_struct, card_list);
 
 		BUG_ON(card_desc->magic != CARD_DESC_MAGIC);
 		list_del(card);
-		kfree(card_desc);
+		KZFREE(card_desc);
 	}
+	worker->xpds_init_done = 0;
+	worker->num_units = 0;
+	worker->num_units_initialized = 0;
 	spin_unlock_irqrestore(&worker->worker_lock, flags);
+	wake_up(&worker->wait_for_xpd_initialization);
+}
+
+static void worker_destroy(struct xbus_workqueue *worker)
+{
+	xbus_t			*xbus;
+
+	if(!worker)
+		return;
+	worker_reset(worker);
+	xbus = worker->xbus;
 	if(xbus) {
+		XBUS_DBG(DEVICES, xbus, "Waiting for worker to finish...\n");
+		down(&xbus->in_worker);
+		XBUS_DBG(DEVICES, xbus, "Waiting for worker to finish -- done\n");
+		if (worker->wq) {
+			XBUS_DBG(DEVICES, xbus, "destroying workqueue...\n");
+			flush_workqueue(worker->wq);
+			destroy_workqueue(worker->wq);
+			worker->wq = NULL;
+			XBUS_DBG(DEVICES, xbus, "destroying workqueue -- done\n");
+		}
 #ifdef CONFIG_PROC_FS
+#ifdef	OLD_PROC
 		if(xbus->proc_xbus_dir && worker->proc_xbus_waitfor_xpds) {
 			XBUS_DBG(PROC, xbus, "Removing proc '%s'\n", PROC_XBUS_WAITFOR_XPDS);
 			remove_proc_entry(PROC_XBUS_WAITFOR_XPDS, xbus->proc_xbus_dir);
 			worker->proc_xbus_waitfor_xpds = NULL;
 		}
 #endif
+#endif
 		XBUS_DBG(DEVICES, xbus, "detach worker\n");
 		xbus->worker = NULL;
+		KZFREE(worker);
+		put_xbus(__FUNCTION__, xbus);	/* got from worker_new() */
 	}
-	if (worker->wq) {
-		DBG(DEVICES, "XBUS #%d: destroy workqueue\n", worker->xbus->num);
-		flush_workqueue(worker->wq);
-		destroy_workqueue(worker->wq);
-		worker->wq = NULL;
-	}
-	put_xbus(xbus);	/* Taken in worker_new() */
-	KZFREE(worker);
 }
 
 /*
@@ -952,29 +1020,27 @@ static void worker_destroy(struct xbus_workqueue *worker)
  * May call blocking operations, but only briefly (as we are called
  * from xbus_new() which is called from khubd.
  */
-static struct xbus_workqueue *worker_new(int xbus_num)
+static struct xbus_workqueue *worker_new(int xbusno)
 {
 	struct xbus_workqueue	*worker;
 	xbus_t			*xbus;
 
-	xbus = get_xbus(xbus_num);		/* release in worker_destroy */
+	if((xbus = xbus_num(xbusno)) == NULL)
+		return NULL;
+	get_xbus(__FUNCTION__, xbus);		/* return in worker_destroy() */
 	BUG_ON(xbus->busname[0] == '\0');	/* No name? */
-	BUG_ON(xbus->worker != NULL);			/* Hmmm... nested workers? */
+	BUG_ON(xbus->worker != NULL);		/* Hmmm... nested workers? */
 	XBUS_DBG(DEVICES, xbus, "\n");
 	worker = KZALLOC(sizeof(*worker), GFP_KERNEL);
 	if(!worker)
 		goto err;
-	worker->xbus = xbus;
 	/* poll related variables */
 	spin_lock_init(&worker->worker_lock);
 	INIT_LIST_HEAD(&worker->card_list);
 	init_waitqueue_head(&worker->wait_for_xpd_initialization);
-	worker->wq = create_singlethread_workqueue(xbus->busname);
-	if(!worker->wq) {
-		XBUS_ERR(xbus, "Failed to create worker workqueue.\n");
-		goto err;
-	}
+	worker->xbus = xbus;
 #ifdef CONFIG_PROC_FS
+#ifdef	OLD_PROC
 	if(xbus->proc_xbus_dir) {
 		worker->proc_xbus_waitfor_xpds = create_proc_read_entry(
 				PROC_XBUS_WAITFOR_XPDS, 0444,
@@ -988,18 +1054,118 @@ static struct xbus_workqueue *worker_new(int xbus_num)
 		worker->proc_xbus_waitfor_xpds->owner = THIS_MODULE;
 	}
 #endif
+#endif
+	worker->wq = create_singlethread_workqueue(xbus->busname);
+	if(!worker->wq) {
+		XBUS_ERR(xbus, "Failed to create worker workqueue.\n");
+		goto err;
+	}
 	return worker;
 err:
 	worker_destroy(worker);
 	return NULL;
 }
 
+bool xbus_setstate(xbus_t *xbus, enum xbus_state newstate)
+{
+	unsigned long	flags;
+	bool		ret = 0;
+	int		state_flip = 0;
+
+	spin_lock_irqsave(&xbus->transport.state_lock, flags);
+	if(newstate == XBUS_STATE(xbus)) {
+		XBUS_DBG(DEVICES, xbus, "stay at %s\n",
+			xbus_statename(newstate));
+		goto out;
+	}
+	/* Sanity tests */
+	switch(newstate) {
+		case XBUS_STATE_START:
+			goto bad_state;
+		case XBUS_STATE_IDLE:
+			if(!XBUS_IS(xbus, START) &&
+					!XBUS_IS(xbus, DEACTIVATED))
+				goto bad_state;
+			break;
+		case XBUS_STATE_SENT_REQUEST:
+			if(!XBUS_IS(xbus, IDLE) &&
+					!XBUS_IS(xbus, SENT_REQUEST))
+				goto bad_state;
+			break;
+		case XBUS_STATE_RECVD_DESC:
+			if(!XBUS_IS(xbus, SENT_REQUEST))
+				goto bad_state;
+			break;
+		case XBUS_STATE_READY:
+			if(!XBUS_IS(xbus, RECVD_DESC))
+				goto bad_state;
+			state_flip = 1;	/* We are good */
+			break;
+		case XBUS_STATE_DEACTIVATING:
+#if 0
+			if(XBUS_IS(xbus, DEACTIVATED) || XBUS_IS(xbus, DISCONNECTED))
+				goto bad_state;
+#endif
+			break;
+		case XBUS_STATE_DEACTIVATED:
+			if(!XBUS_IS(xbus, DEACTIVATING))
+				goto bad_state;
+			break;
+		case XBUS_STATE_DISCONNECTED:
+			break;
+		case XBUS_STATE_FAIL:
+			if(XBUS_IS(xbus, DEACTIVATING) || XBUS_IS(xbus, DEACTIVATED) || XBUS_IS(xbus, DISCONNECTED))
+				goto bad_state;
+			break;
+		default:
+			XBUS_NOTICE(xbus, "%s: unknown state %d\n", __FUNCTION__, newstate);
+			goto out;
+	}
+	/* All good */
+	XBUS_DBG(DEVICES, xbus, "%s -> %s\n",
+		xbus_statename(XBUS_STATE(xbus)),
+		xbus_statename(newstate));
+	if(xbus->transport.xbus_state == XBUS_STATE_READY && newstate != XBUS_STATE_READY)
+		state_flip = -1;	/* We became bad */
+	xbus->transport.xbus_state = newstate;
+	ret = 1;
+out:
+	spin_unlock_irqrestore(&xbus->transport.state_lock, flags);
+	/* Should be sent out of spinlocks */
+	if(state_flip > 0)
+		astribank_uevent_send(xbus, KOBJ_ONLINE);
+	else if(state_flip < 0)
+		astribank_uevent_send(xbus, KOBJ_OFFLINE);
+	return ret;
+bad_state:
+	XBUS_NOTICE(xbus, "Bad state transition %s -> %s ignored.\n",
+		xbus_statename(XBUS_STATE(xbus)),
+		xbus_statename(newstate));
+	goto out;
+}
+
 int xbus_activate(xbus_t *xbus)
+{
+	XBUS_INFO(xbus, "[%s] Activating\n", xbus->label);
+	xpp_drift_init(xbus);
+	xbus_set_command_timer(xbus, 1);
+	xframe_queue_disable(&xbus->command_queue, 0);
+	xbus_setstate(xbus, XBUS_STATE_IDLE);	/* must be done after transport is valid */
+	CALL_PROTO(GLOBAL, AB_REQUEST, xbus, NULL);
+	/*
+	 * Make sure Astribank knows not to send us ticks.
+	 */
+	xbus_request_sync(xbus, SYNC_MODE_NONE);
+	return 0;
+}
+
+int xbus_connect(xbus_t *xbus)
 {
 	struct xbus_ops		*ops;
 	struct xbus_workqueue	*worker;
 
 	BUG_ON(!xbus);
+	XBUS_DBG(DEVICES, xbus, "\n");
 	ops = transportops_get(xbus);
 	BUG_ON(!ops);
 	worker = xbus->worker;
@@ -1009,64 +1175,66 @@ int xbus_activate(xbus_t *xbus)
 	BUG_ON(!ops->xframe_send_cmd);
 	BUG_ON(!ops->alloc_xframe);
 	BUG_ON(!ops->free_xframe);
-	xpp_drift_init(xbus);
-	/*
-	 * We start with timer based ticking
-	 */
-	xbus_set_command_timer(xbus, 1);
-	xbus->transport.transport_running = 1;	/* must be done after transport is valid */
-	XBUS_INFO(xbus, "[%s] Activating\n", xbus->label);
-	/*
-	 * Make sure Astribank knows not to send us ticks.
-	 */
-	xbus_request_sync(xbus, SYNC_MODE_NONE);
-	CALL_PROTO(GLOBAL, AB_REQUEST, xbus, NULL);
+	xbus_activate(xbus);
 	return 0;
 }
 
-void xbus_disconnect(xbus_t *xbus)
+void xbus_deactivate(xbus_t *xbus, bool is_disconnected)
 {
 	int	i;
 
 	BUG_ON(!xbus);
-	XBUS_INFO(xbus, "[%s] Disconnecting\n", xbus->label);
-	xbus_set_command_timer(xbus, 1);
+	XBUS_INFO(xbus, "[%s] Deactivating\n", xbus->label);
+	if(!xbus_setstate(xbus, XBUS_STATE_DEACTIVATING))
+		return;
 	xbus_request_sync(xbus, SYNC_MODE_NONE);	/* no more ticks */
-	xbus_sysfs_remove(xbus);	/* Device-Model */
 	for(i = 0; i < MAX_XPDS; i++) {
 		xpd_t *xpd = xpd_of(xbus, i);
-		if(!xpd)
-			continue;
-		if(xpd->xbus_idx != i) {
-			XBUS_ERR(xbus, "BUG: xpd->xbus_idx=%d != i=%d\n", xpd->xbus_idx, i);
-			continue;
+		if(xpd) {
+			xpd_unreg_request(xpd);
 		}
-		xpd_disconnect(xpd);
 	}
-	XBUS_DBG(DEVICES, xbus, "Deactivating\n");
-	tasklet_kill(&xbus->receive_tasklet);
-	xframe_queue_clear(&xbus->receive_queue);
+	elect_syncer("deactivate");
+	XBUS_DBG(DEVICES, xbus, "[%s] Waiting for queues\n", xbus->label);
 	xbus_command_queue_clean(xbus);
 	xbus_command_queue_waitempty(xbus);
-	del_timer_sync(&xbus->command_timer);
+	xbus_setstate(xbus, XBUS_STATE_DEACTIVATED);
+	worker_reset(xbus->worker);
+	xbus_release_xpds(xbus);
+	if(!is_disconnected)
+		xbus_setstate(xbus, XBUS_STATE_IDLE);
+}
+
+void xbus_disconnect(xbus_t *xbus)
+{
+	XBUS_INFO(xbus, "[%s] Disconnecting\n", xbus->label);
+	BUG_ON(!xbus);
+	xbus_deactivate(xbus, 1);
+	xbus_command_queue_clean(xbus);
+	xbus_command_queue_waitempty(xbus);
+	tasklet_kill(&xbus->receive_tasklet);
+	xframe_queue_clear(&xbus->receive_queue);
 	xframe_queue_clear(&xbus->send_pool);
 	xframe_queue_clear(&xbus->receive_pool);
 	xframe_queue_clear(&xbus->pcm_tospan);
+	xbus_setstate(xbus, XBUS_STATE_DISCONNECTED);
+	del_timer_sync(&xbus->command_timer);
 	transportops_put(xbus);
 	transport_destroy(xbus);
-	elect_syncer("disconnect");
-	XBUS_DBG(DEVICES, xbus, "Deactivated (refcount_xbus=%d)\n", refcount_xbus(xbus->num));
+	worker_destroy(xbus->worker);
+	XBUS_DBG(DEVICES, xbus, "Deactivated refcount_xbus=%d\n",
+		refcount_xbus(xbus));
 	if(atomic_dec_and_test(&xbus->xbus_ref_count)) {
-		XBUS_DBG(DEVICES, xbus, "Going to remove XBUS\n");
-		xbus_remove(xbus);
+		XBUS_DBG(DEVICES, xbus, "%s: Last ref to xbus. Removing\n", __FUNCTION__);
 	}
+	xbus_sysfs_remove(xbus);	/* Device-Model */
 }
 
 static xbus_t *xbus_alloc(void)
 {
 	unsigned long	flags;
-	xbus_t	*xbus;
-	int	i;
+	xbus_t		*xbus;
+	int		i;
 
 	xbus = KZALLOC(sizeof(xbus_t), GFP_KERNEL);
 	if(!xbus) {
@@ -1079,28 +1247,27 @@ static xbus_t *xbus_alloc(void)
 			break;
 	if(i >= MAX_BUSES) {
 		ERR("%s: No free slot for new bus. i=%d\n", __FUNCTION__, i);
-		kfree(xbus);
+		KZFREE(xbus);
 		xbus = NULL;
 		goto out;
 	}
 	/* Found empty slot */
 	xbus->num = i;
 	init_xbus(i, xbus);
-	xbus = get_xbus(i);
-	bus_count++;
 out:
 	spin_unlock_irqrestore(&xbuses_lock, flags);
 	return xbus;
 }
 
 
-static void xbus_free(xbus_t *xbus)
+void xbus_free(xbus_t *xbus)
 {
 	unsigned long	flags;
 	uint		num;
 
 	if(!xbus)
 		return;
+	XBUS_DBG(DEVICES, xbus, "Free\n");
 	spin_lock_irqsave(&xbuses_lock, flags);
 	num = xbus->num;
 	BUG_ON(!xbuses_array[num].xbus);
@@ -1136,18 +1303,7 @@ static void xbus_free(xbus_t *xbus)
 	}
 #endif
 	spin_lock_irqsave(&xbuses_lock, flags);
-	/*
-	 * Return to xbus reference counts:
-	 *  - One from our caller: transport disconnect or xpp_close()
-	 *  - One from xbus_alloc()
- 	 */
-	put_xbus(xbus);
-	put_xbus(xbus);
-	if(!wait_for_xbus_release(xbus->num))
-		BUG();	/* Let's see what happens next... */
-	bus_count--;
-	XBUS_DBG(DEVICES, xbus, "Going to free... refcount_xbus=%d\n", refcount_xbus(num));
-	BUG_ON(refcount_xbus(num) != 0);
+	XBUS_DBG(DEVICES, xbus, "Going to free...\n");
 	init_xbus(num, NULL);
 	spin_unlock_irqrestore(&xbuses_lock, flags);
 	KZFREE(xbus);
@@ -1159,23 +1315,31 @@ xbus_t *xbus_new(struct xbus_ops *ops, ushort max_send_size, void *priv)
 	xbus_t			*xbus = NULL;
 
 	BUG_ON(!ops);
-	XBUS_DBG(GENERAL, xbus, "allocate new xbus\n");
 	xbus = xbus_alloc();
-	if(!xbus)
+	if(!xbus) {
+		ERR("%s: Failed allocating new xbus\n", __FUNCTION__);
+		module_put(THIS_MODULE);
 		return NULL;
+	}
+	snprintf(xbus->busname, XBUS_NAMELEN, "XBUS-%02d", xbus->num);
+	XBUS_DBG(DEVICES, xbus, "\n");
 	transport_init(xbus, ops, max_send_size, priv);
 	spin_lock_init(&xbus->lock);
 	atomic_set(&xbus->xbus_ref_count, 1);	/* a single ref */
-	snprintf(xbus->busname, XBUS_NAMELEN, "XBUS-%02d", xbus->num);
 	init_waitqueue_head(&xbus->command_queue_empty);
 	init_timer(&xbus->command_timer);
+	init_MUTEX(&xbus->in_worker);
 	atomic_set(&xbus->pcm_rx_counter, 0);
 	xbus->min_tx_sync = INT_MAX;
 	xbus->min_rx_sync = INT_MAX;
 	
-	xbus->num_xpds = 0;
+	atomic_set(&xbus->num_xpds, 0);
 	xbus->sync_mode = SYNC_MODE_NONE;
-	init_rwsem(&xbus->in_use);
+	err = xbus_sysfs_create(xbus);
+	if(err) {
+		XBUS_ERR(xbus, "SYSFS creation failed: %d\n", err);
+		goto nobus;
+	}
 	xbus_reset_counters(xbus);
 #ifdef CONFIG_PROC_FS
 	XBUS_DBG(PROC, xbus, "Creating xbus proc directory\n");
@@ -1240,31 +1404,6 @@ nobus:
 	return NULL;
 }
 
-void xbus_remove(xbus_t *xbus)
-{
-	int	i;
-
-	BUG_ON(TRANSPORT_RUNNING(xbus));
-	down_write(&xbus->in_use);
-
-	XBUS_INFO(xbus, "[%s] Removing\n", xbus->label);
-	for(i = 0; i < MAX_XPDS; i++) {
-		xpd_t *xpd = xpd_of(xbus, i);
-
-		if(xpd) {
-			if(xpd->xbus_idx != i) {
-				XBUS_ERR(xbus, "BUG: xpd->xbus_idx=%d != i=%d\n", xpd->xbus_idx, i);
-				continue;
-			}
-			XBUS_DBG(DEVICES, xbus, "  Removing xpd #%d\n", i);
-			xpd_remove(xpd);
-		}
-		xbus->xpds[i] = NULL;
-	}
-	worker_destroy(xbus->worker);
-	xbus_free(xbus);
-}
-
 /*------------------------- Proc handling --------------------------*/
 
 void xbus_reset_counters(xbus_t *xbus)
@@ -1305,17 +1444,18 @@ static int xbus_read_proc(char *page, char **start, off_t off, int count, int *e
 	int			len = 0;
 	int			i = (int)((unsigned long)data);
 
-	xbus = get_xbus(i);
+	xbus = xbus_num(i);
 	if(!xbus)
 		goto out;
+	xbus = get_xbus(__FUNCTION__, xbus);	/* until end of xbus_read_proc */
 	spin_lock_irqsave(&xbus->lock, flags);
 	worker = xbus->worker;
 
 	len += sprintf(page + len, "%s: CONNECTOR=%s LABEL=[%s] STATUS=%s\n",
 			xbus->busname,
-			xbus->location,
+			xbus->connector,
 			xbus->label,
-			(TRANSPORT_RUNNING(xbus)) ? "connected" : "missing"
+			(!XBUS_IS(xbus, DISCONNECTED)) ? "connected" : "missing"
 		      );
 	len += sprintf(page + len, "\nxbus_ref_count=%d\n",
 			atomic_read(&xbus->xbus_ref_count)
@@ -1336,6 +1476,7 @@ static int xbus_read_proc(char *page, char **start, off_t off, int count, int *e
 	}
 	len += sprintf(page + len, "self_ticking: %d (last_tick at %ld)\n",
 			xbus->self_ticking, xbus->ticker.last_sample.tv.tv_sec);
+	len += sprintf(page + len, "command_tick: %d\n", xbus->command_tick_counter);
 	len += sprintf(page + len, "xbus: pcm_rx_counter = %d, frag = %d\n",
 		atomic_read(&xbus->pcm_rx_counter), xbus->xbus_frag_count);
 	len += sprintf(page + len, "max_rx_process = %2ld.%ld ms\n",
@@ -1358,7 +1499,7 @@ static int xbus_read_proc(char *page, char **start, off_t off, int count, int *e
 	}
 	len += sprintf(page + len, "<-- len=%d\n", len);
 	spin_unlock_irqrestore(&xbus->lock, flags);
-	put_xbus(xbus);
+	put_xbus(__FUNCTION__, xbus);	/* from xbus_read_proc() */
 out:
 	if (len <= off+count)
 		*eof = 1;
@@ -1372,23 +1513,20 @@ out:
 
 }
 
-static int xbus_read_waitfor_xpds(char *page, char **start, off_t off, int count, int *eof, void *data)
+int waitfor_xpds(xbus_t *xbus, char *buf)
 {
-	int			len = 0;
-	unsigned long		flags;
-	xbus_t			*xbus = data;
 	struct xbus_workqueue	*worker;
+	unsigned long		flags;
 	int			ret;
+	int			len = 0;
 
-	if(!xbus)
-		goto out;
-	/* first handle special cases */
-	if(!count || off)
-		goto out;
 	/*
-	 * worker is created before /proc/XBUS-??
+	 * FIXME: worker is created before ?????
 	 * So by now it exists and initialized.
 	 */
+	xbus = get_xbus(__FUNCTION__, xbus);	/* until end of waitfor_xpds_show() */
+	if(!xbus)
+		return -ENODEV;
 	worker = xbus->worker;
 	BUG_ON(!worker);
 	XBUS_DBG(DEVICES, xbus,
@@ -1407,24 +1545,48 @@ static int xbus_read_waitfor_xpds(char *page, char **start, off_t off, int count
 	 */
 	ret = wait_event_interruptible_timeout(
 		worker->wait_for_xpd_initialization,
-		worker->xpds_init_done,
+		!XBUS_IS(xbus, RECVD_DESC) || worker->xpds_init_done,
 		INITIALIZATION_TIMEOUT);
 	if(ret == 0) {
 		XBUS_ERR(xbus, "Card Initialization Timeout\n");
-		return ret;
+		len = -ETIMEDOUT;
+		goto out;
 	} else if(ret < 0) {
 		XBUS_ERR(xbus, "Card Initialization Interrupted %d\n", ret);
-		return ret;
+		len = ret;
+		goto out;
 	} else
 		XBUS_DBG(DEVICES, xbus,
 			"Finished initialization of %d XPD's in %d seconds.\n",
 			worker->num_units_initialized,
 			(INITIALIZATION_TIMEOUT - ret)/HZ);
 	spin_lock_irqsave(&xbus->lock, flags);
-	len += sprintf(page + len, "XPDS_READY: %s: %d/%d\n",
+	len += sprintf(buf, "XPDS_READY: %s: %d/%d\n",
 			xbus->busname,
 			worker->num_units_initialized, worker->num_units);
 	spin_unlock_irqrestore(&xbus->lock, flags);
+out:
+	put_xbus(__FUNCTION__, xbus);	/* from start of waitfor_xpds_show() */
+	return len;
+}
+
+#ifdef	OLD_PROC
+static int xbus_read_waitfor_xpds(char *page, char **start, off_t off, int count, int *eof, void *data)
+{
+	int			len = 0;
+	unsigned long		flags;
+	xbus_t			*xbus = data;
+	struct xbus_workqueue	*worker;
+	int			ret;
+
+	if(!xbus)
+		goto out;
+	XBUS_NOTICE(xbus, "%s: DEPRECATED: %s[%d] read from /proc interface instead of /sys\n",
+		__FUNCTION__, current->comm, current->tgid);
+	/* first handle special cases */
+	if(!count || off)
+		goto out;
+	len = waitfor_xpds(xbus, page);
 out:
 	if (len <= off+count)
 		*eof = 1;
@@ -1437,6 +1599,7 @@ out:
 	return len;
 
 }
+#endif
 
 #ifdef	PROTOCOL_DEBUG
 static int proc_xbus_command_write(struct file *file, const char __user *buffer, unsigned long count, void *data)
@@ -1526,17 +1689,15 @@ static int read_proc_xbuses(char *page, char **start, off_t off, int count, int 
 
 	spin_lock_irqsave(&xbuses_lock, flags);
 	for(i = 0; i < MAX_BUSES; i++) {
-		xbus_t *xbus = get_xbus(i);
+		xbus_t *xbus = xbus_num(i);
 
 		if(xbus) {
-			len += sprintf(page + len, "%s: CONNECTOR=%s LABEL=[%s] STATUS=%s REFCOUNT=%d\n",
+			len += sprintf(page + len, "%s: CONNECTOR=%s LABEL=[%s] STATUS=%s\n",
 					xbus->busname,
-					xbus->location,
+					xbus->connector,
 					xbus->label,
-					(TRANSPORT_RUNNING(xbus)) ? "connected" : "missing",
-					refcount_xbus(i) - 1
+					(!XBUS_IS(xbus, DISCONNECTED)) ? "connected" : "missing"
 				      );
-			put_xbus(xbus);
 		}
 	}
 #if 0
@@ -1567,6 +1728,8 @@ static void transport_init(xbus_t *xbus, struct xbus_ops *ops, ushort max_send_s
 	xbus->transport.ops = ops;
 	xbus->transport.max_send_size = max_send_size;
 	xbus->transport.priv = priv;
+	xbus->transport.xbus_state = XBUS_STATE_START;
+	spin_lock_init(&xbus->transport.state_lock);
 	spin_lock_init(&xbus->transport.lock);
 	atomic_set(&xbus->transport.transport_refcount, 0);
 	init_waitqueue_head(&xbus->transport.transport_unused);
@@ -1577,7 +1740,6 @@ static void transport_destroy(xbus_t *xbus)
 	int	ret;
 
 	BUG_ON(!xbus);
-	xbus->transport.transport_running = 0;
 	XBUS_DBG(DEVICES, xbus, "Waiting... (transport_refcount=%d)\n",
 		atomic_read(&xbus->transport.transport_refcount));
 	ret = wait_event_interruptible(xbus->transport.transport_unused,
@@ -1660,7 +1822,7 @@ int __init xbus_core_init(void)
 		goto err;
 	}
 #endif
-	if((ret = register_xpp_bus()) < 0)
+	if((ret = xpp_driver_init()) < 0)
 		goto err;
 	return 0;
 err:
@@ -1673,25 +1835,22 @@ void xbus_core_shutdown(void)
 {
 	int		i;
 
-	for(i = 0; i < MAX_BUSES; i++) {
-		xbus_t	*xbus = get_xbus(i);
-
-		if(xbus) {
-			xbus_remove(xbus);
-		}
-	}
-	BUG_ON(bus_count);
-	unregister_xpp_bus();
+	for(i = 0; i < MAX_BUSES; i++)
+		BUG_ON(xbus_num(i));
 	xbus_core_cleanup();
+	xpp_driver_exit();
 }
 
 EXPORT_SYMBOL(xpd_of);
 EXPORT_SYMBOL(xpd_byaddr);
-EXPORT_SYMBOL(get_xbus);
-EXPORT_SYMBOL(put_xbus);
+EXPORT_SYMBOL(xbus_num);
+EXPORT_SYMBOL(xbus_setstate);
+EXPORT_SYMBOL(xbus_statename);
 EXPORT_SYMBOL(xbus_new);
-EXPORT_SYMBOL(xbus_remove);
+EXPORT_SYMBOL(xbus_free);
+EXPORT_SYMBOL(xbus_connect);
 EXPORT_SYMBOL(xbus_activate);
+EXPORT_SYMBOL(xbus_deactivate);
 EXPORT_SYMBOL(xbus_disconnect);
 EXPORT_SYMBOL(xbus_receive_xframe);
 EXPORT_SYMBOL(xbus_reset_counters);

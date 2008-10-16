@@ -29,6 +29,10 @@ static bool __xframe_enqueue(struct xframe_queue *q, xframe_t *xframe)
 {
 	int			ret = 1;
 
+	if(unlikely(q->disabled)) {
+		ret = 0;
+		goto out;
+	}
 	if(q->count >= q->max_count) {
 		q->overflows++;
 		NOTICE("Overflow of %-15s: counts %3d, %3d, %3d worst %3d, overflows %3d worst_lag %02ld.%ld ms\n",
@@ -95,9 +99,9 @@ xframe_t *xframe_dequeue(struct xframe_queue *q)
 	spin_unlock_irqrestore(&q->lock, flags);
 	return frm;
 }
-void xframe_queue_disable(struct xframe_queue *q)
+void xframe_queue_disable(struct xframe_queue *q, bool disabled)
 {
-	q->max_count = 0;
+	q->disabled = disabled;
 }
 
 void xframe_queue_clear(struct xframe_queue *q)
@@ -106,7 +110,7 @@ void xframe_queue_clear(struct xframe_queue *q)
 	xbus_t		*xbus = q->priv;
 	int		i = 0;
 
-	xframe_queue_disable(q);
+	xframe_queue_disable(q, 1);
 	while((xframe = xframe_dequeue(q)) != NULL) {
 		transport_free_xframe(xbus, xframe);
 		i++;

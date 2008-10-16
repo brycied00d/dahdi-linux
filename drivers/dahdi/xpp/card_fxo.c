@@ -437,13 +437,11 @@ static xpd_t *FXO_card_new(xbus_t *xbus, int unit, int subunit, const xproto_tab
 		channels = min(2, CHANNELS_PERXPD);
 	else
 		channels = min(8, CHANNELS_PERXPD);
-	xpd = xpd_alloc(sizeof(struct FXO_priv_data), proto_table, channels);
+	xpd = xpd_alloc(xbus, unit, subunit, subtype, subunits, sizeof(struct FXO_priv_data), proto_table, channels);
 	if(!xpd)
 		return NULL;
 	xpd->direction = TO_PSTN;
 	xpd->type_name = "FXO";
-	if(xpd_common_init(xbus, xpd, unit, subunit, subtype, subunits) < 0)
-		goto err;
 	if(fxo_proc_create(xbus, xpd) < 0)
 		goto err;
 	return xpd;
@@ -790,7 +788,7 @@ static int FXO_card_ioctl(xpd_t *xpd, int pos, unsigned int cmd, unsigned long a
 	unsigned char		echotune_data[ARRAY_SIZE(echotune_regs)];
 
 	BUG_ON(!xpd);
-	if(!TRANSPORT_RUNNING(xpd->xbus))
+	if(!XBUS_IS(xpd->xbus, READY))
 		return -ENODEV;
 	switch (cmd) {
 		case WCTDM_SET_ECHOTUNE:
@@ -1315,12 +1313,50 @@ static int proc_xpd_metering_read(char *page, char **start, off_t off, int count
 }
 #endif
 
+static int fxo_xpd_probe(struct device *dev)
+{
+	xpd_t	*xpd;
+
+	xpd = dev_to_xpd(dev);
+	/* Is it our device? */
+	if(xpd->type != XPD_TYPE_FXO) {
+		XPD_ERR(xpd, "drop suggestion for %s (%d)\n",
+			dev->bus_id, xpd->type);
+		return -EINVAL;
+	}
+	XPD_DBG(DEVICES, xpd, "SYSFS\n");
+	return 0;
+}
+
+static int fxo_xpd_remove(struct device *dev)
+{
+	xpd_t	*xpd;
+
+	xpd = dev_to_xpd(dev);
+	XPD_DBG(DEVICES, xpd, "SYSFS\n");
+	return 0;
+}
+
+static struct xpd_driver	fxo_driver = {
+	.type		= XPD_TYPE_FXO,
+	.driver		= {
+		.name = "fxo",
+		.owner = THIS_MODULE,
+		.probe = fxo_xpd_probe,
+		.remove = fxo_xpd_remove
+	}
+};
+
 static int __init card_fxo_startup(void)
 {
+	int	ret;
+
 	if(ring_debounce <= 0) {
 		ERR("ring_debounce=%d. Must be positive number of ticks\n", ring_debounce);
 		return -EINVAL;
 	}
+	if((ret = xpd_driver_register(&fxo_driver.driver)) < 0)
+		return ret;
 	INFO("revision %s\n", XPP_VERSION);
 #ifdef	WITH_METERING
 	INFO("FEATURE: WITH METERING Detection\n");
@@ -1334,6 +1370,7 @@ static int __init card_fxo_startup(void)
 static void __exit card_fxo_cleanup(void)
 {
 	xproto_unregister(&PROTO_TABLE(FXO));
+	xpd_driver_unregister(&fxo_driver.driver);
 }
 
 MODULE_DESCRIPTION("XPP FXO Card Driver");

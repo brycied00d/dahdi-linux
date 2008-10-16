@@ -62,15 +62,19 @@ static DEF_PARM(uint, poll_interval, 500, 0644, "Poll channel state interval in 
 
 static bool pri_packet_is_valid(xpacket_t *pack);
 static void pri_packet_dump(const char *msg, xpacket_t *pack);
+#ifdef	OLD_PROC
 static int proc_pri_info_read(char *page, char **start, off_t off, int count, int *eof, void *data);
 static int proc_pri_info_write(struct file *file, const char __user *buffer, unsigned long count, void *data);
+#endif
 static int pri_startup(struct dahdi_span *span);
 static int pri_shutdown(struct dahdi_span *span);
 static int pri_rbsbits(struct dahdi_chan *chan, int bits);
 static int pri_lineconfig(xpd_t *xpd, int lineconfig);
 
 #define	PROC_REGISTER_FNAME	"slics"
+#ifdef	OLD_PROC
 #define	PROC_PRI_INFO_FNAME	"pri_info"
+#endif
 
 enum pri_protocol {
 	PRI_PROTO_0  	= 0,
@@ -104,7 +108,7 @@ static int pri_num_channels(enum pri_protocol pri_protocol)
 static const char *type_name(enum pri_protocol pri_protocol)
 {
 	static const char	*names[4] = {
-		[PRI_PROTO_0] = "Unknown",
+		[PRI_PROTO_0] = "PRI-Unknown",
 		[PRI_PROTO_E1] = "E1",
 		[PRI_PROTO_T1] = "T1",
 		[PRI_PROTO_J1] = "J1"
@@ -276,7 +280,9 @@ struct pri_leds {
 
 struct PRI_priv_data {
 	bool				clock_source;
+#ifdef	OLD_PROC
 	struct proc_dir_entry		*pri_info;
+#endif
 	enum pri_protocol		pri_protocol;
 	int				deflaw;
 	unsigned int			dchan_num;
@@ -373,6 +379,7 @@ static int pri_write_reg(xpd_t *xpd, int regnum, byte val)
 			);
 }
 
+#ifdef	OLD_PROC
 static void pri_proc_remove(xbus_t *xbus, xpd_t *xpd)
 {
 	struct PRI_priv_data	*priv;
@@ -387,7 +394,9 @@ static void pri_proc_remove(xbus_t *xbus, xpd_t *xpd)
 	}
 #endif
 }
+#endif
 
+#ifdef	OLD_PROC
 static int pri_proc_create(xbus_t *xbus, xpd_t *xpd)
 {
 	struct PRI_priv_data	*priv;
@@ -412,6 +421,7 @@ err:
 	pri_proc_remove(xbus, xpd);
 	return -EINVAL;
 }
+#endif
 
 static bool valid_pri_modes(const xpd_t *xpd)
 {
@@ -570,7 +580,7 @@ static void set_clocking(xpd_t *xpd)
 	int			best_subunit_prio = 0;
 	int			i;
 
-	xbus = get_xbus(xpd->xbus->num);
+	xbus = xpd->xbus;
 	/* Find subunit with best timing priority */
 	for(i = 0; i < MAX_SLAVES; i++) {
 		struct PRI_priv_data	*priv;
@@ -612,7 +622,6 @@ static void set_clocking(xpd_t *xpd)
 		}
 	}
 	dahdi_update_syncsrc(xpd);
-	put_xbus(xbus);
 }
 
 static void set_reg_lim0(const char *msg, xpd_t *xpd)
@@ -890,21 +899,20 @@ static xpd_t *PRI_card_new(xbus_t *xbus, int unit, int subunit, const xproto_tab
 	int			channels = min(31, CHANNELS_PERXPD);	/* worst case */
 
 	XBUS_DBG(GENERAL, xbus, "\n");
-	xpd = xpd_alloc(sizeof(struct PRI_priv_data), proto_table, channels);
+	xpd = xpd_alloc(xbus, unit, subunit, subtype, subunits, sizeof(struct PRI_priv_data), proto_table, channels);
 	if(!xpd)
 		return NULL;
 	priv = xpd->priv;
 	priv->pri_protocol = PRI_PROTO_0;		/* Default, changes in set_pri_proto() */
 	priv->deflaw = DAHDI_LAW_DEFAULT;		/* Default, changes in set_pri_proto() */
 	xpd->type_name = type_name(priv->pri_protocol);
-	if(xpd_common_init(xbus, xpd, unit, subunit, subtype, subunits) < 0)
-		goto err;
-	if(pri_proc_create(xbus, xpd) < 0)
-		goto err;
+#ifdef	OLD_PROC
+	if(pri_proc_create(xbus, xpd) < 0) {
+		xpd_free(xpd);
+		return NULL;
+	}
+#endif
 	return xpd;
-err:
-	xpd_free(xpd);
-	return NULL;
 }
 
 static int PRI_card_init(xbus_t *xbus, xpd_t *xpd)
@@ -948,7 +956,9 @@ static int PRI_card_init(xbus_t *xbus, xpd_t *xpd)
 	priv->initialized = 1;
 	return 0;
 err:
+#ifdef	OLD_PROC
 	pri_proc_remove(xbus, xpd);
+#endif
 	XPD_ERR(xpd, "Failed initializing registers (%d)\n", ret);
 	return ret;
 }
@@ -960,7 +970,9 @@ static int PRI_card_remove(xbus_t *xbus, xpd_t *xpd)
 	BUG_ON(!xpd);
 	priv = xpd->priv;
 	XPD_DBG(GENERAL, xpd, "\n");
+#ifdef	OLD_PROC
 	pri_proc_remove(xbus, xpd);
+#endif
 	return 0;
 }
 
@@ -1164,7 +1176,7 @@ static int PRI_card_tick(xbus_t *xbus, xpd_t *xpd)
 static int PRI_card_ioctl(xpd_t *xpd, int pos, unsigned int cmd, unsigned long arg)
 {
 	BUG_ON(!xpd);
-	if(!TRANSPORT_RUNNING(xpd->xbus))
+	if(!XBUS_IS(xpd->xbus, READY))
 		return -ENODEV;
 	switch (cmd) {
 		case DAHDI_TONEDETECT:
@@ -1199,7 +1211,7 @@ static int pri_startup(struct dahdi_span *span)
 	BUG_ON(!xpd);
 	priv = xpd->priv;
 	BUG_ON(!priv);
-	if(!TRANSPORT_RUNNING(xpd->xbus)) {
+	if(!XBUS_IS(xpd->xbus, READY)) {
 		XPD_DBG(GENERAL, xpd, "Startup called by dahdi. No Hardware. Ignored\n");
 		return -ENODEV;
 	}
@@ -1220,7 +1232,7 @@ static int pri_shutdown(struct dahdi_span *span)
 	BUG_ON(!xpd);
 	priv = xpd->priv;
 	BUG_ON(!priv);
-	if(!TRANSPORT_RUNNING(xpd->xbus)) {
+	if(!XBUS_IS(xpd->xbus, READY)) {
 		XPD_DBG(GENERAL, xpd, "Shutdown called by dahdi. No Hardware. Ignored\n");
 		return -ENODEV;
 	}
@@ -1631,6 +1643,7 @@ static void pri_packet_dump(const char *msg, xpacket_t *pack)
 	DBG(GENERAL, "%s\n", msg);
 }
 /*------------------------- REGISTER Handling --------------------------*/
+#ifdef	OLD_PROC
 static int proc_pri_info_write(struct file *file, const char __user *buffer, unsigned long count, void *data)
 {
 	xpd_t			*xpd = data;
@@ -1647,6 +1660,8 @@ static int proc_pri_info_write(struct file *file, const char __user *buffer, uns
 
 	if(!xpd)
 		return -ENODEV;
+	XPD_NOTICE(xpd, "%s: DEPRECATED: %s[%d] write to /proc interface instead of /sys\n",
+		__FUNCTION__, current->comm, current->tgid);
 	priv = xpd->priv;
 	if(count >= MAX_PROC_WRITE) {	/* leave room for null */
 		XPD_ERR(xpd, "write too long (%ld)\n", count);
@@ -1711,6 +1726,8 @@ static int proc_pri_info_read(char *page, char **start, off_t off, int count, in
 	DBG(PROC, "\n");
 	if(!xpd)
 		return -ENODEV;
+	XPD_NOTICE(xpd, "%s: DEPRECATED: %s[%d] read from /proc interface instead of /sys\n",
+		__FUNCTION__, current->comm, current->tgid);
 	spin_lock_irqsave(&xpd->lock, flags);
 	priv = xpd->priv;
 	BUG_ON(!priv);
@@ -1773,11 +1790,366 @@ static int proc_pri_info_read(char *page, char **start, off_t off, int count, in
 		len = 0;
 	return len;
 }
+#endif
+
+/*------------------------- sysfs stuff --------------------------------*/
+static DEVICE_ATTR_READER(pri_protocol_show, dev, buf)
+{
+	xpd_t			*xpd;
+	struct PRI_priv_data	*priv;
+	unsigned long		flags;
+	int			len = 0;
+
+	BUG_ON(!dev);
+	xpd = dev_to_xpd(dev);
+	if(!xpd)
+		return -ENODEV;
+	priv = xpd->priv;
+	BUG_ON(!priv);
+	spin_lock_irqsave(&xpd->lock, flags);
+	len += sprintf(buf, "%s\n", pri_protocol_name(priv->pri_protocol));
+	spin_unlock_irqrestore(&xpd->lock, flags);
+	return len;
+}
+
+static DEVICE_ATTR_WRITER(pri_protocol_store, dev, buf, count)
+{
+	xpd_t			*xpd;
+	enum pri_protocol	new_protocol = PRI_PROTO_0;
+	int			i;
+	int			ret;
+
+	BUG_ON(!dev);
+	xpd = dev_to_xpd(dev);
+	XPD_DBG(GENERAL, xpd, "%s\n", buf);
+	if(!xpd)
+		return -ENODEV;
+	if((i = strcspn(buf, " \r\n")) != 2) {
+		XPD_NOTICE(xpd,
+			"Protocol name '%s' has %d characters (should be 2). Ignored.\n",
+			buf, i);
+		return -EINVAL;
+	}
+	if(strnicmp(buf, "E1", 2) == 0)
+		new_protocol = PRI_PROTO_E1;
+	else if(strnicmp(buf, "T1", 2) == 0)
+		new_protocol = PRI_PROTO_T1;
+	else if(strnicmp(buf, "J1", 2) == 0)
+		new_protocol = PRI_PROTO_J1;
+	else {
+		XPD_NOTICE(xpd,
+			"Unknown PRI protocol '%s' (should be E1|T1|J1). Ignored.\n",
+			buf);
+		return -EINVAL;
+	}
+	ret = set_pri_proto(xpd, new_protocol);
+	return (ret < 0) ? ret : count;
+}
+
+static	DEVICE_ATTR(pri_protocol, S_IRUGO | S_IWUSR, pri_protocol_show, pri_protocol_store);
+
+static DEVICE_ATTR_READER(pri_localloop_show, dev, buf)
+{
+	xpd_t			*xpd;
+	struct PRI_priv_data	*priv;
+	unsigned long		flags;
+	int			len = 0;
+
+	BUG_ON(!dev);
+	xpd = dev_to_xpd(dev);
+	if(!xpd)
+		return -ENODEV;
+	priv = xpd->priv;
+	BUG_ON(!priv);
+	spin_lock_irqsave(&xpd->lock, flags);
+	len += sprintf(buf, "%c\n",
+		(priv->local_loopback) ? 'Y' : 'N');
+	spin_unlock_irqrestore(&xpd->lock, flags);
+	return len;
+}
+
+static DEVICE_ATTR_WRITER(pri_localloop_store, dev, buf, count)
+{
+	xpd_t			*xpd;
+	bool			ll = 0;
+	int			i;
+	int			ret;
+
+	BUG_ON(!dev);
+	xpd = dev_to_xpd(dev);
+	XPD_DBG(GENERAL, xpd, "%s\n", buf);
+	if(!xpd)
+		return -ENODEV;
+	if((i = strcspn(buf, " \r\n")) != 1) {
+		XPD_NOTICE(xpd,
+			"Value '%s' has %d characters (should be 1). Ignored.\n",
+			buf, i);
+		return -EINVAL;
+	}
+	if(strchr("1Yy", buf[0]) != NULL)
+		ll = 1;
+	else if(strchr("0Nn", buf[0]) != NULL)
+		ll = 0;
+	else {
+		XPD_NOTICE(xpd,
+			"Unknown value '%s' (should be [1Yy]|[0Nn]). Ignored.\n",
+			buf);
+		return -EINVAL;
+	}
+	ret = set_localloop(xpd, ll);
+	return (ret < 0) ? ret : count;
+}
+
+static	DEVICE_ATTR(pri_localloop, S_IRUGO | S_IWUSR, pri_localloop_show, pri_localloop_store);
+
+static DEVICE_ATTR_READER(pri_layer1_show, dev, buf)
+{
+	xpd_t			*xpd;
+	struct PRI_priv_data	*priv;
+	unsigned long		flags;
+	int			len = 0;
+
+	BUG_ON(!dev);
+	xpd = dev_to_xpd(dev);
+	if(!xpd)
+		return -ENODEV;
+	priv = xpd->priv;
+	BUG_ON(!priv);
+	spin_lock_irqsave(&xpd->lock, flags);
+	if(priv->poll_noreplies > 1)
+		len += sprintf(buf + len, "Unknown[%d]", priv->poll_noreplies);
+	else
+		len += sprintf(buf + len, "%-10s", ((priv->layer1_up) ?  "UP" : "DOWN"));
+	len += sprintf(buf + len, "%d\n", priv->layer1_replies);
+	spin_unlock_irqrestore(&xpd->lock, flags);
+	return len;
+}
+
+static	DEVICE_ATTR(pri_layer1, S_IRUGO, pri_layer1_show, NULL);
+
+static DEVICE_ATTR_READER(pri_alarms_show, dev, buf)
+{
+	xpd_t			*xpd;
+	struct PRI_priv_data	*priv;
+	unsigned long		flags;
+	int			len = 0;
+	const static struct {
+		byte		bits;
+		const char	*name;
+	} alarm_types[] = {
+		{ REG_FRS0_LOS, "RED" },
+		{ REG_FRS0_AIS, "BLUE" },
+		{ REG_FRS0_RRA, "YELLOW" },
+	};
+
+	BUG_ON(!dev);
+	xpd = dev_to_xpd(dev);
+	if(!xpd)
+		return -ENODEV;
+	priv = xpd->priv;
+	BUG_ON(!priv);
+	spin_lock_irqsave(&xpd->lock, flags);
+	if(priv->poll_noreplies > 1)
+		len += sprintf(buf + len, "Unknown[%d]", priv->poll_noreplies);
+	else {
+		int	i;
+
+		for(i = 0; i < ARRAY_SIZE(alarm_types); i++) {
+			if(priv->reg_frs0 & alarm_types[i].bits)
+				len += sprintf(buf + len, "%s ", alarm_types[i].name);
+		}
+	}
+	len += sprintf(buf + len, "\n");
+	spin_unlock_irqrestore(&xpd->lock, flags);
+	return len;
+}
+
+static	DEVICE_ATTR(pri_alarms, S_IRUGO, pri_alarms_show, NULL);
+
+static DEVICE_ATTR_READER(pri_cas_show, dev, buf)
+{
+	xpd_t			*xpd;
+	struct PRI_priv_data	*priv;
+	unsigned long		flags;
+	int			len = 0;
+
+	BUG_ON(!dev);
+	xpd = dev_to_xpd(dev);
+	if(!xpd)
+		return -ENODEV;
+	priv = xpd->priv;
+	BUG_ON(!priv);
+	spin_lock_irqsave(&xpd->lock, flags);
+	if(priv->is_cas) {
+		int	i;
+
+		len += sprintf(buf + len,
+			"CAS: replies=%d\n", priv->cas_replies);
+		len += sprintf(buf + len, "   CAS-TS: ");
+		for(i = 0; i < NUM_CAS_RS; i++) {
+			len += sprintf(buf + len, " %02X", priv->cas_ts_e[i]);
+		}
+		len += sprintf(buf + len, "\n");
+		len += sprintf(buf + len, "   CAS-RS: ");
+		for(i = 0; i < NUM_CAS_RS; i++) {
+			len += sprintf(buf + len, " %02X", priv->cas_rs_e[i]);
+		}
+		len += sprintf(buf + len, "\n");
+	}
+	spin_unlock_irqrestore(&xpd->lock, flags);
+	return len;
+}
+
+static	DEVICE_ATTR(pri_cas, S_IRUGO, pri_cas_show, NULL);
+
+static DEVICE_ATTR_READER(pri_dchan_show, dev, buf)
+{
+	xpd_t			*xpd;
+	struct PRI_priv_data	*priv;
+	unsigned long		flags;
+	int			len = 0;
+
+	BUG_ON(!dev);
+	xpd = dev_to_xpd(dev);
+	if(!xpd)
+		return -ENODEV;
+	priv = xpd->priv;
+	BUG_ON(!priv);
+	spin_lock_irqsave(&xpd->lock, flags);
+	len += sprintf(buf + len, "D-Channel: TX=[%5d] (0x%02X)   RX=[%5d] (0x%02X) ",
+			priv->dchan_tx_counter, priv->dchan_tx_sample,
+			priv->dchan_rx_counter, priv->dchan_rx_sample);
+	if(priv->dchan_alive) {
+		len += sprintf(buf + len, "(alive %d K-ticks)\n",
+			priv->dchan_alive_ticks/1000);
+	} else {
+		len += sprintf(buf + len, "(dead)\n");
+	}
+	spin_unlock_irqrestore(&xpd->lock, flags);
+	return len;
+}
+
+static	DEVICE_ATTR(pri_dchan, S_IRUGO, pri_dchan_show, NULL);
+
+static DEVICE_ATTR_READER(pri_clocking_show, dev, buf)
+{
+	xpd_t			*xpd;
+	struct PRI_priv_data	*priv;
+	unsigned long		flags;
+	int			len = 0;
+
+	BUG_ON(!dev);
+	xpd = dev_to_xpd(dev);
+	if(!xpd)
+		return -ENODEV;
+	priv = xpd->priv;
+	BUG_ON(!priv);
+	spin_lock_irqsave(&xpd->lock, flags);
+	len += sprintf(buf + len, "%s\n", (priv->clock_source) ? "MASTER" : "SLAVE");
+	spin_unlock_irqrestore(&xpd->lock, flags);
+	return len;
+}
+
+static	DEVICE_ATTR(pri_clocking, S_IRUGO, pri_clocking_show, NULL);
+
+
+static int pri_xpd_probe(struct device *dev)
+{
+	xpd_t	*xpd;
+	int	ret = 0;
+
+	xpd = dev_to_xpd(dev);
+	/* Is it our device? */
+	if(xpd->type != XPD_TYPE_PRI) {
+		XPD_ERR(xpd, "drop suggestion for %s (%d)\n",
+			dev->bus_id, xpd->type);
+		return -EINVAL;
+	}
+	XPD_DBG(DEVICES, xpd, "SYSFS\n");
+	ret = device_create_file(dev, &dev_attr_pri_protocol);
+	if(ret) {
+		XPD_ERR(xpd, "%s: device_create_file(pri_protocol) failed: %d\n", __FUNCTION__, ret);
+		goto fail_pri_protocol;
+	}
+	ret = device_create_file(dev, &dev_attr_pri_localloop);
+	if(ret) {
+		XPD_ERR(xpd, "%s: device_create_file(pri_localloop) failed: %d\n", __FUNCTION__, ret);
+		goto fail_pri_localloop;
+	}
+	ret = device_create_file(dev, &dev_attr_pri_layer1);
+	if(ret) {
+		XPD_ERR(xpd, "%s: device_create_file(pri_layer1) failed: %d\n", __FUNCTION__, ret);
+		goto fail_pri_layer1;
+	}
+	ret = device_create_file(dev, &dev_attr_pri_alarms);
+	if(ret) {
+		XPD_ERR(xpd, "%s: device_create_file(pri_alarms) failed: %d\n", __FUNCTION__, ret);
+		goto fail_pri_alarms;
+	}
+	ret = device_create_file(dev, &dev_attr_pri_cas);
+	if(ret) {
+		XPD_ERR(xpd, "%s: device_create_file(pri_cas) failed: %d\n", __FUNCTION__, ret);
+		goto fail_pri_cas;
+	}
+	ret = device_create_file(dev, &dev_attr_pri_dchan);
+	if(ret) {
+		XPD_ERR(xpd, "%s: device_create_file(pri_dchan) failed: %d\n", __FUNCTION__, ret);
+		goto fail_pri_dchan;
+	}
+	ret = device_create_file(dev, &dev_attr_pri_clocking);
+	if(ret) {
+		XPD_ERR(xpd, "%s: device_create_file(pri_clocking) failed: %d\n", __FUNCTION__, ret);
+		goto fail_pri_clocking;
+	}
+	return 0;
+fail_pri_clocking:
+	device_remove_file(dev, &dev_attr_pri_dchan);
+fail_pri_dchan:
+	device_remove_file(dev, &dev_attr_pri_cas);
+fail_pri_cas:
+	device_remove_file(dev, &dev_attr_pri_alarms);
+fail_pri_alarms:
+	device_remove_file(dev, &dev_attr_pri_layer1);
+fail_pri_layer1:
+	device_remove_file(dev, &dev_attr_pri_localloop);
+fail_pri_localloop:
+	device_remove_file(dev, &dev_attr_pri_protocol);
+fail_pri_protocol:
+	return ret;
+}
+
+static int pri_xpd_remove(struct device *dev)
+{
+	xpd_t	*xpd;
+
+	xpd = dev_to_xpd(dev);
+	XPD_DBG(DEVICES, xpd, "SYSFS\n");
+	device_remove_file(dev, &dev_attr_pri_clocking);
+	device_remove_file(dev, &dev_attr_pri_dchan);
+	device_remove_file(dev, &dev_attr_pri_cas);
+	device_remove_file(dev, &dev_attr_pri_alarms);
+	device_remove_file(dev, &dev_attr_pri_layer1);
+	device_remove_file(dev, &dev_attr_pri_localloop);
+	device_remove_file(dev, &dev_attr_pri_protocol);
+	return 0;
+}
+
+static struct xpd_driver	pri_driver = {
+	.type		= XPD_TYPE_PRI,
+	.driver		= {
+		.name = "pri",
+		.owner = THIS_MODULE,
+		.probe = pri_xpd_probe,
+		.remove = pri_xpd_remove
+	}
+};
 
 static int __init card_pri_startup(void)
 {
-	DBG(GENERAL, "\n");
+	int	ret;
 
+	if((ret = xpd_driver_register(&pri_driver.driver)) < 0)
+		return ret;
 	INFO("revision %s\n", XPP_VERSION);
 	xproto_register(&PROTO_TABLE(PRI));
 	return 0;
@@ -1787,6 +2159,7 @@ static void __exit card_pri_cleanup(void)
 {
 	DBG(GENERAL, "\n");
 	xproto_unregister(&PROTO_TABLE(PRI));
+	xpd_driver_unregister(&pri_driver.driver);
 }
 
 MODULE_DESCRIPTION("XPP PRI Card Driver");
