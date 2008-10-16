@@ -262,7 +262,7 @@ int xframe_receive(xbus_t *xbus, xframe_t *xframe)
 		FREE_RECV_XFRAME(xbus, xframe);
 		return -EPROTO;
 	}
-	if(!XBUS_GET(xbus)) {
+	if(XBUS_IS(xbus, DISCONNECTED)) {
 		XBUS_DBG(GENERAL, xbus, "Dropped xframe. Is shutting down.\n");
 		return -ENODEV;
 	}
@@ -270,9 +270,12 @@ int xframe_receive(xbus_t *xbus, xframe_t *xframe)
 	/*
 	 * We want to check that xframes do not mix PCM and other commands
 	 */
-	if(XPACKET_IS_PCM((xpacket_t *)xframe->packets))
-		xframe_receive_pcm(xbus, xframe);
-	else {
+	if(XPACKET_IS_PCM((xpacket_t *)xframe->packets)) {
+		if(!XBUS_IS(xbus, READY))
+			FREE_RECV_XFRAME(xbus, xframe);
+		else
+			xframe_receive_pcm(xbus, xframe);
+	} else {
 		XBUS_COUNTER(xbus, RX_CMD)++;
 		ret = xframe_receive_cmd(xbus, xframe);
 	}
@@ -282,7 +285,6 @@ int xframe_receive(xbus_t *xbus, xframe_t *xframe)
 		now.tv_usec - tv_received.tv_usec;
 	if(usec > xbus->max_rx_process)
 		xbus->max_rx_process = usec;
-	XBUS_PUT(xbus);
 	return ret;
 }
 

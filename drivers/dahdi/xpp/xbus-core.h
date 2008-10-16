@@ -86,18 +86,34 @@ static struct xbus_counters {
 
 #define	XBUS_COUNTER_MAX	ARRAY_SIZE(xbus_counters)
 
+enum xbus_state {
+	XBUS_STATE_START,
+	XBUS_STATE_IDLE,
+	XBUS_STATE_SENT_REQUEST,
+	XBUS_STATE_RECVD_DESC,
+	XBUS_STATE_READY,
+	XBUS_STATE_DEACTIVATING,
+	XBUS_STATE_DEACTIVATED,
+	XBUS_STATE_DISCONNECTED,
+	XBUS_STATE_FAIL,
+};
+
+const char *xbus_statename(enum xbus_state st);
+
 struct xbus_transport {
 	struct xbus_ops		*ops;
 	void			*priv;
 	ushort			max_send_size;
-	bool			transport_running;	/* Hardware is functional */
+	enum xbus_state		xbus_state;
+	spinlock_t		state_lock;
 	atomic_t		transport_refcount;
 	wait_queue_head_t	transport_unused;
 	spinlock_t		lock;
 };
 
 #define	MAX_SEND_SIZE(xbus)	((xbus)->transport.max_send_size)
-#define	TRANSPORT_RUNNING(xbus)	((xbus)->transport.transport_running)
+#define	XBUS_STATE(xbus)	((xbus)->transport.xbus_state)
+#define	XBUS_IS(xbus, st)	(XBUS_STATE(xbus) == XBUS_STATE_ ## st)
 #define	TRANSPORT_EXIST(xbus)	((xbus)->transport.ops != NULL)
 
 struct xbus_ops *transportops_get(xbus_t *xbus);
@@ -133,8 +149,10 @@ void put_xframe(struct xframe_queue *q, xframe_t *xframe);
 #define	FREE_SEND_XFRAME(xbus, xframe)	put_xframe(&(xbus)->send_pool, (xframe))
 #define	FREE_RECV_XFRAME(xbus, xframe)	put_xframe(&(xbus)->receive_pool, (xframe))
 
-xbus_t *get_xbus(uint num);
-void put_xbus(xbus_t *xbus);
+xbus_t		*xbus_num(uint num);
+xbus_t		*get_xbus(const char *msg, xbus_t *xbus);
+void		put_xbus(const char *msg, xbus_t *xbus);
+int		refcount_xbus(xbus_t *xbus);
 
 /*
  * An xbus is a transport layer for Xorcom Protocol commands
@@ -143,7 +161,7 @@ struct xbus {
 	char			busname[XBUS_NAMELEN];	/* set by xbus_new() */
 
 	/* low-level bus drivers set these 2 fields */
-	char			location[XBUS_DESCLEN];
+	char			connector[XBUS_DESCLEN];
 	char			label[LABEL_SIZE];
 	byte			revision;		/* Protocol revision */
 	struct xbus_transport	transport;
@@ -151,6 +169,7 @@ struct xbus {
 	int			num;
 	struct xpd		*xpds[MAX_XPDS];
 
+	int			command_tick_counter;
 	struct xframe_queue	command_queue;
 	wait_queue_head_t	command_queue_empty;
 
@@ -198,6 +217,7 @@ struct xbus {
 #endif
 
 	struct xbus_workqueue	*worker;
+	struct semaphore	in_worker;
 
 	/*
 	 * Sync adjustment
@@ -206,11 +226,7 @@ struct xbus {
 	int			sync_adjustment_offset;
 	long			pll_updated_at;
 
-	struct	rw_semaphore	in_use;
-#define	XBUS_GET(xbus)	down_read_trylock(&(xbus)->in_use)
-#define	XBUS_PUT(xbus)	up_read(&(xbus)->in_use)
-
-	int			num_xpds;
+	atomic_t		num_xpds;
 
 #ifdef	XPP_DEBUGFS
 	struct dentry		*debugfs_dir;
@@ -281,25 +297,29 @@ xpacket_t *xframe_next_packet(xframe_t *xframe, int len);
 
 xpd_t	*xpd_of(const xbus_t *xbus, int xpd_num);
 xpd_t	*xpd_byaddr(const xbus_t *xbus, uint unit, uint subunit);
+bool	xbus_setstate(xbus_t *xbus, enum xbus_state newstate);
 xbus_t	*xbus_new(struct xbus_ops *ops, ushort max_send_size, void *priv);
-void xbus_remove(xbus_t *xbus);
-int xbus_activate(xbus_t *xbus);
-void xbus_disconnect(xbus_t *xbus);
-void xbus_receive_xframe(xbus_t *xbus, xframe_t *xframe);
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,20)
-void xbus_populate(struct work_struct *work);
-#else
-void xbus_populate(void *data);
-#endif
+void	xbus_free(xbus_t *xbus);
+int	xbus_connect(xbus_t *xbus);
+int	xbus_activate(xbus_t *xbus);
+void	xbus_deactivate(xbus_t *xbus, bool is_disconnected);
+void	xbus_disconnect(xbus_t *xbus);
+void	xbus_receive_xframe(xbus_t *xbus, xframe_t *xframe);
+int	xbus_process_worker(xbus_t *xbus);
+int	waitfor_xpds(xbus_t *xbus, char *buf);
 
-int xbus_register_xpd(xbus_t *xbus, xpd_t *xpd);
-int xbus_unregister_xpd(xbus_t *xbus, xpd_t *xpd);
+int	xbus_xpd_bind(xbus_t *xbus, xpd_t *xpd, int unit, int subunit);
+int	xbus_xpd_unbind(xbus_t *xbus, xpd_t *xpd);
 
 /* sysfs */
-int register_xpp_bus(void);
-void unregister_xpp_bus(void);
-int xbus_sysfs_create(xbus_t *xbus);
-void xbus_sysfs_remove(xbus_t *xbus);
+int	xpd_device_register(xbus_t *xbus, xpd_t *xpd);
+void	xpd_device_unregister(xpd_t *xpd);
+
+int	xpp_driver_init(void);
+void	xpp_driver_exit(void);
+int	xbus_sysfs_create(xbus_t *xbus);
+void	xbus_sysfs_remove(xbus_t *xbus);
+void	astribank_uevent_send(xbus_t *xbus, enum kobject_action act);
 
 #endif	/* XBUS_CORE_H */
 

@@ -25,12 +25,13 @@
 #include "xpd.h"
 #include "xproto.h"
 
-void xpd_disconnect(xpd_t *xpd);
-int xpd_common_init(xbus_t *xbus, xpd_t *xpd, int unit, int subunit, int subtype, int subunits);
+int dahdi_register_xpd(xpd_t *xpd);
+int dahdi_unregister_xpd(xpd_t *xpd);
+void xpd_unreg_request(xpd_t *xpd);
 int create_xpd(xbus_t *xbus, const xproto_table_t *proto_table,
 		int unit, int subunit, byte type, byte subtype, int subunits, byte port_dir);
 void xpd_post_init(xpd_t *xpd);
-xpd_t *xpd_alloc(size_t privsize, const xproto_table_t *proto_table, int channels);
+xpd_t *xpd_alloc(xbus_t *xbus, int unit, int subunit, int subtype, int subunits, size_t privsize, const xproto_table_t *proto_table, int channels);
 void xpd_free(xpd_t *xpd);
 void xpd_remove(xpd_t *xpd);
 void update_xpd_status(xpd_t *xpd, int alarm_flag);

@@ -1,6 +1,9 @@
 #! /usr/bin/perl -w
 use strict;
 
+# Make warnings fatal
+local $SIG{__WARN__} = sub { die @_ };
+
 #
 # $Id$
 #
@@ -59,7 +62,6 @@ BEGIN { $init_dir = dirname($0); unshift(@INC, "$init_dir", "$init_dir/zconf"); 
 use XppConfig $init_dir;
 my $unit_id;
 my %opts;
-$ENV{XPP_BASE} = '/proc/xpp';
 
 getopts('o:', \%opts);
 
@@ -77,6 +79,21 @@ if (-t STDERR) {
 	$unit_id = "$ENV{XBUS_NAME}/UNIT-$ENV{UNIT_NUMBER}";
 	open (STDERR, "| logger -t $program -p kern.info") || die;
 	logit "Non Interactive startup";
+	foreach my $k (qw(
+			XBUS_NAME
+			XBUS_NUMBER
+			UNIT_NUMBER
+			UNIT_TYPE
+			UNIT_SUBUNITS
+			UNIT_SUBUNITS_DIR
+			XBUS_REVISION
+			XBUS_CONNECTOR
+			XBUS_LABEL)) {
+		unless(defined $ENV{$k}) {
+			logit "Missing ENV{$k}\n";
+			die;
+		}
+	}
 }
 
 sub select_subunit($) {
@@ -87,8 +104,14 @@ sub select_subunit($) {
 	if($opts{o}) {
 		$output = $opts{o};
 	} else {
-		my $xpd_name = sprintf("XPD-%1d%1d", $ENV{UNIT_NUMBER}, $subunit);
-		$output = "$ENV{XPP_BASE}/$ENV{XBUS_NAME}/$xpd_name/chipregs";
+		$output = sprintf "/sys/bus/xpds/devices/%02d:%1d:%1d/chipregs",
+				$ENV{XBUS_NUMBER}, $ENV{UNIT_NUMBER}, $subunit;
+		if(! -f $output) {
+			my $xpd_name = sprintf("XPD-%1d%1d", $ENV{UNIT_NUMBER}, $subunit);
+			$output = "/proc/xpp/$ENV{XBUS_NAME}/$xpd_name/chipregs";
+			logit "OLD DRIVER: does not use /sys chipregs. Falling back to /proc"
+				if -f $output;
+		}
 	}
 	open(REG, ">$output") || die "Failed to open '$output': $!\n";
 	my $oldfh = select REG;
@@ -186,15 +209,21 @@ sub get_pri_protocol {
 sub write_pri_info {
 	my $port = shift;
 	my $subunit = $port->{PORT_NUM};
-	my $xpd_name = "XPD-$ENV{UNIT_NUMBER}$subunit";
-	my $info = "$ENV{XPP_BASE}/$ENV{XBUS_NAME}/$xpd_name/pri_info";	
 	my $pri_protocol = $port->get_pri_protocol;
+	my $xpd_name = sprintf("XPD-%1d%1d", $ENV{UNIT_NUMBER}, $subunit);
 
 	if(defined $pri_protocol) {
 		main::logit "$xpd_name: pri_protocol $pri_protocol";
-		open(INFO, ">$info") || die "Failed to open '$info': $!\n";
-		print INFO "$pri_protocol\n" || die "Failed writing '$pri_protocol' to '$info': $!\n";
-		close INFO || die "Failed during close of '$info': $!\n";
+		my $file = sprintf "/sys/bus/xpds/devices/%02d:%1d:%1d/pri_protocol",
+				$ENV{XBUS_NUMBER}, $ENV{UNIT_NUMBER}, $subunit;
+		if(! -f $file) {
+			$file = "/proc/xpp/$ENV{XBUS_NAME}/$xpd_name/pri_info";
+			main::logit "OLD DRIVER: does not use /sys chipregs. Falling back to /proc"
+				if -f $file;
+		}
+		open(INFO, ">$file") || die "Failed to open '$file': $!\n";
+		print INFO "$pri_protocol\n" || die "Failed writing '$pri_protocol' to '$file': $!\n";
+		close INFO || die "Failed during close of '$file': $!\n";
 	} else {
 		main::logit "$xpd_name: Skip setting pri protocol -- non given";
 	}
