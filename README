@@ -51,14 +51,14 @@ Other Drivers
 - dahdi_dummy: A dummy driver that only provides a DAHDI timing source.
 
 Build System
-~~~~~~~~~~~~
+------------
 gcc and friends. Generally you will need to install the package gcc.
 There may be cases where you will need a specific version of gcc to build
 kernel modules.
 
 
 Installation
-~~~~~~~~~~~~
+------------
 Note: If using `sudo` to build/install, you may need to add /sbin to your PATH.
 
   make
@@ -69,7 +69,7 @@ to configure DAHDI devices on your system.
 
 
 Installing to a Subtree
-^^^^^^^^^^^^^^^^^^^^^^^
+~~~~~~~~~~~~~~~~~~~~~~~
 The following may be useful when testing the package or when preparing a
 package for a binary distribution (such as an rpm package) installing
 onto a subtree rather than on th real system. 
@@ -91,7 +91,7 @@ attempting to generate device files. In that case, try:
 
 
 Extra Modules
-^^^^^^^^^^^^^
+~~~~~~~~~~~~~
 To build extra modules / modules directory not included in the DAHDI 
 distribution, use the optional variables MODULES_EXTRA and
 SUBDIRS_EXTRA:
@@ -131,7 +131,7 @@ NOTE:  At the time this was written, misdn-1.1.8 is not compatible the
 
 
 Module Parameters
-~~~~~~~~~~~~~~~~~
+-----------------
 The kernel modules can be configured through module parameters. Module
 parameters can optionally be set at load time. They are normally set (if
 needed) by a line in a file under /etc/modprobe.d/ or in the file
