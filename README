@@ -108,7 +108,7 @@ SUBDIRS_EXTRA:
 
 
 Installing the B410P drivers
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 With Zaptel it was possible to install mISDN and the B410P driver by typing
 'make b410p' from the command-line.  This is no longer possible with DAHDI as
 part of the changes to make DAHDI friendlier to binary packagers.  If you
@@ -135,6 +135,34 @@ misdn-init defaults 15 30' depending on your distribution.
 
 NOTE:  At the time this was written, misdn-1.1.8 is not compatible the
 2.6.25 kernel.  Please use a kernel version 2.6.25 or earlier.
+
+
+OSLEC
+~~~~~
+OSLEC is a Open Source Line Echo Canceller. Its homepage is at
+http://www.rowetel.com/ucasterisk/oslec.html and is is currently making
+its way into the mainline Kernel tree and may be included at some time
+around 2.6.29 (hopefully). The echo canceller module dahdi_echocan_oslec
+provides a DAHDI echo canceller module that uses the code from OSLEC. As
+OSLEC has not been accepted into mainline yet, its interface is not set
+in stone and thus this driver may need to change. Thus it is not
+built by default.
+
+Luckily the structure of the dahdi-linux tree matches that of the kernel
+tree. Hence you can basically copy drivers/staging/echo and place it
+under driver/staging/echo . In fact, dahdi_echocan_oslec assumes that
+this is where the oslec code lies. If it is elsewhere you'll need to fix
+the #include line.
+
+If you do have the oslec module but get messages about the functions
+'oslec_free', 'oslec_create' and such do not exist, this may be because
+you use a different version of the module. Specifically if it exports 
+'echo_can_free' or 'oslec_echo_can_free' . In that case get the latest
+version of dahdi-linux SVN and of OSLEC (from the staging tree or
+whatever).
+
+For more information regarding installing and using OSLEC, see the OSLEC
+homepage.
 
 
 Module Parameters
