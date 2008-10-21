@@ -50,22 +50,29 @@ Other Drivers
 - dahdi_dynamic_loc: Mirror a local span. Requires dahdi_dynamic
 - dahdi_dummy: A dummy driver that only provides a DAHDI timing source.
 
-Build System
-------------
-gcc and friends. Generally you will need to install the package gcc.
-There may be cases where you will need a specific version of gcc to build
-kernel modules.
-
 
 Installation
 ------------
-Note: If using `sudo` to build/install, you may need to add /sbin to your PATH.
+If all is well, you just need to run the following:
 
   make
   make install
 
-Note that you'll need the utilities provided in the package dahdi-tools
-to configure DAHDI devices on your system.
+You'll need the utilities provided in the package dahdi-tools to 
+configure DAHDI devices on your system.
+
+If using `sudo` to build/install, you may need to add /sbin to your PATH.
+
+If you still have problems, read further.
+
+
+Build Requirements
+~~~~~~~~~~~~~~~~~~
+gcc and friends. Generally you will need to install the package gcc.
+There may be cases where you will need a specific version of gcc to build
+kernel modules.
+
+TODO: copy build requirement from Zaptel README.
 
 
 Installing to a Subtree
