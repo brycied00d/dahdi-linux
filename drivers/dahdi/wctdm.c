@@ -395,13 +395,13 @@ static inline void wctdm_receiveprep(struct wctdm *wc, unsigned char ints)
 	for (x=0;x<DAHDI_CHUNKSIZE;x++) {
 #ifdef __BIG_ENDIAN
 		if (wc->cardflag & (1 << 3))
-			wc->chans[3].readchunk[x] = (readchunk[x]) & 0xff;
+			wc->chans[3]->readchunk[x] = (readchunk[x]) & 0xff;
 		if (wc->cardflag & (1 << 2))
-			wc->chans[2].readchunk[x] = (readchunk[x] >> 8) & 0xff;
+			wc->chans[2]->readchunk[x] = (readchunk[x] >> 8) & 0xff;
 		if (wc->cardflag & (1 << 1))
-			wc->chans[1].readchunk[x] = (readchunk[x] >> 16) & 0xff;
+			wc->chans[1]->readchunk[x] = (readchunk[x] >> 16) & 0xff;
 		if (wc->cardflag & (1 << 0))
-			wc->chans[0].readchunk[x] = (readchunk[x] >> 24) & 0xff;
+			wc->chans[0]->readchunk[x] = (readchunk[x] >> 24) & 0xff;
 #else
 		if (wc->cardflag & (1 << 3))
 			wc->chans[3]->readchunk[x] = (readchunk[x] >> 24) & 0xff;
