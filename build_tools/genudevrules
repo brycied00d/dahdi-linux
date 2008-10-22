@@ -3,8 +3,13 @@
 ver=`udevinfo -V | cut -f3 -d" "`
 
 if [ -z "${ver}" ]; then
-   # nobody has that old version, anyway.
-   ver=54
+   # Not found - try udevadm
+   ver=`udevadm info -V | cut -f3 -d" "`
+
+   if [ -z "${ver}" ]; then
+      # nobody has that old version, anyway.
+      ver=54
+   fi
 fi
 
 # udev versions prior to 055 use a single '=' for matching key values
