@@ -1273,11 +1273,13 @@ static int __devinit t1xxp_init_one(struct pci_dev *pdev, const struct pci_devic
 	unsigned int *canary;
 	unsigned int x;
 	
-	if (!pci_enable_device(pdev)) {
+	if (pci_enable_device(pdev)) {
+		printk(KERN_ERR "%s: pci_enable_device failed\n", __FUNCTION__);
 		return -EIO;
 	}
 
 	if (!(wc = kmalloc(sizeof(*wc), GFP_KERNEL))) {
+		printk(KERN_ERR "%s: Failed allocation a wc\n", __FUNCTION__);
 		return -ENOMEM;
 	}
 
