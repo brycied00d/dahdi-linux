@@ -495,7 +495,7 @@ __DATA__
 
 # Audio path. (also initialize 0A and 0B here if necessary)
 *	WD	08 00
-*	WD	09 C0
+*	WD	09 00
 
 # Automatic/Manual Control: defaults but:
 #	Cancel AOPN - Power Alarm
