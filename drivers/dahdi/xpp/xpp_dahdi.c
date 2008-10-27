@@ -119,7 +119,7 @@ static int proc_xpd_blink_write(struct file *file, const char __user *buffer, un
 
 /*------------------------- XPD Management -------------------------*/
 
-atomic_t *refcount_xpd(xpd_t *xpd)
+static atomic_t *refcount_xpd(xpd_t *xpd)
 {
 	struct kref *kref = &xpd->xpd_dev.kobj.kref;
 
