@@ -215,7 +215,7 @@ field##_show(struct device *dev, char *buf)                                \
 xbus_attr(connector, "%s\n");
 xbus_attr(label, "%s\n");
 
-struct device_attribute xbus_dev_attrs[] = {
+static struct device_attribute xbus_dev_attrs[] = {
         __ATTR_RO(connector),
         __ATTR_RO(label),
 	__ATTR_RO(status),
@@ -574,7 +574,7 @@ static int xpd_match(struct device *dev, struct device_driver *driver)
 	return 1;
 }
 
-struct device_attribute xpd_dev_attrs[] = {
+static struct device_attribute xpd_dev_attrs[] = {
 	__ATTR(chipregs,	S_IRUGO | S_IWUSR, chipregs_show, chipregs_store),
 	__ATTR(blink,		S_IRUGO | S_IWUSR, blink_show, blink_store),
 	__ATTR(span,		S_IRUGO | S_IWUSR, span_show, span_store),
