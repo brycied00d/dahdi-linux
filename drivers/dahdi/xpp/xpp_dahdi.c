@@ -594,9 +594,6 @@ void xpd_remove(xpd_t *xpd)
 	dahdi_unregister_xpd(xpd);
 	CALL_XMETHOD(card_remove, xbus, xpd);
 	xpd_free(xpd);
-	if(atomic_dec_and_test(&xbus->xbus_ref_count)) {
-		XBUS_DBG(DEVICES, xbus, "%s: Last ref to xbus. Removing\n", __FUNCTION__);
-	}
 }
 
 void update_xpd_status(xpd_t *xpd, int alarm_flag)
