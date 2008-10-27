@@ -101,6 +101,7 @@ typedef char			*charp;
 typedef unsigned char		byte;
 #ifdef __KERNEL__
 
+/* Kernel versions... */
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,20) 
 #define	KMEM_CACHE_T	kmem_cache_t
 #else 
@@ -112,6 +113,13 @@ typedef unsigned char		byte;
 					memset((p), 0, sizeof(*(p)));	\
 					kfree(p);			\
 				} while(0);
+
+/*
+ * Hotplug replaced with uevent in 2.6.16
+ */
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,16)
+#define	OLD_HOTPLUG_SUPPORT	// for older kernels
+#endif
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,14)
 #define	DEVICE_ATTR_READER(name,dev,buf)	\

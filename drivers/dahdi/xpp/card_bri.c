@@ -1505,7 +1505,9 @@ static struct xpd_driver	bri_driver = {
 	.type		= XPD_TYPE_BRI,
 	.driver		= {
 		.name = "bri",
+#ifndef OLD_HOTPLUG_SUPPORT
 		.owner = THIS_MODULE,
+#endif
 		.probe = bri_xpd_probe,
 		.remove = bri_xpd_remove
 	}
