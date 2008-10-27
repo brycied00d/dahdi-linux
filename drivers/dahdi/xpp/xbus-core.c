@@ -663,7 +663,6 @@ int xbus_xpd_bind(xbus_t *xbus, xpd_t *xpd, int unit, int subunit)
 	xpd->xbus_idx = xpd_num;
 	xbus->xpds[xpd_num] = xpd;
 	xpd->xbus = xbus;
-	atomic_inc(&xbus->xbus_ref_count);
 	atomic_inc(&xbus->num_xpds);
 	spin_unlock_irqrestore(&xbus->lock, flags);
 	/* Must be done out of atomic context */
@@ -1224,9 +1223,6 @@ void xbus_disconnect(xbus_t *xbus)
 	worker_destroy(xbus->worker);
 	XBUS_DBG(DEVICES, xbus, "Deactivated refcount_xbus=%d\n",
 		refcount_xbus(xbus));
-	if(atomic_dec_and_test(&xbus->xbus_ref_count)) {
-		XBUS_DBG(DEVICES, xbus, "%s: Last ref to xbus. Removing\n", __FUNCTION__);
-	}
 	xbus_sysfs_remove(xbus);	/* Device-Model */
 }
 
@@ -1325,7 +1321,6 @@ xbus_t *xbus_new(struct xbus_ops *ops, ushort max_send_size, void *priv)
 	XBUS_DBG(DEVICES, xbus, "\n");
 	transport_init(xbus, ops, max_send_size, priv);
 	spin_lock_init(&xbus->lock);
-	atomic_set(&xbus->xbus_ref_count, 1);	/* a single ref */
 	init_waitqueue_head(&xbus->command_queue_empty);
 	init_timer(&xbus->command_timer);
 	init_MUTEX(&xbus->in_worker);
@@ -1457,9 +1452,6 @@ static int xbus_read_proc(char *page, char **start, off_t off, int count, int *e
 			xbus->label,
 			(!XBUS_IS(xbus, DISCONNECTED)) ? "connected" : "missing"
 		      );
-	len += sprintf(page + len, "\nxbus_ref_count=%d\n",
-			atomic_read(&xbus->xbus_ref_count)
-			);
 	len += xbus_fill_proc_queue(page + len, &xbus->send_pool);
 	len += xbus_fill_proc_queue(page + len, &xbus->receive_pool);
 	len += xbus_fill_proc_queue(page + len, &xbus->command_queue);

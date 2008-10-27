@@ -199,7 +199,6 @@ struct xbus {
 #define	dev_to_xbus(dev)	container_of(dev, struct xbus, astribank)
 
 	spinlock_t		lock;
-	atomic_t		xbus_ref_count;	/* How many need this struct? */
 
 	/* PCM metrics */
 	struct timeval		last_tx_sync;
