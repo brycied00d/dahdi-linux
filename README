@@ -139,10 +139,10 @@ NOTE:  At the time this was written, misdn-1.1.8 is not compatible the
 
 OSLEC
 ~~~~~
-OSLEC is a Open Source Line Echo Canceller. Its homepage is at
-http://www.rowetel.com/ucasterisk/oslec.html and is is currently making
-its way into the mainline Kernel tree and may be included at some time
-around 2.6.29 (hopefully). The echo canceller module dahdi_echocan_oslec
+http://www.rowetel.com/ucasterisk/oslec.html[OSLEC] is an 
+Open Source Line Echo Canceller. It is currently in the staging subtree
+of the mainline kernel and will hopefully be fully merged at around
+version 2.6.29. The echo canceller module dahdi_echocan_oslec
 provides a DAHDI echo canceller module that uses the code from OSLEC. As
 OSLEC has not been accepted into mainline yet, its interface is not set
 in stone and thus this driver may need to change. Thus it is not
@@ -154,15 +154,29 @@ under driver/staging/echo . In fact, dahdi_echocan_oslec assumes that
 this is where the oslec code lies. If it is elsewhere you'll need to fix
 the #include line.
 
-If you do have the oslec module but get messages about the functions
-'oslec_free', 'oslec_create' and such do not exist, this may be because
-you use a different version of the module. Specifically if it exports 
-'echo_can_free' or 'oslec_echo_can_free' . In that case get the latest
-version of dahdi-linux SVN and of OSLEC (from the staging tree or
-whatever).
+Thus for the moment, the simplest way to build OSLEC with dahdi is:
 
-For more information regarding installing and using OSLEC, see the OSLEC
-homepage.
+1. Copy the directory `drivers/staging/echo` from a recent kernel tree 
+   (at least 2.6.28-rc1) to the a subdirectory with the same name in the
+   dahdi-linux tree.
+2. Create a Kbuild file in that directory:
+
+  echo "obj-m += echo.o" > drivers/staging/echo/Kbuild
+
+3. Edit drivers/dahdi/Kbuild and unrem the two lines related to OSLEC.
+
+After doing that, you'll see the following when building (running
+'make')
+
+  ...
+  CC [M] /home/tzafrir/dahdi-linux/drivers/dahdi/dahdi_echocan_oslec.o
+  CC [M] /home/tzafrir/dahdi-linux/drivers/dahdi/../staging/echo/echo.o
+  ...
+
+As this is an experimental driver, problems building and using it should 
+be reported on the 
+https://lists.sourceforge.net/lists/listinfo/freetel-oslec[OSLEC mailing
+list].
 
 
 Module Parameters
