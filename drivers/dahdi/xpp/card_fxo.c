@@ -1313,9 +1313,44 @@ static int proc_xpd_metering_read(char *page, char **start, off_t off, int count
 }
 #endif
 
+static DEVICE_ATTR_READER(fxo_battery_show, dev, buf)
+{
+	xpd_t			*xpd;
+	struct FXO_priv_data	*priv;
+	unsigned long		flags;
+	int			len = 0;
+	int			i;
+
+	BUG_ON(!dev);
+	xpd = dev_to_xpd(dev);
+	if(!xpd)
+		return -ENODEV;
+	priv = xpd->priv;
+	BUG_ON(!priv);
+	spin_lock_irqsave(&xpd->lock, flags);
+	for_each_line(xpd, i) {
+		char	bat;
+
+		if(priv->battery[i] == BATTERY_ON)
+			bat = '+';
+		else if(priv->battery[i] == BATTERY_OFF)
+			bat = '-';
+		else
+			bat = '.';
+		len += sprintf(buf + len, "%c ", bat);
+	}
+	len += sprintf(buf + len, "\n");
+	spin_unlock_irqrestore(&xpd->lock, flags);
+	return len;
+}
+
+static	DEVICE_ATTR(fxo_battery, S_IRUGO, fxo_battery_show, NULL);
+
+
 static int fxo_xpd_probe(struct device *dev)
 {
 	xpd_t	*xpd;
+	int	ret;
 
 	xpd = dev_to_xpd(dev);
 	/* Is it our device? */
@@ -1325,7 +1360,14 @@ static int fxo_xpd_probe(struct device *dev)
 		return -EINVAL;
 	}
 	XPD_DBG(DEVICES, xpd, "SYSFS\n");
+	ret = device_create_file(dev, &dev_attr_fxo_battery);
+	if(ret) {
+		XPD_ERR(xpd, "%s: device_create_file(fxo_battery) failed: %d\n", __FUNCTION__, ret);
+		goto fail_fxo_battery;
+	}
 	return 0;
+fail_fxo_battery:
+	return ret;
 }
 
 static int fxo_xpd_remove(struct device *dev)
@@ -1334,6 +1376,7 @@ static int fxo_xpd_remove(struct device *dev)
 
 	xpd = dev_to_xpd(dev);
 	XPD_DBG(DEVICES, xpd, "SYSFS\n");
+	device_remove_file(dev, &dev_attr_fxo_battery);
 	return 0;
 }
 
