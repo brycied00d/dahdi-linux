@@ -436,59 +436,70 @@ enum dahdi_rxsig {
 	DAHDI_RXSIG_INITIAL
 };
 	
+enum {
+	/* Span flags */
+	DAHDI_FLAGBIT_REGISTERED= 0,
+	DAHDI_FLAGBIT_RUNNING	= 1,
+	DAHDI_FLAGBIT_RBS	= 12,	/*!< Span uses RBS signalling */
+
+	/* Channel flags */
+	DAHDI_FLAGBIT_DTMFDECODE= 2,	/*!< Channel supports native DTMF decode */
+	DAHDI_FLAGBIT_MFDECODE	= 3,	/*!< Channel supports native MFr2 decode */
+	DAHDI_FLAGBIT_ECHOCANCEL= 4,	/*!< Channel supports native echo cancellation */
+	DAHDI_FLAGBIT_HDLC	= 5,	/*!< Perform HDLC */
+	DAHDI_FLAGBIT_NETDEV	= 6,	/*!< Send to network */
+	DAHDI_FLAGBIT_PSEUDO	= 7,	/*!< Pseudo channel */
+	DAHDI_FLAGBIT_CLEAR	= 8,	/*!< Clear channel */
+	DAHDI_FLAGBIT_AUDIO	= 9,	/*!< Audio mode channel */
+	DAHDI_FLAGBIT_OPEN	= 10,	/*!< Channel is open */
+	DAHDI_FLAGBIT_FCS	= 11,	/*!< Calculate FCS */
+	/* Reserve 12 for uniqueness with span flags */
+	DAHDI_FLAGBIT_LINEAR	= 13,	/*!< Talk to user space in linear */
+	DAHDI_FLAGBIT_PPP	= 14,	/*!< PPP is available */
+	DAHDI_FLAGBIT_T1PPP	= 15,
+	DAHDI_FLAGBIT_SIGFREEZE	= 16,	/*!< Freeze signalling */
+	DAHDI_FLAGBIT_NOSTDTXRX	= 17,	/*!< Do NOT do standard transmit and receive on every interrupt */
+	DAHDI_FLAGBIT_LOOPED	= 18,	/*!< Loopback the receive data from the channel to the transmit */
+	DAHDI_FLAGBIT_MTP2	= 19,	/*!< Repeats last message in buffer and also discards repeating messages sent to us */
+	DAHDI_FLAGBIT_HDLC56	= 20,	/*!< Sets the given channel (if in HDLC mode) to use 56K HDLC instead of 64K  */
+};
+
+/* map flagbits to flag masks */
+#define	DAHDI_FLAG(x)	(1 << (DAHDI_FLAGBIT_ ## x))
+
+/*! This is a redefinition of the flags from above to allow use of the 
+ * legacy drivers that do not use the kernel atomic bit testing and 
+ * changing routines.
+ * 
+ * See the above descriptions for DAHDI_FLAGBIT_....  for documentation 
+ * about function. */
 /* Span flags */
-#define DAHDI_FLAG_REGISTERED		(1 << 0)
-#define DAHDI_FLAG_RUNNING			(1 << 1)
-#define DAHDI_FLAG_RBS			(1 << 12)	/*!< Span uses RBS signalling */
+#define DAHDI_FLAG_REGISTERED	DAHDI_FLAG(REGISTERED)
+#define DAHDI_FLAG_RUNNING	DAHDI_FLAG(RUNNING)
+#define DAHDI_FLAG_RBS		DAHDI_FLAG(RBS)
 
 /* Channel flags */
-#define DAHDI_FLAG_DTMFDECODE		(1 << 2)	/*!< Channel supports native DTMF decode */
-#define DAHDI_FLAG_MFDECODE		(1 << 3)	/*!< Channel supports native MFr2 decode */
-#define DAHDI_FLAG_ECHOCANCEL		(1 << 4)	/*!< Channel supports native echo cancellation */
+#define DAHDI_FLAG_DTMFDECODE	DAHDI_FLAG(DTMFDECODE)
+#define DAHDI_FLAG_MFDECODE	DAHDI_FLAG(MFDECODE)
+#define DAHDI_FLAG_ECHOCANCEL	DAHDI_FLAG(ECHOCANCEL)
 
-#define DAHDI_FLAG_HDLC			(1 << 5)	/*!< Perform HDLC */
-#define DAHDI_FLAG_NETDEV			(1 << 6)	/*!< Send to network */
-#define DAHDI_FLAG_PSEUDO			(1 << 7)	/*!< Pseudo channel */
-#define DAHDI_FLAG_CLEAR			(1 << 8)	/*!< Clear channel */
-#define DAHDI_FLAG_AUDIO			(1 << 9)	/*!< Audio mode channel */
+#define DAHDI_FLAG_HDLC		DAHDI_FLAG(HDLC)
+#define DAHDI_FLAG_NETDEV	DAHDI_FLAG(NETDEV)
+#define DAHDI_FLAG_PSEUDO	DAHDI_FLAG(PSEUDO)
+#define DAHDI_FLAG_CLEAR	DAHDI_FLAG(CLEAR)
+#define DAHDI_FLAG_AUDIO	DAHDI_FLAG(AUDIO)
 
-#define DAHDI_FLAG_OPEN			(1 << 10)	/*!< Channel is open */
-#define DAHDI_FLAG_FCS			(1 << 11)	/*!< Calculate FCS */
+#define DAHDI_FLAG_OPEN		DAHDI_FLAG(OPEN)
+#define DAHDI_FLAG_FCS		DAHDI_FLAG(FCS)
 /* Reserve 12 for uniqueness with span flags */
-#define DAHDI_FLAG_LINEAR			(1 << 13)	/*!< Talk to user space in linear */
-#define DAHDI_FLAG_PPP			(1 << 14)	/*!< PPP is available */
-#define DAHDI_FLAG_T1PPP			(1 << 15)
-#define DAHDI_FLAG_SIGFREEZE		(1 << 16)	/*!< Freeze signalling */
-#define DAHDI_FLAG_NOSTDTXRX		(1 << 17)	/*!< Do NOT do standard transmit and receive on every interrupt */
-#define DAHDI_FLAG_LOOPED			(1 << 18)	/*!< Loopback the receive data from the channel to the transmit */
-#define DAHDI_FLAG_MTP2			(1 << 19)	/*!< Repeats last message in buffer and also discards repeating messages sent to us */
-#define DAHDI_FLAG_HDLC56			(1 << 20)	/*!< Sets the given channel (if in HDLC mode) to use 56K HDLC instead of 64K  */
-
-/*! This is a redefinition of the flags from above to allow use of the kernel atomic bit testing and changing routines.
- * See the above descriptions for DAHDI_FLAG_....  for documentation about function. */
-enum {
-	DAHDI_FLAGBIT_REGISTERED = 0,
-	DAHDI_FLAGBIT_RUNNING    = 1,
-	DAHDI_FLAGBIT_RBS	      = 12,
-	DAHDI_FLAGBIT_DTMFDECODE = 2,
-	DAHDI_FLAGBIT_MFDECODE   = 3,
-	DAHDI_FLAGBIT_ECHOCANCEL = 4,
-	DAHDI_FLAGBIT_HDLC	      = 5,
-	DAHDI_FLAGBIT_NETDEV     = 6,
-	DAHDI_FLAGBIT_PSEUDO     = 7,
-	DAHDI_FLAGBIT_CLEAR      = 8,
-	DAHDI_FLAGBIT_AUDIO      = 9,
-	DAHDI_FLAGBIT_OPEN	      = 10,
-	DAHDI_FLAGBIT_FCS	      = 11,
-	DAHDI_FLAGBIT_LINEAR     = 13,
-	DAHDI_FLAGBIT_PPP	      = 14,
-	DAHDI_FLAGBIT_T1PPP      = 15,
-	DAHDI_FLAGBIT_SIGFREEZE  = 16,
-	DAHDI_FLAGBIT_NOSTDTXRX  = 17,
-	DAHDI_FLAGBIT_LOOPED     = 18,
-	DAHDI_FLAGBIT_MTP2       = 19,
-	DAHDI_FLAGBIT_HDLC56       = 20,
-};
+#define DAHDI_FLAG_LINEAR	DAHDI_FLAG(LINEAR)
+#define DAHDI_FLAG_PPP		DAHDI_FLAG(PPP)
+#define DAHDI_FLAG_T1PPP	DAHDI_FLAG(T1PPP)
+#define DAHDI_FLAG_SIGFREEZE	DAHDI_FLAG(SIGFREEZE)
+#define DAHDI_FLAG_NOSTDTXRX	DAHDI_FLAG(NOSTDTXRX)
+#define DAHDI_FLAG_LOOPED	DAHDI_FLAG(LOOPED)
+#define DAHDI_FLAG_MTP2		DAHDI_FLAG(MTP2)
+#define DAHDI_FLAG_HDLC56	DAHDI_FLAG(HDLC56)
 
 struct dahdi_span {
 	spinlock_t lock;
