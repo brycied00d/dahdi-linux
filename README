@@ -107,17 +107,15 @@ SUBDIRS_EXTRA:
   make MODULES_EXTRA="mod1 mod2" SUBDIRS_EXTRA="subdir1/ subdir1/"
 
 
-Installing the B410P drivers with MISDN
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-DAHDI includes the wcb4xxp driver for the B410P. However, support for the
-B410P was historically provided by misdn.  If you would like to use the misdn
-driver with the B410P, please comment out the wcb4xxp line in the
-/etc/dahdi/modules.  This will prevent dahdi from loading wcb4xxp which will
-conflict with the misdn driver.
-
-To install the misdn driver for the B410P, please see http://www.misdn.org for
-more information, but the following sequence of steps is roughly equivalent to
-'make b410p' from previous releases.
+Installing the B410P drivers
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+With Zaptel it was possible to install mISDN and the B410P driver by typing
+'make b410p' from the command-line.  This is no longer possible with DAHDI as
+part of the changes to make DAHDI friendlier to binary packagers.  If you
+would like to install support for the B410P with asterisk you will need to
+install it manually. Please see http://www.misdn.org for more information, but
+the following sequence of steps is roughly equivalent to 'make b410p' from
+previous releases.
 
   wget http://www.misdn.org/downloads/releases/mISDN-1_1_8.tar.gz
   wget http://www.misdn.org/downloads/releases/mISDNuser-1_1_8.tar.gz
