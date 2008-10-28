@@ -26,6 +26,8 @@ Digital Cards
 - wct1xxp: 
   * Digium T100P: PCI single-port T1
   * Digium E100P: PCI single-port E1
+- wcb4xxp:
+  * Digium B410: PCI quad-port BRI
 - tor2: Tormenta quad-span T1/E1 card from the Zapata Telephony project
 
 
@@ -107,15 +109,15 @@ SUBDIRS_EXTRA:
   make MODULES_EXTRA="mod1 mod2" SUBDIRS_EXTRA="subdir1/ subdir1/"
 
 
-Installing the B410P drivers with MISDN
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-DAHDI includes the wcb4xxp driver for the B410P. However, support for the
-B410P was historically provided by misdn.  If you would like to use the misdn
-driver with the B410P, please comment out the wcb4xxp line in the
-/etc/dahdi/modules.  This will prevent dahdi from loading wcb4xxp which will
-conflict with the misdn driver.
+Installing the B410P drivers with mISDN
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+DAHDI includes the wcb4xxp driver for the B410P, however, support for the
+B410P was historically provided by mISDN.  If you would like to use the mISDN
+driver with the B410P, please comment out the wcb4xxp line in /etc/dahdi/modules.
+This will prevent DAHDI from loading wcb4xxp which will conflict with the mISDN
+driver.
 
-To install the misdn driver for the B410P, please see http://www.misdn.org for
+To install the mISDN driver for the B410P, please see http://www.misdn.org for
 more information, but the following sequence of steps is roughly equivalent to
 'make b410p' from previous releases.
 
@@ -128,8 +130,8 @@ more information, but the following sequence of steps is roughly equivalent to
   popd
   pushd mISDNuser-1_1_8
   make install
-  /usr/sbin/misdn-init config
   popd
+  /usr/sbin/misdn-init config
 
 You will then also want to make sure /etc/init.d/misdn-init is started
 automatically with either 'chkconfig --add misdn-init' or 'update-rc.d
