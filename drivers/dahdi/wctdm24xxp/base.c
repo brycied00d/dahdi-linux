@@ -1574,14 +1574,14 @@ static inline void wctdm_isr_misc(struct wctdm *wc)
 #endif
 }
 
-void handle_receive(void* vbb, void* context)
+static void handle_receive(void* vbb, void* context)
 {
 	struct wctdm *wc = context;
 	wc->rxints++;
 	wctdm_receiveprep(wc, vbb);
 }
 
-void handle_transmit(void* vbb, void* context)
+static void handle_transmit(void* vbb, void* context)
 {
 	struct wctdm *wc = context;
 	memset(vbb, 0, SFRAME_SIZE);
@@ -2408,7 +2408,7 @@ static int wctdm_ioctl(struct dahdi_chan *chan, unsigned int cmd, unsigned long 
 	case DAHDI_ONHOOKTRANSFER:
 		if (wc->modtype[chan->chanpos - 1] != MOD_TYPE_FXS)
 			return -EINVAL;
-		if (get_user(x, (int *)data))
+		if (get_user(x, (__user int *) data))
 			return -EFAULT;
 		wc->mods[chan->chanpos - 1].fxs.ohttimer = x << 3;
 		wc->mods[chan->chanpos - 1].fxs.idletxhookstate = 0x2;	/* OHT mode when idle */
@@ -2430,7 +2430,7 @@ static int wctdm_ioctl(struct dahdi_chan *chan, unsigned int cmd, unsigned long 
 			stats.batvolt = (signed char)wctdm_getreg(wc, chan->chanpos - 1, 29) * 1000;
 		} else 
 			return -EINVAL;
-		if (copy_to_user((struct wctdm_stats *)data, &stats, sizeof(stats)))
+		if (copy_to_user((__user void *) data, &stats, sizeof(stats)))
 			return -EFAULT;
 		break;
 	case WCTDM_GET_REGS:
@@ -2448,11 +2448,11 @@ static int wctdm_ioctl(struct dahdi_chan *chan, unsigned int cmd, unsigned long 
 			for (x=0;x<NUM_FXO_REGS;x++)
 				regs.direct[x] = wctdm_getreg(wc, chan->chanpos - 1, x);
 		}
-		if (copy_to_user((struct wctdm_regs *)data, &regs, sizeof(regs)))
+		if (copy_to_user((__user void *)data, &regs, sizeof(regs)))
 			return -EFAULT;
 		break;
 	case WCTDM_SET_REG:
-		if (copy_from_user(&regop, (struct wctdm_regop *)data, sizeof(regop)))
+		if (copy_from_user(&regop, (__user void *) data, sizeof(regop)))
 			return -EFAULT;
 		if (regop.indirect) {
 			if (wc->modtype[chan->chanpos - 1] != MOD_TYPE_FXS)
@@ -2470,7 +2470,7 @@ static int wctdm_ioctl(struct dahdi_chan *chan, unsigned int cmd, unsigned long 
 		break;
 	case WCTDM_SET_ECHOTUNE:
 		printk(KERN_INFO "-- Setting echo registers: \n");
-		if (copy_from_user(&echoregs, (struct wctdm_echo_coefs*)data, sizeof(echoregs)))
+		if (copy_from_user(&echoregs, (__user void *) data, sizeof(echoregs)))
 			return -EFAULT;
 
 		if (wc->modtype[chan->chanpos - 1] == MOD_TYPE_FXO) {
@@ -2496,7 +2496,7 @@ static int wctdm_ioctl(struct dahdi_chan *chan, unsigned int cmd, unsigned long 
 		}
 		break;
 	case DAHDI_SET_HWGAIN:
-		if (copy_from_user(&hwgain, (struct dahdi_hwgain*) data, sizeof(hwgain)))
+		if (copy_from_user(&hwgain, (__user void *) data, sizeof(hwgain)))
 			return -EFAULT;
 
 		wctdm_set_hwgain(wc, chan->chanpos-1, hwgain.newgain, hwgain.tx);
@@ -2507,7 +2507,7 @@ static int wctdm_ioctl(struct dahdi_chan *chan, unsigned int cmd, unsigned long 
 		break;
 #ifdef VPM_SUPPORT
 	case DAHDI_TONEDETECT:
-		if (get_user(x, (int *) data))
+		if (get_user(x, (__user int *) data))
 			return -EFAULT;
 		if (!wc->vpm && !wc->vpm150m)
 			return -ENOSYS;
@@ -2532,7 +2532,8 @@ static int wctdm_ioctl(struct dahdi_chan *chan, unsigned int cmd, unsigned long 
 	case DAHDI_RADIO_GETPARAM:
 		if (wc->modtype[chan->chanpos - 1] != MOD_TYPE_QRV) 
 			return -ENOTTY;
-		if (copy_from_user(&stack.p,(struct dahdi_radio_param *)data,sizeof(struct dahdi_radio_param))) return -EFAULT;
+		if (copy_from_user(&stack.p, (__user void *) data, sizeof(stack.p)))
+			return -EFAULT;
 		stack.p.data = 0; /* start with 0 value in output */
 		switch(stack.p.radpar) {
 		case DAHDI_RADPAR_INVERTCOR:
@@ -2584,12 +2585,14 @@ static int wctdm_ioctl(struct dahdi_chan *chan, unsigned int cmd, unsigned long 
 		default:
 			return -EINVAL;
 		}
-		if (copy_to_user((struct dahdi_radio_param *)data,&stack.p,sizeof(struct dahdi_radio_param))) return -EFAULT;
+		if (copy_to_user((__user void *) data, &stack.p, sizeof(stack.p)))
+		    return -EFAULT;
 		break;
 	case DAHDI_RADIO_SETPARAM:
 		if (wc->modtype[chan->chanpos - 1] != MOD_TYPE_QRV) 
 			return -ENOTTY;
-		if (copy_from_user(&stack.p,(struct dahdi_radio_param *)data,sizeof(struct dahdi_radio_param))) return -EFAULT;
+		if (copy_from_user(&stack.p, (__user void *) data, sizeof(stack.p)))
+			return -EFAULT;
 		switch(stack.p.radpar) {
 		case DAHDI_RADPAR_INVERTCOR:
 			if (stack.p.data)
@@ -2987,7 +2990,7 @@ static void wctdm_post_initialize(struct wctdm *wc)
 
 #ifdef VPM150M_SUPPORT
 
-void vpm150m_set_chanconfig_from_state(struct adt_lec_params * parms, int channum, GpakChannelConfig_t *chanconfig)
+static void vpm150m_set_chanconfig_from_state(struct adt_lec_params * parms, int channum, GpakChannelConfig_t *chanconfig)
 {
 	chanconfig->PcmInPortA = 3;
 	chanconfig->PcmInSlotA = channum;
@@ -4032,12 +4035,10 @@ static struct pci_device_id wctdm_pci_tbl[] = {
 MODULE_DEVICE_TABLE(pci, wctdm_pci_tbl);
 
 static struct pci_driver wctdm_driver = {
-	name: 	"wctdm24xxp",
-	probe: 	wctdm_init_one,
-	remove:	__devexit_p(wctdm_remove_one),
-	suspend: NULL,
-	resume:	NULL,
-	id_table: wctdm_pci_tbl,
+	.name = "wctdm24xxp",
+	.probe = wctdm_init_one,
+	.remove = __devexit_p(wctdm_remove_one),
+	.id_table = wctdm_pci_tbl,
 };
 
 static int __init wctdm_init(void)

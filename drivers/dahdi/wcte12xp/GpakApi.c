@@ -1249,7 +1249,7 @@ gpakReadFramingStatsStatus_t gpakReadFramingStats(
     *pFramingError3Count = ReadBuffer[2];
     *pDmaStopErrorCount  = ReadBuffer[3];
     
-    if(pDmaSlipStatsBuffer != 0) 
+    if(pDmaSlipStatsBuffer != NULL) 
     // If users want to get the DMA slips count
     {
 	    pDmaSlipStatsBuffer[0] = ReadBuffer[4];

@@ -1791,7 +1791,7 @@ static int wctdm_ioctl(struct dahdi_chan *chan, unsigned int cmd, unsigned long 
 	case DAHDI_ONHOOKTRANSFER:
 		if (wc->modtype[chan->chanpos - 1] != MOD_TYPE_FXS)
 			return -EINVAL;
-		if (get_user(x, (int *)data))
+		if (get_user(x, (__user int *) data))
 			return -EFAULT;
 		wc->mod[chan->chanpos - 1].fxs.ohttimer = x << 3;
 		if (reversepolarity)
@@ -1808,7 +1808,7 @@ static int wctdm_ioctl(struct dahdi_chan *chan, unsigned int cmd, unsigned long 
 		}
 		break;
 	case DAHDI_SETPOLARITY:
-		if (get_user(x, (int *)data))
+		if (get_user(x, (__user int *) data))
 			return -EFAULT;
 		if (wc->modtype[chan->chanpos - 1] != MOD_TYPE_FXS)
 			return -EINVAL;
@@ -1834,7 +1834,7 @@ static int wctdm_ioctl(struct dahdi_chan *chan, unsigned int cmd, unsigned long 
 			stats.batvolt = (signed char)wctdm_getreg(wc, chan->chanpos - 1, 29) * 1000;
 		} else 
 			return -EINVAL;
-		if (copy_to_user((struct wctdm_stats *)data, &stats, sizeof(stats)))
+		if (copy_to_user((__user void *)data, &stats, sizeof(stats)))
 			return -EFAULT;
 		break;
 	case WCTDM_GET_REGS:
@@ -1848,11 +1848,11 @@ static int wctdm_ioctl(struct dahdi_chan *chan, unsigned int cmd, unsigned long 
 			for (x=0;x<NUM_FXO_REGS;x++)
 				regs.direct[x] = wctdm_getreg(wc, chan->chanpos - 1, x);
 		}
-		if (copy_to_user((struct wctdm_regs *)data, &regs, sizeof(regs)))
+		if (copy_to_user((__user void *)data, &regs, sizeof(regs)))
 			return -EFAULT;
 		break;
 	case WCTDM_SET_REG:
-		if (copy_from_user(&regop, (struct wctdm_regop *)data, sizeof(regop)))
+		if (copy_from_user(&regop, (__user void *) data, sizeof(regop)))
 			return -EFAULT;
 		if (regop.indirect) {
 			if (wc->modtype[chan->chanpos - 1] != MOD_TYPE_FXS)
@@ -1867,7 +1867,7 @@ static int wctdm_ioctl(struct dahdi_chan *chan, unsigned int cmd, unsigned long 
 		break;
 	case WCTDM_SET_ECHOTUNE:
 		printk(KERN_INFO "-- Setting echo registers: \n");
-		if (copy_from_user(&echoregs, (struct wctdm_echo_coefs*)data, sizeof(echoregs)))
+		if (copy_from_user(&echoregs, (__user void *)data, sizeof(echoregs)))
 			return -EFAULT;
 
 		if (wc->modtype[chan->chanpos - 1] == MOD_TYPE_FXO) {
@@ -1893,7 +1893,7 @@ static int wctdm_ioctl(struct dahdi_chan *chan, unsigned int cmd, unsigned long 
 		}
 		break;
 	case DAHDI_SET_HWGAIN:
-		if (copy_from_user(&hwgain, (struct dahdi_hwgain*) data, sizeof(hwgain)))
+		if (copy_from_user(&hwgain, (__user void *) data, sizeof(hwgain)))
 			return -EFAULT;
 
 		wctdm_set_hwgain(wc, chan->chanpos-1, hwgain.newgain, hwgain.tx);
@@ -2322,8 +2322,6 @@ static int __devinit wctdm_init_one(struct pci_dev *pdev, const struct pci_devic
 
 
 			if (wctdm_hardware_init(wc)) {
-				unsigned char x;
-
 				/* Set Reset Low */
 				x=inb(wc->ioaddr + WC_CNTL);
 				outb((~0x1)&x, wc->ioaddr + WC_CNTL);
@@ -2420,12 +2418,12 @@ static struct pci_device_id wctdm_pci_tbl[] = {
 MODULE_DEVICE_TABLE(pci, wctdm_pci_tbl);
 
 static struct pci_driver wctdm_driver = {
-	name: 	"wctdm",
-	probe: 	wctdm_init_one,
-	remove:	__devexit_p(wctdm_remove_one),
-	suspend: NULL,
-	resume:	NULL,
-	id_table: wctdm_pci_tbl,
+	.name = "wctdm",
+	.probe = wctdm_init_one,
+	.remove =__devexit_p(wctdm_remove_one),
+	.suspend = NULL,
+	.resume = NULL,
+	.id_table = wctdm_pci_tbl,
 };
 
 static int __init wctdm_init(void)

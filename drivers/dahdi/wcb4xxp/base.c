@@ -109,9 +109,10 @@ struct devtype {
 static struct devtype wcb4xxp = { "Wildcard B410P", 0 };
 
 
-const char *wcb4xxp_rcsdata = "$RCSfile: base.c,v $ $Revision$";
-const char *build_stamp = "" __DATE__ " " __TIME__ "";
-
+#if 0
+static const char *wcb4xxp_rcsdata = "$RCSfile: base.c,v $ $Revision$";
+static const char *build_stamp = "" __DATE__ " " __TIME__ "";
+#endif
 
 /*
  * lowlevel PCI access functions
@@ -1582,7 +1583,8 @@ static int hdlc_rx_frame(struct b4xxp_span *bspan)
 static int hdlc_tx_frame(struct b4xxp_span *bspan)
 {
 	struct b4xxp *b4 = bspan->parent;
-	int res, i, fifo, size=32;
+	int res, i, fifo;
+	unsigned int size = 32;
 	int z1, z2, zlen;
 	unsigned char buf[32];
 	unsigned long irq_flags;
@@ -2286,7 +2288,7 @@ static void b4xxp_bottom_half(unsigned long data)
 
 /********************************************************************************* proc stuff *****/
 
-int b4xxp_proc_read_one(char *buf, struct b4xxp *b4)
+static int b4xxp_proc_read_one(char *buf, struct b4xxp *b4)
 {
 	struct dahdi_chan *chan;
 	int len, i, j;
@@ -2332,7 +2334,7 @@ int b4xxp_proc_read_one(char *buf, struct b4xxp *b4)
 	return len;
 }
 
-int b4xxp_proc_read(char *buf, char **start, off_t offset, int count, int *eof, void *data)
+static int b4xxp_proc_read(char *buf, char **start, off_t offset, int count, int *eof, void *data)
 {
 	struct b4xxp **b4_cards = data;
 	char sBuf[256];
@@ -2601,12 +2603,10 @@ static struct pci_device_id b4xx_ids[] __devinitdata =
 };
 
 static struct pci_driver b4xx_driver = {
-	name:		"wcb4xxp",
-	probe:		b4xx_probe,
-	remove:		__devexit_p(b4xxp_remove),
-	suspend:	NULL,
-	resume:		NULL,
-	id_table:	b4xx_ids,
+	.name = "wcb4xxp",
+	.probe = b4xx_probe,
+	.remove = __devexit_p(b4xxp_remove),
+	.id_table = b4xx_ids,
 };
 
 static int __init b4xx_init(void)

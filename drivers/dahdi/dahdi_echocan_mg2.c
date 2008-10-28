@@ -425,6 +425,8 @@ static inline short sample_update(struct echo_can_state *ec, short iref, short i
 		 * we should pass it through uncancelled, as we are likely on hold */
 		u = isig;
 	} else {
+		int sign_error;
+
 		if (rs < -32768) {
 			rs = -32768;
 			ec->HCNTR_d = DEFAULT_HANGT;
@@ -435,7 +437,9 @@ static inline short sample_update(struct echo_can_state *ec, short iref, short i
 			RESTORE_COEFFS;
 		}
 
-		if (ABS(ABS(rs)-ABS(isig)) > MAX_SIGN_ERROR)
+		sign_error = ABS(rs) - ABS(isig);
+
+		if (ABS(sign_error) > MAX_SIGN_ERROR)
 		{
 			rs = 0;
 			RESTORE_COEFFS;

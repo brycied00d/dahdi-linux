@@ -39,7 +39,7 @@
 #include <dahdi/kernel.h>
 
 static int debug;
-LIST_HEAD(trans);
+static LIST_HEAD(trans);
 static spinlock_t translock = SPIN_LOCK_UNLOCKED;
 
 EXPORT_SYMBOL(dahdi_transcoder_register);
@@ -235,8 +235,7 @@ static long dahdi_tc_allocate(struct file *file, unsigned long data)
 	struct dahdi_transcoder_channel *chan = NULL;
 	struct dahdi_transcoder_formats fmts;
 	
-	if (copy_from_user(&fmts, 
-		(struct dahdi_transcoder_formats*) data, sizeof(fmts))) {
+	if (copy_from_user(&fmts, (__user const void *) data, sizeof(fmts))) {
 		return -EFAULT;
 	}
 
@@ -292,7 +291,7 @@ static long dahdi_tc_getinfo(unsigned long data)
 	struct dahdi_transcoder *cur;
 	struct dahdi_transcoder *tc = NULL;
 	
-	if (copy_from_user(&info, (const void *) data, sizeof(info))) {
+	if (copy_from_user(&info, (__user const void *) data, sizeof(info))) {
 		return -EFAULT;
 	}
 
@@ -314,7 +313,7 @@ static long dahdi_tc_getinfo(unsigned long data)
 	info.srcfmts = tc->srcfmts;
 	info.dstfmts = tc->dstfmts;
 
-	return copy_to_user((void *) data, &info, sizeof(info)) ? -EFAULT : 0;
+	return copy_to_user((__user void *) data, &info, sizeof(info)) ? -EFAULT : 0;
 }
 
 static ssize_t dahdi_tc_write(struct file *file, __user const char *usrbuf, size_t count, loff_t *ppos)
@@ -408,16 +407,16 @@ static unsigned int dahdi_tc_poll(struct file *file, struct poll_table_struct *w
 }
 
 static struct file_operations __dahdi_transcode_fops = {
-	owner:   THIS_MODULE,
-	open:    dahdi_tc_open,
-	release: dahdi_tc_release,
-	ioctl:   dahdi_tc_ioctl,
-	read:    dahdi_tc_read,
-	write:   dahdi_tc_write,
-	poll:    dahdi_tc_poll,
-	mmap:    dahdi_tc_mmap,
+	.owner =   THIS_MODULE,
+	.open =    dahdi_tc_open,
+	.release = dahdi_tc_release,
+	.ioctl =   dahdi_tc_ioctl,
+	.read =    dahdi_tc_read,
+	.write =   dahdi_tc_write,
+	.poll =    dahdi_tc_poll,
+	.mmap =    dahdi_tc_mmap,
 #if HAVE_UNLOCKED_IOCTL
-	unlocked_ioctl: dahdi_tc_unlocked_ioctl,
+	.unlocked_ioctl = dahdi_tc_unlocked_ioctl,
 #endif
 };
 
@@ -426,7 +425,7 @@ static struct dahdi_chardev transcode_chardev = {
 	.minor = 250,
 };
 
-int dahdi_transcode_init(void)
+static int dahdi_transcode_init(void)
 {
 	int res;
 
@@ -444,7 +443,7 @@ int dahdi_transcode_init(void)
 	return 0;
 }
 
-void dahdi_transcode_cleanup(void)
+static void dahdi_transcode_cleanup(void)
 {
 	dahdi_unregister_chardev(&transcode_chardev);
 

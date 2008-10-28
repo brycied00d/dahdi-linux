@@ -705,7 +705,7 @@ static int ztdynamic_ioctl(unsigned int cmd, unsigned long data)
 			ztdynamic_run();
 		return 0;
 	case DAHDI_DYNAMIC_CREATE:
-		if (copy_from_user(&zds, (struct dahdi_dynamic_span *)data, sizeof(zds)))
+		if (copy_from_user(&zds, (__user const void *) data, sizeof(zds)))
 			return -EFAULT;
 		if (debug)
 			printk(KERN_DEBUG "Dynamic Create\n");
@@ -714,11 +714,11 @@ static int ztdynamic_ioctl(unsigned int cmd, unsigned long data)
 			return res;
 		zds.spanno = res;
 		/* Let them know the new span number */
-		if (copy_to_user((struct dahdi_dynamic_span *)data, &zds, sizeof(zds)))
+		if (copy_to_user((__user void *) data, &zds, sizeof(zds)))
 			return -EFAULT;
 		return 0;
 	case DAHDI_DYNAMIC_DESTROY:
-		if (copy_from_user(&zds, (struct dahdi_dynamic_span *)data, sizeof(zds)))
+		if (copy_from_user(&zds, (__user const void *) data, sizeof(zds)))
 			return -EFAULT;
 		if (debug)
 			printk(KERN_DEBUG "Dynamic Destroy\n");
@@ -785,7 +785,7 @@ void dahdi_dynamic_unregister(struct dahdi_dynamic_driver *dri)
 	spin_unlock_irqrestore(&dlock, flags);
 }
 
-struct timer_list alarmcheck;
+static struct timer_list alarmcheck;
 
 static void check_for_red_alarm(unsigned long ignored)
 {
@@ -817,7 +817,7 @@ static void check_for_red_alarm(unsigned long ignored)
 	
 }
 
-int ztdynamic_init(void)
+static int ztdynamic_init(void)
 {
 	dahdi_set_dynamic_ioctl(ztdynamic_ioctl);
 	/* Start process to check for RED ALARM */
@@ -834,7 +834,7 @@ int ztdynamic_init(void)
 	return 0;
 }
 
-void ztdynamic_cleanup(void)
+static void ztdynamic_cleanup(void)
 {
 #ifdef ENABLE_TASKLETS
 	if (taskletpending) {

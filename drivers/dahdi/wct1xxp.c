@@ -165,7 +165,7 @@ struct t1xxp {
 
 #define CANARY 0xca1e
 
-int debug = 0;   /* doesnt do anything */
+static int debug = 0;   /* doesnt do anything */
 
 static struct t1xxp *cards[WC_MAX_CARDS];
 
@@ -1400,12 +1400,12 @@ static struct pci_device_id t1xxp_pci_tbl[] = {
 MODULE_DEVICE_TABLE(pci,t1xxp_pci_tbl);
 
 static struct pci_driver t1xxp_driver = {
-	name: 	"t1xxp",
-	probe: 	t1xxp_init_one,
-	remove:	__devexit_p(t1xxp_remove_one),
-	suspend: NULL,
-	resume:	NULL,
-	id_table: t1xxp_pci_tbl,
+	.name =	"t1xxp",
+	.probe = t1xxp_init_one,
+	.remove = __devexit_p(t1xxp_remove_one),
+	.suspend = NULL,
+	.resume = NULL,
+	. id_table = t1xxp_pci_tbl,
 };
 
 static int __init t1xxp_init(void)

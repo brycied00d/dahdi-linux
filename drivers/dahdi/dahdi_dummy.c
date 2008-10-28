@@ -106,7 +106,7 @@ static int debug = 0;
 
 #ifdef USE_HIGHRESTIMER
 #define CLOCK_SRC "HRtimer"
-struct hrtimer zaptimer;
+static struct hrtimer zaptimer;
 #elif defined(USE_RTC)
 #define CLOCK_SRC "RTC"
 static int rtc_rate = 0;

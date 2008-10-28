@@ -72,7 +72,7 @@ static struct ztdlocal {
 	struct ztdlocal *next;
 } *zdevs = NULL;
 
-/*static*/ int ztdlocal_transmit(void *pvt, unsigned char *msg, int msglen)
+static int ztdlocal_transmit(void *pvt, unsigned char *msg, int msglen)
 {
 	struct ztdlocal *z;
 	unsigned long flags;
@@ -121,7 +121,7 @@ static int digit2int(char d)
 	return -1;
 }
 
-/*static*/ void ztdlocal_destroy(void *pvt)
+static void ztdlocal_destroy(void *pvt)
 {
 	struct ztdlocal *z = pvt;
 	unsigned long flags;
@@ -156,7 +156,7 @@ static int digit2int(char d)
 	}
 }
 
-/*static*/ void *ztdlocal_create(struct dahdi_span *span, char *address)
+static void *ztdlocal_create(struct dahdi_span *span, char *address)
 {
 	struct ztdlocal *z, *l;
 	unsigned long flags;
@@ -231,6 +231,7 @@ CLEAR_AND_DEL_FROM_PEERS:
 			l->monitor_rx_peer = NULL;
 	}
 	kfree (z);
+	spin_unlock_irqrestore(&zlock, flags);
 	return NULL;
 	
 INVALID_ADDRESS:
@@ -247,13 +248,13 @@ static struct dahdi_dynamic_driver ztd_local = {
 	NULL	/* flush */
 };
 
-/*static*/ int __init ztdlocal_init(void)
+static int __init ztdlocal_init(void)
 {
 	dahdi_dynamic_register(&ztd_local);
 	return 0;
 }
 
-/*static*/ void __exit ztdlocal_exit(void)
+static void __exit ztdlocal_exit(void)
 {
 	dahdi_dynamic_unregister(&ztd_local);
 }
