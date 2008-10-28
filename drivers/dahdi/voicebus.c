@@ -971,7 +971,7 @@ vb_clear_start_receive_bit(struct voicebus *vb)
 	VBUNLOCK(vb);
 }
 
-unsigned long
+static unsigned long
 vb_wait_for_completion_timeout(struct completion *x, unsigned long timeout)
 {
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,11)
@@ -1061,7 +1061,7 @@ voicebus_release(struct voicebus *vb)
 	kfree(vb);
 }
 
-void
+static void
 __vb_increase_latency(struct voicebus *vb) 
 {
 	static int __warn_once = 1;

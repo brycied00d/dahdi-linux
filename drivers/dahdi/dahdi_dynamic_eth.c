@@ -59,7 +59,7 @@ static struct ztdeth {
 	struct ztdeth *next;
 } *zdevs = NULL;
 
-struct dahdi_span *ztdeth_getspan(unsigned char *addr, unsigned short subaddr)
+static struct dahdi_span *ztdeth_getspan(unsigned char *addr, unsigned short subaddr)
 {
 	unsigned long flags;
 	struct ztdeth *z;
@@ -207,9 +207,9 @@ static int ztdeth_flush(void)
 }
 
 static struct packet_type ztdeth_ptype = {
-	type: __constant_htons(ETH_P_DAHDI_DETH),		/* Protocol */
-	dev: NULL,					/* Device (NULL = wildcard) */
-	func: ztdeth_rcv,				/* Receiver */
+	.type = __constant_htons(ETH_P_DAHDI_DETH),		/* Protocol */
+	.dev = NULL,					/* Device (NULL = wildcard) */
+	.func = ztdeth_rcv,				/* Receiver */
 };
 
 static int digit2int(char d)
@@ -409,7 +409,7 @@ static struct dahdi_dynamic_driver ztd_eth = {
 };
 
 static struct notifier_block ztdeth_nblock = {
-	notifier_call: ztdeth_notifier,
+	.notifier_call = ztdeth_notifier,
 };
 
 static int __init ztdeth_init(void)

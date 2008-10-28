@@ -327,7 +327,7 @@ struct t4 {
 	dma_addr_t	writedma;
 	unsigned long memaddr;		/* Base address of card */
 	unsigned long memlen;
-	volatile unsigned int *membase;	/* Base address of card */
+	__iomem volatile unsigned int *membase;	/* Base address of card */
 
 	/* Add this for our softlockup protector */
 	unsigned int oct_rw_count;
@@ -1155,12 +1155,12 @@ static int t4_ioctl(struct dahdi_chan *chan, unsigned int cmd, unsigned long dat
 			regs.pci[x] = t4_pci_in(wc, x);
 		for (x=0;x<NUM_REGS;x++)
 			regs.regs[x] = t4_framer_in(wc, chan->span->offset, x);
-		if (copy_to_user((struct t4_regs *)data, &regs, sizeof(regs)))
+		if (copy_to_user((__user void *) data, &regs, sizeof(regs)))
 			return -EFAULT;
 		break;
 #ifdef VPM_SUPPORT
 	case DAHDI_TONEDETECT:
-		if (get_user(j, (int *)data))
+		if (get_user(j, (__user int *) data))
 			return -EFAULT;
 		if (!wc->vpm)
 			return -ENOSYS;
@@ -1191,7 +1191,8 @@ static int t4_ioctl(struct dahdi_chan *chan, unsigned int cmd, unsigned long dat
 
 static void inline t4_hdlc_xmit_fifo(struct t4 *wc, unsigned int span, struct t4_span *ts)
 {
-	int res, i, size = 32;
+	int res, i;
+	unsigned int size = 32;
 	unsigned char buf[32];
 
 	res = dahdi_hdlc_getbuf(ts->sigchan, buf, &size);
@@ -3796,12 +3797,10 @@ static struct pci_device_id t4_pci_tbl[] __devinitdata =
 };
 
 static struct pci_driver t4_driver = {
-	name: 	"wct4xxp",
-	probe: 	t4_init_one,
-	remove:	__devexit_p(t4_remove_one),
-	suspend: NULL,
-	resume:	NULL,
-	id_table: t4_pci_tbl,
+	.name = "wct4xxp",
+	.probe = t4_init_one,
+	.remove = __devexit_p(t4_remove_one),
+	.id_table = t4_pci_tbl,
 };
 
 static int __init t4_init(void)

@@ -46,12 +46,6 @@
 #include "vpmadt032.h"
 #include "GpakApi.h"
 
-extern struct t1 *ifaces[WC_MAX_IFACES];
-
-extern int vpmnlptype;
-extern int vpmnlpthresh;
-extern int vpmnlpmaxsupp;
-
 #ifdef VPM_SUPPORT
 
 inline void vpm150m_cmd_dequeue(struct t1 *wc, volatile unsigned char *writechunk, int whichframe)
@@ -317,8 +311,8 @@ static inline int vpm150m_io_wait(struct t1 *wc)
 	return ret;
 }
 
-int t1_vpm150m_getreg_full_async(struct t1 *wc, int pagechange, unsigned int len, 
-	unsigned short addr, unsigned short *outbuf, struct vpm150m_cmd **hit_p)
+static int t1_vpm150m_getreg_full_async(struct t1 *wc, int pagechange, unsigned int len, 
+					unsigned short addr, unsigned short *outbuf, struct vpm150m_cmd **hit_p)
 {
 	int ret=0;
 	unsigned long flags;
@@ -341,8 +335,8 @@ int t1_vpm150m_getreg_full_async(struct t1 *wc, int pagechange, unsigned int len
 	return ret;
 }
 
-int t1_vpm150m_getreg_full_return(struct t1 *wc, int pagechange, unsigned int len,
-	unsigned short addr, unsigned short *outbuf, struct vpm150m_cmd **hit_p)
+static int t1_vpm150m_getreg_full_return(struct t1 *wc, int pagechange, unsigned int len,
+					 unsigned short addr, unsigned short *outbuf, struct vpm150m_cmd **hit_p)
 {
 	int ret = 0;
 	unsigned long flags;
@@ -368,9 +362,9 @@ int t1_vpm150m_getreg_full_return(struct t1 *wc, int pagechange, unsigned int le
 	return ret;
 }
 
-int t1_vpm150m_getreg_full(struct t1 *wc, int pagechange, unsigned int len, unsigned short addr, unsigned short *outbuf)
+static int t1_vpm150m_getreg_full(struct t1 *wc, int pagechange, unsigned int len, unsigned short addr, unsigned short *outbuf)
 {
-	struct vpm150m_cmd *hit = 0;
+	struct vpm150m_cmd *hit = NULL;
 	int ret = 0;
 	do {
 		ret = t1_vpm150m_getreg_full_async(wc, pagechange, len, addr, outbuf, &hit);
@@ -387,7 +381,7 @@ int t1_vpm150m_getreg_full(struct t1 *wc, int pagechange, unsigned int len, unsi
 	return ret;
 }
 
-int t1_vpm150m_setreg_full(struct t1 *wc, int pagechange, unsigned int len, unsigned int addr, unsigned short *data)
+static int t1_vpm150m_setreg_full(struct t1 *wc, int pagechange, unsigned int len, unsigned int addr, unsigned short *data)
 {
 	unsigned long flags;
 	struct vpm150m_cmd *hit;
@@ -413,7 +407,7 @@ int t1_vpm150m_setreg_full(struct t1 *wc, int pagechange, unsigned int len, unsi
 	return (hit) ? 0 : -1;
 }
 
-int t1_vpm150m_setpage(struct t1 *wc, unsigned short addr)
+static int t1_vpm150m_setpage(struct t1 *wc, unsigned short addr)
 {
 	addr &= 0xf;
 	/* Let's optimize this a little bit */
@@ -426,14 +420,14 @@ int t1_vpm150m_setpage(struct t1 *wc, unsigned short addr)
 	return t1_vpm150m_setreg_full(wc, 1, 1, 0, &addr);
 }
 
-unsigned char t1_vpm150m_getpage(struct t1 *wc)
+static unsigned char t1_vpm150m_getpage(struct t1 *wc)
 {
 	unsigned short res;
 	t1_vpm150m_getreg_full(wc, 1, 1, 0, &res);
 	return res;
 }
 
-int t1_vpm150m_setreg(struct t1 *wc, unsigned int len, unsigned int addr, unsigned short *data)
+static int t1_vpm150m_setreg(struct t1 *wc, unsigned int len, unsigned int addr, unsigned short *data)
 {
 	int res;
 	t1_vpm150m_setpage(wc, addr >> 16);
@@ -443,7 +437,7 @@ int t1_vpm150m_setreg(struct t1 *wc, unsigned int len, unsigned int addr, unsign
 	return res;
 }
 
-unsigned short t1_vpm150m_getreg(struct t1 *wc, unsigned int len, unsigned int addr, unsigned short *data)
+static unsigned short t1_vpm150m_getreg(struct t1 *wc, unsigned int len, unsigned int addr, unsigned short *data)
 {
 	unsigned short res;
 	t1_vpm150m_setpage(wc, addr >> 16);
@@ -780,7 +774,6 @@ void t1_vpm150m_init(struct t1 *wc) {
 	
 #define TEST_SIZE 2
 	if (debug) {
-		int i;
 		unsigned short msg[TEST_SIZE];
 
 		set_bit(VPM150M_HPIRESET, &vpm150m->control);
@@ -957,7 +950,7 @@ void gpakReadDspMemory(
 
 	vpm150m_io_wait(wc);
 	if ( NumWords < VPM150M_MAX_COMMANDS ) {
-		struct vpm150m_cmd* cmds[VPM150M_MAX_COMMANDS] = {0};
+		struct vpm150m_cmd* cmds[VPM150M_MAX_COMMANDS] = { NULL };
 		t1_vpm150m_setpage(wc, DspAddress >> 16);
 		DspAddress &= 0xffff;
 		for (i=0; i < NumWords; ++i) {
