@@ -465,18 +465,17 @@ int	i;
 }
 
 
-void __pciradio_setcreg(struct pciradio *rad, unsigned char reg, unsigned char val)
+static void __pciradio_setcreg(struct pciradio *rad, unsigned char reg, unsigned char val)
 {
 	outb(val, rad->ioaddr + RAD_REGBASE + ((reg & 0xf) << 2));
 }
 
-unsigned char __pciradio_getcreg(struct pciradio *rad, unsigned char reg)
+static unsigned char __pciradio_getcreg(struct pciradio *rad, unsigned char reg)
 {
 	return inb(rad->ioaddr + RAD_REGBASE + ((reg & 0xf) << 2));
 }
 
-
-void rbi_out(struct pciradio *rad, int n, unsigned char *rbicmd)
+static void rbi_out(struct pciradio *rad, int n, unsigned char *rbicmd)
 {
 unsigned long flags;
 int	x;
@@ -510,7 +509,7 @@ DECLARE_WAIT_QUEUE_HEAD(mywait);
 */
 
 
-void mx828_command(struct pciradio *rad,int channel, unsigned char command, unsigned char *byte1, unsigned char *byte2)
+static void mx828_command(struct pciradio *rad,int channel, unsigned char command, unsigned char *byte1, unsigned char *byte2)
 {
 
 	if(channel > 3)
@@ -524,7 +523,7 @@ void mx828_command(struct pciradio *rad,int channel, unsigned char command, unsi
 	
 }
 
-void mx828_command_wait(struct pciradio *rad,int channel, unsigned char command, unsigned char *byte1, unsigned char *byte2)
+static void mx828_command_wait(struct pciradio *rad,int channel, unsigned char command, unsigned char *byte1, unsigned char *byte2)
 {
 DECLARE_WAIT_QUEUE_HEAD(mywait);
 unsigned long flags;
@@ -880,8 +879,6 @@ DAHDI_IRQ_HANDLER(pciradio_interrupt)
 				/* if just getting to zero */
 				if (!(--rad->bursttimer[x]))
 				{
-					unsigned char mask = 1 << x;
-
 					rad->pasave &= ~mask;
 					__pciradio_setcreg(rad, 0xa, rad->pasave);
 				}
@@ -893,8 +890,6 @@ DAHDI_IRQ_HANDLER(pciradio_interrupt)
 				/* if just getting to zero */
 				if (!(--rad->gotrxtimer[x]))
 				{
-					unsigned char mask;
-
 					mask = 1 << (x + 4);
 					rad->pasave &= ~mask;
 					if (gotctcss) rad->pasave |= mask;
@@ -974,7 +969,7 @@ static int pciradio_ioctl(struct dahdi_chan *chan, unsigned int cmd, unsigned lo
 
 	switch (cmd) {
 	case DAHDI_RADIO_GETPARAM:
-		if (copy_from_user(&stack.p,(struct dahdi_radio_param *)data,sizeof(struct dahdi_radio_param))) return -EFAULT;
+		if (copy_from_user(&stack.p, (__user void *) data, sizeof(stack.p))) return -EFAULT;
 		spin_lock_irqsave(&rad->lock,flags);
 		stack.p.data = 0; /* start with 0 value in output */
 		switch(stack.p.radpar) {
@@ -1070,10 +1065,10 @@ static int pciradio_ioctl(struct dahdi_chan *chan, unsigned int cmd, unsigned lo
 			return -EINVAL;
 		}
 		spin_unlock_irqrestore(&rad->lock,flags);
-		if (copy_to_user((struct dahdi_radio_param *)data,&stack.p,sizeof(struct dahdi_radio_param))) return -EFAULT;
+		if (copy_to_user((__user void *) data, &stack.p, sizeof(stack.p))) return -EFAULT;
 		break;
 	case DAHDI_RADIO_SETPARAM:
-		if (copy_from_user(&stack.p,(struct dahdi_radio_param *)data,sizeof(struct dahdi_radio_param))) return -EFAULT;
+		if (copy_from_user(&stack.p, (__user void *) data, sizeof(stack.p))) return -EFAULT;
 		spin_lock_irqsave(&rad->lock,flags);
 		switch(stack.p.radpar) {
 		case DAHDI_RADPAR_INVERTCOR:
@@ -1349,7 +1344,7 @@ static int pciradio_ioctl(struct dahdi_chan *chan, unsigned int cmd, unsigned lo
 			spin_unlock_irqrestore(&rad->lock,flags);
 			if (rad->remmode[chan->chanpos - 1] == DAHDI_RADPAR_REM_SERIAL_ASCII)
 				interruptible_sleep_on_timeout(&mywait,100);
-			if (copy_to_user((struct dahdi_radio_stat *)data,&stack.p,sizeof(struct dahdi_radio_param))) return -EFAULT;
+			if (copy_to_user((__user void *) data, &stack.p, sizeof(stack.p))) return -EFAULT;
 			return 0;
 		default:
 			spin_unlock_irqrestore(&rad->lock,flags);
@@ -1360,7 +1355,7 @@ static int pciradio_ioctl(struct dahdi_chan *chan, unsigned int cmd, unsigned lo
 	case DAHDI_RADIO_GETSTAT:
 		spin_lock_irqsave(&rad->lock,flags);
 		/* start with clean object */
-		memset(&stack.s,0,sizeof(struct dahdi_radio_stat));
+		memset(&stack.s, 0, sizeof(stack.s));
 		/* if we have rx */
 		if (rad->gotrx[chan->chanpos - 1])
 		{
@@ -1406,7 +1401,7 @@ static int pciradio_ioctl(struct dahdi_chan *chan, unsigned int cmd, unsigned lo
 		if (rad->gotct[chan->chanpos - 1])
 			stack.s.radstat |= DAHDI_RADSTAT_RXCT;
 		spin_unlock_irqrestore(&rad->lock,flags);
-		if (copy_to_user((struct dahdi_radio_stat *)data,&stack.s,sizeof(struct dahdi_radio_stat))) return -EFAULT;
+		if (copy_to_user((__user void *) data, &stack.s, sizeof(stack.s))) return -EFAULT;
 		break;
 	default:
 		return -ENOTTY;
@@ -1767,8 +1762,6 @@ static int __devinit pciradio_init_one(struct pci_dev *pdev, const struct pci_de
 			pci_set_drvdata(pdev, rad);
 
 			if (pciradio_hardware_init(rad)) {
-				unsigned char x;
-
 				/* Set Reset Low */
 				x=inb(rad->ioaddr + RAD_CNTL);
 				outb((~0x1)&x, rad->ioaddr + RAD_CNTL);
@@ -1862,12 +1855,10 @@ static struct pci_device_id pciradio_pci_tbl[] = {
 MODULE_DEVICE_TABLE(pci, pciradio_pci_tbl);
 
 static struct pci_driver pciradio_driver = {
-	name: 	"pciradio",
-	probe: 	pciradio_init_one,
-	remove:	__devexit_p(pciradio_remove_one),
-	suspend: NULL,
-	resume:	NULL,
-	id_table: pciradio_pci_tbl,
+	.name = "pciradio",
+	.probe = pciradio_init_one,
+	.remove = __devexit_p(pciradio_remove_one),
+	.id_table = pciradio_pci_tbl,
 };
 
 static int __init pciradio_init(void)

@@ -133,8 +133,8 @@ static inline int vpm150m_io_wait(struct wctdm *wc)
 	return ret;
 }
 
-int wctdm_vpm150m_getreg_full_async(struct wctdm *wc, int pagechange, unsigned int len, 
-	unsigned short addr, unsigned short *outbuf, struct vpm150m_cmd **hit_p)
+static int wctdm_vpm150m_getreg_full_async(struct wctdm *wc, int pagechange, unsigned int len, 
+					   unsigned short addr, unsigned short *outbuf, struct vpm150m_cmd **hit_p)
 {
 	int ret=0;
 	unsigned long flags;
@@ -157,8 +157,8 @@ int wctdm_vpm150m_getreg_full_async(struct wctdm *wc, int pagechange, unsigned i
 	return ret;
 }
 
-int wctdm_vpm150m_getreg_full_return(struct wctdm *wc, int pagechange, unsigned int len,
-	unsigned short addr, unsigned short *outbuf, struct vpm150m_cmd **hit_p)
+static int wctdm_vpm150m_getreg_full_return(struct wctdm *wc, int pagechange, unsigned int len,
+					    unsigned short addr, unsigned short *outbuf, struct vpm150m_cmd **hit_p)
 {
 	int ret = 0;
 	unsigned long flags;
@@ -184,9 +184,9 @@ int wctdm_vpm150m_getreg_full_return(struct wctdm *wc, int pagechange, unsigned 
 	return ret;
 }
 
-int wctdm_vpm150m_getreg_full(struct wctdm *wc, int pagechange, unsigned int len, unsigned short addr, unsigned short *outbuf)
+static int wctdm_vpm150m_getreg_full(struct wctdm *wc, int pagechange, unsigned int len, unsigned short addr, unsigned short *outbuf)
 {
-	struct vpm150m_cmd *hit = 0;
+	struct vpm150m_cmd *hit = NULL;
 	int ret = 0;
 	do {
 		ret = wctdm_vpm150m_getreg_full_async(wc, pagechange, len, addr, outbuf, &hit);
@@ -202,7 +202,7 @@ int wctdm_vpm150m_getreg_full(struct wctdm *wc, int pagechange, unsigned int len
 	return ret;
 }
 
-int wctdm_vpm150m_setreg_full(struct wctdm *wc, int pagechange, unsigned int len, unsigned int addr, unsigned short *data)
+static int wctdm_vpm150m_setreg_full(struct wctdm *wc, int pagechange, unsigned int len, unsigned int addr, unsigned short *data)
 {
 	unsigned long flags;
 	struct vpm150m_cmd *hit;
@@ -293,7 +293,7 @@ void gpakReadDspMemory(
 
 	vpm150m_io_wait(wc);
 	if ( NumWords < VPM150M_MAX_COMMANDS ) {
-		struct vpm150m_cmd* cmds[VPM150M_MAX_COMMANDS] = {0};
+		struct vpm150m_cmd* cmds[VPM150M_MAX_COMMANDS] = { NULL };
 		wctdm_vpm150m_setpage(wc, DspAddress >> 16);
 		DspAddress &= 0xffff;
 		for (i=0; i < NumWords; ++i) {

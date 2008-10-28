@@ -89,13 +89,13 @@ struct tor2 {
 	int master;			/* Are we master */
 	unsigned long plx_region;	/* phy addr of PCI9030 registers */
 	unsigned long plx_len;		/* length of PLX window */
-	volatile unsigned short *plx;	/* Virtual representation of local space */
+	__iomem volatile unsigned short *plx;	/* Virtual representation of local space */
 	unsigned long xilinx32_region;	/* 32 bit Region allocated to Xilinx */
 	unsigned long xilinx32_len;	/* Length of 32 bit Xilinx region */
-	volatile unsigned int *mem32;	/* Virtual representation of 32 bit Xilinx memory area */
+	__iomem volatile unsigned int *mem32;	/* Virtual representation of 32 bit Xilinx memory area */
 	unsigned long xilinx8_region;	/* 8 bit Region allocated to Xilinx */
 	unsigned long xilinx8_len;	/* Length of 8 bit Xilinx region */
-	volatile unsigned char *mem8;	/* Virtual representation of 8 bit Xilinx memory area */
+	__iomem volatile unsigned char *mem8;	/* Virtual representation of 8 bit Xilinx memory area */
 	struct dahdi_span spans[SPANS_PER_CARD];		/* Spans */
 	struct tor2_span tspans[SPANS_PER_CARD];	/* Span data */
 	struct dahdi_chan **chans[SPANS_PER_CARD];		/* Pointers to blocks of 24(30/31) contiguous dahdi_chans for each span */
@@ -163,7 +163,7 @@ static void tor2_tasklet(unsigned long data);
 
 #define MAX_TOR_CARDS 64
 
-struct tor2 *cards[MAX_TOR_CARDS];
+static struct tor2 *cards[MAX_TOR_CARDS];
 
 /* signalling bits */
 #define	TOR_ABIT 8
@@ -184,11 +184,11 @@ static int tor2_ioctl(struct dahdi_chan *chan, unsigned int cmd, unsigned long d
 DAHDI_IRQ_HANDLER(tor2_intr);
 
 /* translations of data channels for 24 channels in a 32 bit PCM highway */
-unsigned datxlt_t1[] = { 
+static unsigned datxlt_t1[] = { 
     1 ,2 ,3 ,5 ,6 ,7 ,9 ,10,11,13,14,15,17,18,19,21,22,23,25,26,27,29,30,31 };
 
 /* translations of data channels for 30/31 channels in a 32 bit PCM highway */
-unsigned datxlt_e1[] = { 
+static unsigned datxlt_e1[] = { 
     1 ,2 ,3 ,4 ,5 ,6 ,7 ,8 ,9 ,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,
 	25,26,27,28,29,30,31 };
 
@@ -359,7 +359,7 @@ static int __devinit tor2_probe(struct pci_dev *pdev, const struct pci_device_id
 	int res,x,f;
 	struct tor2 *tor;
 	unsigned long endjif;
-	volatile unsigned long *gpdata_io,*lasdata_io;
+	__iomem volatile unsigned long *gpdata_io, *lasdata_io;
 	unsigned long gpdata,lasdata;
 
 	res = pci_enable_device(pdev);
@@ -436,7 +436,7 @@ static int __devinit tor2_probe(struct pci_dev *pdev, const struct pci_device_id
 	cards[x] = tor;
 
 	/* start programming mode */
-	gpdata_io = (unsigned long *)&tor->plx[GPIOC];
+	gpdata_io = (__iomem unsigned long *) &tor->plx[GPIOC];
 	gpdata = le32_to_cpu(*gpdata_io);
 
 	gpdata |= GPIO_WRITE; /* make sure WRITE is not asserted */
@@ -508,13 +508,13 @@ static int __devinit tor2_probe(struct pci_dev *pdev, const struct pci_device_id
 
 	/* set the LA2BRD register so that we enable block transfer, read
 	   pre-fetch, and set to maximum read pre-fetch size */
-	lasdata_io = (unsigned long *)&tor->plx[LAS2BRD];
+	lasdata_io = (__iomem unsigned long *) &tor->plx[LAS2BRD];
 	lasdata = *lasdata_io;
 	lasdata |= 0x39;
 	*lasdata_io = lasdata;
 
 	/* set the LA3BRD register so that we enable block transfer */
-	lasdata_io = (unsigned long *)&tor->plx[LAS3BRD];
+	lasdata_io = (__iomem unsigned long *) &tor->plx[LAS3BRD];
 	lasdata = *lasdata_io;
 	lasdata |= 1;
 	*lasdata_io = lasdata;
@@ -585,9 +585,9 @@ err_out_release_all:
 err_out_release_plx_region:
 	release_mem_region(tor->plx_region, tor->plx_len);
 err_out_free_tor:
-	if (tor->plx) iounmap((void *)tor->plx);
-	if (tor->mem8) iounmap((void *)tor->mem8);
-	if (tor->mem32) iounmap((void *)tor->mem32);
+	if (tor->plx) iounmap(tor->plx);
+	if (tor->mem8) iounmap(tor->mem8);
+	if (tor->mem32) iounmap(tor->mem32);
 	if (tor) {
 		free_tor(tor);
 	}
@@ -619,20 +619,20 @@ static void __devexit tor2_remove(struct pci_dev *pdev)
 	release_mem_region(tor->plx_region, tor->plx_len);
 	release_mem_region(tor->xilinx32_region, tor->xilinx32_len);
 	release_mem_region(tor->xilinx8_region, tor->xilinx8_len);
-	if (tor->plx) iounmap((void *)tor->plx);
-	if (tor->mem8) iounmap((void *)tor->mem8);
-	if (tor->mem32) iounmap((void *)tor->mem32);
+	if (tor->plx) iounmap(tor->plx);
+	if (tor->mem8) iounmap(tor->mem8);
+	if (tor->mem32) iounmap(tor->mem32);
 
-	cards[tor->num] = 0;
+	cards[tor->num] = NULL;
 	pci_set_drvdata(pdev, NULL);
 	free_tor(tor);
 }
 
 static struct pci_driver tor2_driver = {
-	name: "tormenta2",
-	probe: tor2_probe,
-	remove: __devexit_p(tor2_remove),
-	id_table: tor2_pci_ids,
+	.name = "tormenta2",
+	.probe = tor2_probe,
+	.remove = __devexit_p(tor2_remove),
+	.id_table = tor2_pci_ids,
 };
 
 static int __init tor2_init(void) {
@@ -1180,7 +1180,7 @@ found:
 
 DAHDI_IRQ_HANDLER(tor2_intr)
 {
-	int n, i, j, k, syncsrc;
+	int n, i, j, k, newsyncsrc;
 	unsigned int rxword,txword;
 
 	unsigned char c, rxc;
@@ -1427,7 +1427,7 @@ DAHDI_IRQ_HANDLER(tor2_intr)
 	if (!timingcable) {
 		/* re-evaluate active sync src (no cable version) */
 		tor->syncsrc = 0;
-		syncsrc = 0;
+		newsyncsrc = 0;
 		  /* if primary sync specified, see if we can use it */
 		if (tor->psyncs[0])
 		   {
@@ -1435,7 +1435,7 @@ DAHDI_IRQ_HANDLER(tor2_intr)
 			if (!(tor->spans[tor->psyncs[0] - 1].alarms & (DAHDI_ALARM_RED | DAHDI_ALARM_BLUE | 
 				DAHDI_ALARM_LOOPBACK))) {
 					tor->syncsrc = tor->psyncs[0];
-					syncsrc = tor->syncs[0];
+					newsyncsrc = tor->syncs[0];
 					}
 		   }
 		  /* if any others specified, see if we can use them */
@@ -1446,12 +1446,12 @@ DAHDI_IRQ_HANDLER(tor2_intr)
 				if (!(tor->spans[tor->psyncs[i] - 1].alarms & (DAHDI_ALARM_RED | DAHDI_ALARM_BLUE | 
 					DAHDI_ALARM_LOOPBACK))) {
 						tor->syncsrc = tor->psyncs[i];
-						syncsrc = tor->syncs[i];
+						newsyncsrc = tor->syncs[i];
 						}
 			}
 		}
 		/* update sync src info */
-		for (i = 0; i < SPANS_PER_CARD; i++) tor->spans[i].syncsrc = syncsrc;
+		for (i = 0; i < SPANS_PER_CARD; i++) tor->spans[i].syncsrc = newsyncsrc;
 
 		/* actually set the sync register */
 		tor->mem8[SYNCREG] = tor->syncsrc;

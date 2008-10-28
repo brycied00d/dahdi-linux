@@ -435,7 +435,7 @@ static int t1xxp_ioctl(struct dahdi_chan *chan, unsigned int cmd, unsigned long 
 
 		for (x=0;x<NUM_REGS;x++)
 			regs.regs[x] = t1_framer_in(wc, x);
-		if (copy_to_user((struct t4_regs *)data, &regs, sizeof(regs)))
+		if (copy_to_user((__user void *)data, &regs, sizeof(regs)))
 			return -EFAULT;
 		break;
 	default:
@@ -1592,12 +1592,12 @@ static struct pci_device_id t1xxp_pci_tbl[] = {
 MODULE_DEVICE_TABLE(pci,t1xxp_pci_tbl);
 
 static struct pci_driver t1xxp_driver = {
-	name: 	"wcte11xp",
-	probe: 	t1xxp_init_one,
-	remove:	__devexit_p(t1xxp_remove_one),
-	suspend: NULL,
-	resume:	NULL,
-	id_table: t1xxp_pci_tbl,
+	.name =	"wcte11xp",
+	.probe = t1xxp_init_one,
+	.remove = __devexit_p(t1xxp_remove_one),
+	.suspend = NULL,
+	.resume = NULL,
+	.id_table = t1xxp_pci_tbl,
 };
 
 static int __init t1xxp_init(void)

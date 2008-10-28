@@ -317,7 +317,7 @@ struct dahdi_timer {
 	wait_queue_head_t sel;
 };
 
-LIST_HEAD(zaptimers);
+static LIST_HEAD(zaptimers);
 
 #ifdef DEFINE_SPINLOCK
 static DEFINE_SPINLOCK(zaptimerlock);
@@ -384,7 +384,7 @@ static DEFINE_RWLOCK(echocan_list_lock);
 static rwlock_t echocan_list_lock = RW_LOCK_UNLOCKED;
 #endif
 
-LIST_HEAD(echocan_list);
+static LIST_HEAD(echocan_list);
 
 struct echocan {
 	const struct dahdi_echocan *ec;
@@ -4823,8 +4823,6 @@ static int ioctl_echocancel(struct dahdi_chan *chan, struct dahdi_echocanparams 
 	}
 
 	if ((ret == -ENODEV) && chan->ec_factory) {
-		const struct dahdi_echocan *ec_current;
-
 		switch (ecp->tap_length) {
 		case 32:
 		case 64:
@@ -7128,7 +7126,7 @@ static void __dahdi_hdlc_abort(struct dahdi_chan *ss, int event)
 		__qevent(ss->master, event);
 }
 
-extern void dahdi_hdlc_abort(struct dahdi_chan *ss, int event)
+void dahdi_hdlc_abort(struct dahdi_chan *ss, int event)
 {
 	unsigned long flags;
 	spin_lock_irqsave(&ss->lock, flags);
@@ -7136,7 +7134,7 @@ extern void dahdi_hdlc_abort(struct dahdi_chan *ss, int event)
 	spin_unlock_irqrestore(&ss->lock, flags);
 }
 
-extern void dahdi_hdlc_putbuf(struct dahdi_chan *ss, unsigned char *rxb, int bytes)
+void dahdi_hdlc_putbuf(struct dahdi_chan *ss, unsigned char *rxb, int bytes)
 {
 	unsigned long flags;
 	int res;
@@ -7171,7 +7169,7 @@ extern void dahdi_hdlc_putbuf(struct dahdi_chan *ss, unsigned char *rxb, int byt
 	spin_unlock_irqrestore(&ss->lock, flags);
 }
 
-extern void dahdi_hdlc_finish(struct dahdi_chan *ss)
+void dahdi_hdlc_finish(struct dahdi_chan *ss)
 {
 	int oldreadbuf;
 	unsigned long flags;
@@ -7217,7 +7215,7 @@ extern void dahdi_hdlc_finish(struct dahdi_chan *ss)
 }
 
 /* Returns 1 if EOF, 0 if data is still in frame, -1 if EOF and no buffers left */
-extern int dahdi_hdlc_getbuf(struct dahdi_chan *ss, unsigned char *bufptr, unsigned int *size)
+int dahdi_hdlc_getbuf(struct dahdi_chan *ss, unsigned char *bufptr, unsigned int *size)
 {
 	unsigned char *buf;
 	unsigned long flags;

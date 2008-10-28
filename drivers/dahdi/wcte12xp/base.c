@@ -91,7 +91,7 @@ static int latency = VOICEBUS_DEFAULT_LATENCY;
 #ifdef VPM_SUPPORT
 int vpmsupport = 1;
 int vpmdtmfsupport = 0;
-int vpmtsisupport = 0;
+static int vpmtsisupport = 0;
 int vpmnlptype = 1;
 int vpmnlpthresh = 24;
 int vpmnlpmaxsupp = 0;
@@ -1018,7 +1018,7 @@ static int t1xxp_ioctl(struct dahdi_chan *chan, unsigned int cmd, unsigned long 
 		break;
 #ifdef VPM_SUPPORT
 	case DAHDI_TONEDETECT:
-		if (get_user(x, (int *) data))
+		if (get_user(x, (__user int *) data))
 			return -EFAULT;
 		if (!wc->vpm150m)
 			return -ENOSYS;
@@ -1714,12 +1714,10 @@ static struct pci_device_id te12xp_pci_tbl[] = {
 MODULE_DEVICE_TABLE(pci, te12xp_pci_tbl);
 
 struct pci_driver te12xp_driver = {
-	name: 	"wcte12xp",
-	probe: 	te12xp_init_one,
-	remove:	__devexit_p(te12xp_remove_one),
-	suspend: NULL,
-	resume:	NULL,
-	id_table: te12xp_pci_tbl,
+	.name = "wcte12xp",
+	.probe = te12xp_init_one,
+	.remove = __devexit_p(te12xp_remove_one),
+	.id_table = te12xp_pci_tbl,
 };
 
 static int __init te12xp_init(void)

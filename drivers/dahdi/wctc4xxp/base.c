@@ -109,8 +109,8 @@
 #define DTE_DEBUG_NETWORK_IF       (1 << 5) /* 32 */
 #define DTE_DEBUG_NETWORK_EARLY    (1 << 6) /* 64 */
 
-int debug;
-char *mode;
+static int debug;
+static char *mode;
 
 static spinlock_t wctc4xxp_list_lock;
 static struct list_head wctc4xxp_list;
@@ -366,11 +366,11 @@ initialize_cmd(struct tcb *cmd, unsigned long cmd_flags)
 kmem_cache_t *cmd_cache;
 #else
 /*! Used to allocate commands to submit to the dte. */
-struct kmem_cache *cmd_cache;
+static struct kmem_cache *cmd_cache;
 #endif
 
 static inline struct tcb *
-__alloc_cmd(unsigned alloc_flags, unsigned long cmd_flags)
+__alloc_cmd(gfp_t alloc_flags, unsigned long cmd_flags)
 {
 	struct tcb *cmd;
 
@@ -506,13 +506,13 @@ static inline int wctc4xxp_is_ready(struct wcdte *wc) {
 #define wctc4xxp_send_cmd(wc, command) ({                                         \
 	int __res;                                                           \
 	u8 _cmd[] = command;                                                 \
-	struct tcb *cmd;                                                 \
-	if (!(cmd=__alloc_cmd(GFP_KERNEL, WAIT_FOR_RESPONSE)))               \
+	struct tcb *__cmd;                                                 \
+	if (!(__cmd=__alloc_cmd(GFP_KERNEL, WAIT_FOR_RESPONSE)))               \
 		return -ENOMEM;                                              \
 	BUG_ON(sizeof(_cmd) > SFRAME_SIZE);                                  \
-	memcpy(cmd->data, _cmd, sizeof(_cmd));                               \
-	cmd->data_len = sizeof(_cmd);                                        \
-	__res = __wctc4xxp_send_cmd(wc, cmd);                                     \
+	memcpy(__cmd->data, _cmd, sizeof(_cmd));                               \
+	__cmd->data_len = sizeof(_cmd);                                        \
+	__res = __wctc4xxp_send_cmd(wc, __cmd);                                     \
 	__res;                                                               \
 })
 #define wctc4xxp_create_cmd(wc, command) ({                                       \
@@ -582,7 +582,7 @@ tcb_to_skb(struct net_device *netdev, const struct tcb *cmd)
 static struct tcb *
 wctc4xxp_skb_to_cmd(struct wcdte *wc, const struct sk_buff *skb)
 {
-	const unsigned long alloc_flags = in_interrupt() ? GFP_ATOMIC : GFP_KERNEL;
+	const gfp_t alloc_flags = in_interrupt() ? GFP_ATOMIC : GFP_KERNEL;
 	struct tcb *cmd;
 	/* const static char dev_mac[] = { 0x00, 0x11, 0x22, 0x33, 0x44, 0x55}; */
 	if ((cmd = __alloc_cmd(alloc_flags, 0))) {
@@ -993,7 +993,7 @@ wctc4xxp_initialize_descriptor_ring(struct pci_dev *pdev, struct wctc4xxp_descri
 #define OWNED(_d_) (((_d_)->des0)&OWN_BIT)
 #define SET_OWNED(_d_) do { wmb(); (_d_)->des0 |= OWN_BIT; wmb();} while (0)
 
-const unsigned int BUFFER1_SIZE_MASK = 0x7ff;
+static const unsigned int BUFFER1_SIZE_MASK = 0x7ff;
 
 static int 
 wctc4xxp_submit(struct wctc4xxp_descriptor_ring* dr, struct tcb *c)
@@ -1158,7 +1158,7 @@ __wctc4xxp_create_channel_cmd(struct wcdte *wc, struct tcb *cmd, u16 timeslot)
 	cmd->data_len = sizeof(*c);
 }
 
-struct tcb * 
+static struct tcb * 
 wctc4xxp_create_channel_cmd(struct wcdte *wc, u16 timeslot)
 {
 	struct tcb *cmd;
@@ -1169,7 +1169,7 @@ wctc4xxp_create_channel_cmd(struct wcdte *wc, u16 timeslot)
 	return cmd;
 }
 
-void 
+static void 
 __wctc4xxp_create_set_arm_clk_cmd(struct wcdte *wc, struct tcb *cmd)
 {
 	struct csm_encaps_hdr *hdr = cmd->data;
@@ -1191,7 +1191,7 @@ __wctc4xxp_create_set_arm_clk_cmd(struct wcdte *wc, struct tcb *cmd)
 	return;
 }
 
-struct tcb *
+static struct tcb *
 wctc4xxp_create_rtp_cmd(struct wcdte *wc, struct dahdi_transcoder_channel *dtc, size_t inbytes)
 {
 	const struct channel_pvt *cpvt = dtc->pvt;
@@ -3245,15 +3245,13 @@ static struct pci_device_id wctc4xxp_pci_tbl[] = {
 MODULE_DEVICE_TABLE(pci, wctc4xxp_pci_tbl);
 
 static struct pci_driver wctc4xxp_driver = {
-	name: 	"wctc4xxp",
-	probe: 	wctc4xxp_init_one,
-	remove:	__devexit_p(wctc4xxp_remove_one),
-	suspend: NULL,
-	resume:	NULL,
-	id_table: wctc4xxp_pci_tbl,
+	.name = "wctc4xxp",
+	.probe = wctc4xxp_init_one,
+	.remove = __devexit_p(wctc4xxp_remove_one),
+	.id_table = wctc4xxp_pci_tbl,
 };
 
-int __init wctc4xxp_init(void)
+static int __init wctc4xxp_init(void)
 {
 	int res;
 #	if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,23)
@@ -3275,7 +3273,7 @@ int __init wctc4xxp_init(void)
 	return 0;
 }
 
-void __exit wctc4xxp_cleanup(void)
+static void __exit wctc4xxp_cleanup(void)
 {
 	pci_unregister_driver(&wctc4xxp_driver);
 	kmem_cache_destroy(cmd_cache);

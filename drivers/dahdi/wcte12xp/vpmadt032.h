@@ -112,6 +112,10 @@ extern int debug;
 extern int vpmsupport;
 extern int vpmdtmfsupport;
 extern struct pci_driver te12xp_driver;
+extern struct t1 *ifaces[WC_MAX_IFACES];
+extern int vpmnlptype;
+extern int vpmnlpthresh;
+extern int vpmnlpmaxsupp;
 
 void t1_vpm150m_init(struct t1 *wc);
 void vpm150m_cmd_dequeue(struct t1 *wc, volatile unsigned char *writechunk, int whichframe);

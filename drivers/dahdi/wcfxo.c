@@ -1026,10 +1026,10 @@ static struct pci_device_id wcfxo_pci_tbl[] = {
 MODULE_DEVICE_TABLE (pci, wcfxo_pci_tbl);
 
 static struct pci_driver wcfxo_driver = {
-	name: 	"wcfxo",
-	probe: 	wcfxo_init_one,
-	remove:	__devexit_p(wcfxo_remove_one),
-	id_table: wcfxo_pci_tbl,
+	.name = "wcfxo",
+	.probe = wcfxo_init_one,
+	.remove = __devexit_p(wcfxo_remove_one),
+	.id_table = wcfxo_pci_tbl,
 };
 
 static int __init wcfxo_init(void)
