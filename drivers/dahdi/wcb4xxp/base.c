@@ -92,9 +92,8 @@ static int led_fader_table[] = {
 	20, 18, 16, 13, 11,  9,  8,  6,  4,  3,  2,  1,  0,  0,
 };
 
-// #undef CREATE_WCB4XXP_PROCFS_ENTRY
+// #define CREATE_WCB4XXP_PROCFS_ENTRY 
 #ifdef CREATE_WCB4XXP_PROCFS_ENTRY
-#define PROCFS_MAX_SIZE		1024
 #define PROCFS_NAME 		"wcb4xxp"
 static struct proc_dir_entry *myproc;
 #endif
@@ -2337,9 +2336,7 @@ static int b4xxp_proc_read_one(char *buf, struct b4xxp *b4)
 	len = sprintf(buf, "%s\n%s\nTicks: %ld\n", sBuf, str, b4->ticks);
 	return len;
 }
-#endif
 
-#ifdef CREATE_WCB4XXP_PROCFS_ENTRY
 static int b4xxp_proc_read(char *buf, char **start, off_t offset, int count, int *eof, void *data)
 {
 	struct b4xxp **b4_cards = data;
@@ -2380,7 +2377,7 @@ static int b4xxp_proc_read(char *buf, char **start, off_t offset, int count, int
 	*eof = 1;
 	return len;
 }
-#endif
+#endif /* CREATE_WCB4XXP_PROCFS_ENTRY */
 
 
 static int __devinit b4xx_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
@@ -2494,21 +2491,6 @@ static int __devinit b4xx_probe(struct pci_dev *pdev, const struct pci_device_id
 		}
 	}
 
-#ifdef CREATE_WCB4XXP_PROCFS_ENTRY
-	if(!(myproc = create_proc_entry(PROCFS_NAME, 0444, NULL))) {
-		remove_proc_entry(PROCFS_NAME, &proc_root);
-		dev_err(b4->dev, "Error: Could not initialize /proc/%s\n", PROCFS_NAME);
-		goto err_out_unreg_spans;
-	}
-	
-	myproc->read_proc	= b4xxp_proc_read;
-	myproc->data		= cards;
-	myproc->owner		= THIS_MODULE;
-	myproc->mode		= S_IFREG | S_IRUGO;
-	myproc->uid		= 0;
-	myproc->gid		= 0;
-	myproc->size		= 37;
-#endif
 
 #if 0
 	/* Launch cards as appropriate */
@@ -2584,9 +2566,6 @@ static void __devexit b4xxp_remove(struct pci_dev *pdev)
 			dahdi_unregister(&b4->spans[i].span);
 		}
 
-#ifdef CREATE_WCB4XXP_PROCFS_ENTRY
-		remove_proc_entry(PROCFS_NAME, &proc_root);
-#endif
 		b4xxp_init_stage1(b4);
 		free_irq(pdev->irq, b4);
 		pci_set_drvdata(pdev, NULL);
@@ -2622,6 +2601,13 @@ static struct pci_driver b4xx_driver = {
 
 static int __init b4xx_init(void)
 {
+
+#ifdef CREATE_WCB4XXP_PROCFS_ENTRY
+	if(!(myproc = create_proc_read_entry(PROCFS_NAME, 0444, NULL,
+		                             b4xxp_proc_read, cards))) {
+		printk(KERN_ERR "%s: ERROR: Could not initialize /proc/%s\n",THIS_MODULE->name, PROCFS_NAME);
+	}
+#endif
 	if(dahdi_pci_module(&b4xx_driver))
 		return -ENODEV;
 
@@ -2630,6 +2616,9 @@ static int __init b4xx_init(void)
 
 static void __exit b4xx_exit(void)
 {
+#ifdef CREATE_WCB4XXP_PROCFS_ENTRY
+	remove_proc_entry(PROCFS_NAME, NULL);
+#endif
 	pci_unregister_driver(&b4xx_driver);
 }
 
