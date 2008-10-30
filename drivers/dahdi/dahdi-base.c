@@ -7826,7 +7826,7 @@ static void __exit watchdog_cleanup(void)
 
 int dahdi_register_chardev(struct dahdi_chardev *dev)
 {
-	char udevname[strlen(dev->name) + 3];
+	char udevname[strlen(dev->name) + sizeof("dahdi!")];
 
 	strcpy(udevname, "dahdi!");
 	strcat(udevname, dev->name);
