@@ -5388,7 +5388,7 @@ int dahdi_register(struct dahdi_span *span, int prefmaster)
 	for (x = 0; x < span->channels; x++) {
 		if (span->chans[x]->channo < 250) {
 			char chan_name[32];
-			snprintf(chan_name, sizeof(chan_name), "dahdi%d", 
+			snprintf(chan_name, sizeof(chan_name), "dahdi!%d", 
 					span->chans[x]->channo);
 			CLASS_DEV_CREATE(dahdi_class, MKDEV(DAHDI_MAJOR, 
 					span->chans[x]->channo), NULL, chan_name);
@@ -7828,7 +7828,7 @@ int dahdi_register_chardev(struct dahdi_chardev *dev)
 {
 	char udevname[strlen(dev->name) + 3];
 
-	strcpy(udevname, "dahdi");
+	strcpy(udevname, "dahdi!");
 	strcat(udevname, dev->name);
 	CLASS_DEV_CREATE(dahdi_class, MKDEV(DAHDI_MAJOR, dev->minor), NULL, udevname);
 
@@ -7856,10 +7856,10 @@ static int __init dahdi_init(void)
 	}
 
 	dahdi_class = class_create(THIS_MODULE, "dahdi");
-	CLASS_DEV_CREATE(dahdi_class, MKDEV(DAHDI_MAJOR, 253), NULL, "dahditimer");
-	CLASS_DEV_CREATE(dahdi_class, MKDEV(DAHDI_MAJOR, 254), NULL, "dahdichannel");
-	CLASS_DEV_CREATE(dahdi_class, MKDEV(DAHDI_MAJOR, 255), NULL, "dahdipseudo");
-	CLASS_DEV_CREATE(dahdi_class, MKDEV(DAHDI_MAJOR, 0), NULL, "dahdictl");
+	CLASS_DEV_CREATE(dahdi_class, MKDEV(DAHDI_MAJOR, 253), NULL, "dahdi!timer");
+	CLASS_DEV_CREATE(dahdi_class, MKDEV(DAHDI_MAJOR, 254), NULL, "dahdi!channel");
+	CLASS_DEV_CREATE(dahdi_class, MKDEV(DAHDI_MAJOR, 255), NULL, "dahdi!pseudo");
+	CLASS_DEV_CREATE(dahdi_class, MKDEV(DAHDI_MAJOR, 0), NULL, "dahdi!ctl");
 
 	module_printk(KERN_INFO, "Telephony Interface Registered on major %d\n", DAHDI_MAJOR);
 	module_printk(KERN_INFO, "Version: %s\n", DAHDI_VERSION);
