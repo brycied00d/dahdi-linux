@@ -578,6 +578,20 @@ static inline void ec_write(struct b4xxp *b4, int which, unsigned short addr, un
 #define NUM_EC 2
 #define MAX_TDM_CHAN 32
 
+#if 0
+void ec_set_dtmf_threshold(struct b4xxp *b4, int threshold)
+{
+        unsigned int x;
+
+        for (x = 0; x < NUM_EC; x++) {
+                ec_write(b4, x, 0xC4, (threshold >> 8) & 0xFF);
+                ec_write(b4, x, 0xC5, (threshold & 0xFF));
+        }
+        printk("VPM: DTMF threshold set to %d\n", threshold);
+}
+#endif
+
+
 static void ec_init(struct b4xxp *b4)
 {
 	unsigned char b;
@@ -599,7 +613,7 @@ static void ec_init(struct b4xxp *b4)
 		b = ec_read(b4, i, 0x1a3);			/* misc_con */
 		ec_write(b4, i, 0x1a3, b & ~0x02);
 
-/* Setup Echo length (256 taps) */
+/* Setup Echo length (512 taps) */
 		ec_write(b4, i, 0x022, 1);
 		ec_write(b4, i, 0x023, 0xff);
 
@@ -615,15 +629,19 @@ static void ec_init(struct b4xxp *b4)
 		if(DBG)
 			dev_info(b4->dev, "setting A-law mode\n");
 
-		b = 0x11;
+		b = ec_read(b4, i, 0x20);
+		b &= 0xe0;
+		b |= 0x13;
 		ec_write(b4, i, 0x20, b);
 		if(DBG)
 			dev_info(b4->dev, "reg 0x20 is 0x%02x\n", b);
 
 //		ec_write(b4, i, 0x20, 0x38);
 
+#if 0
 		ec_write(b4, i, 0x24, 0x02);
 		b = ec_read(b4, i, 0x24);
+#endif
 		if(DBG)
 			dev_info(b4->dev, "NLP threshold is set to %d (0x%02x)\n", b, b);
 
@@ -648,6 +666,10 @@ static void ec_init(struct b4xxp *b4)
 				ec_write(b4, i, 0x78 + j, 0x01);
 		}
 	}
+
+#if 0
+	ec_set_dtmf_threshold(b4, 1250);
+#endif
 }
 
 /* performs a register write and then waits for the HFC "busy" bit to clear */
@@ -866,7 +888,7 @@ static void hfc_assign_bchan_fifo_ec(struct b4xxp *b4, int port, int bchan)
 	b4xxp_setreg8(b4, A_CON_HDLC, V_IFF | V_HDLC_TRP | V_DATA_FLOW_001); 
 	b4xxp_setreg8(b4, A_CHANNEL, ((16 + hfc_chan) << V_CH_FNUM_SHIFT) | V_CH_FDIR);
 	b4xxp_setreg8(b4, R_SLOT, ((ts + 1) << V_SL_NUM_SHIFT) | 1);
-	b4xxp_setreg8(b4, A_SL_CFG, V_ROUT_RX_STIO1 | ((16 + hfc_chan) << V_CH_SNUM_SHIFT) | 1);
+	b4xxp_setreg8(b4, A_SL_CFG, V_ROUT_RX_STIO2 | ((16 + hfc_chan) << V_CH_SNUM_SHIFT) | 1);
 	hfc_setreg_waitbusy(b4, A_INC_RES_FIFO, V_RES_FIFO);
 //	b4xxp_setreg8(b4, A_IRQ_MSK, V_IRQ);
 
@@ -1834,7 +1856,7 @@ static int b4xxp_echocan(struct dahdi_chan *chan, int eclen)
 	if (eclen) { /* Enable */
 		if (DBG_EC)
 	        	printk("Enabling echo cancellation on chan %d span %d\n", chan->chanpos, chan->span->offset);
-	        ec_write(b4, unit, channel, 0x3e);
+	        ec_write(b4, unit, channel, 0x7e);
 	} else { /* Disable */
 		if (DBG_EC)
 	        	printk("Disabling echo cancellation on chan %d span %d\n", chan->chanpos, chan->span->offset);
@@ -2077,7 +2099,7 @@ static void init_spans(struct b4xxp *b4)
 		bspan->span.channels = WCB4XXP_CHANNELS_PER_SPAN;
 		bspan->span.flags = 0;
 
-		if(1 /* FIXME: some config parameter for europe/north america */) {
+		if(0 /* FIXME: some config parameter for europe/north america */) {
 			bspan->span.deflaw = DAHDI_LAW_MULAW;
 			bspan->span.linecompat = DAHDI_CONFIG_AMI | DAHDI_CONFIG_B8ZS | DAHDI_CONFIG_D4 | DAHDI_CONFIG_ESF;
 		} else {
@@ -2100,7 +2122,8 @@ static void init_spans(struct b4xxp *b4)
 		bspan->span.close  = b4xxp_close;
 		bspan->span.ioctl = b4xxp_ioctl;
 		bspan->span.hdlc_hard_xmit = b4xxp_hdlc_hard_xmit;
-		bspan->span.echocan = b4xxp_echocan;
+		if (vpmsupport)
+			bspan->span.echocan = b4xxp_echocan;
 
 /* HDLC stuff */
 		bspan->sigchan = NULL;
