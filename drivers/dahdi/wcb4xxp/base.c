@@ -1130,6 +1130,10 @@ static void hfc_timer_expire(struct b4xxp_span *s, int t_no)
  * T2 is not actually used in the driver, it is handled by the HFC-4S internally.
  * T3 is used by the TE state machine; it is the maximum time the TE side should wait for the INFO4 (activated) signal.
  */
+
+/* First, disable the expired timer; hfc_force_st_state() may activate it again. */
+	s->hfc_timer_on[t_no] = 0;
+
 	switch(t_no) {
 	case HFC_T1:					/* switch to G4 (pending deact.), resume auto mode */
 		hfc_force_st_state(b4, s->port, 4, 1);
@@ -1144,9 +1148,6 @@ static void hfc_timer_expire(struct b4xxp_span *s, int t_no)
 		if(printk_ratelimit())
 			dev_warn(b4->dev, "hfc_timer_expire found an unknown expired timer (%d)??\n", t_no);
 	}
-
-/* disable the expired timer */
-	s->hfc_timer_on[t_no] = 0;
 }
 
 /*
