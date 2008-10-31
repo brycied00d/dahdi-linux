@@ -2119,7 +2119,7 @@ static void init_spans(struct b4xxp *b4)
 			if(j == WCB4XXP_CHANNELS_PER_SPAN - 1) {
 				chan->sigcap = DAHDI_SIG_HARDHDLC;
 			} else {
-				chan->sigcap = DAHDI_SIG_CLEAR;
+				chan->sigcap = DAHDI_SIG_CLEAR | DAHDI_SIG_DACS;
 			}
 			chan->chanpos = j + 1;
 			chan->writechunk = (void *)(bspan->writechunk + j * DAHDI_CHUNKSIZE);
