@@ -2072,6 +2072,7 @@ static void init_spans(struct b4xxp *b4)
 
 		bspan->span.irq = b4->pdev->irq;
 		bspan->span.pvt = bspan;
+		bspan->span.spantype = "BRI";
 		bspan->span.offset = i;
 		bspan->span.channels = WCB4XXP_CHANNELS_PER_SPAN;
 		bspan->span.flags = 0;
