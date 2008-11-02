@@ -163,11 +163,8 @@ Thus for the moment, the simplest way to build OSLEC with dahdi is:
 1. Copy the directory `drivers/staging/echo` from a recent kernel tree 
    (at least 2.6.28-rc1) to the a subdirectory with the same name in the
    dahdi-linux tree.
-2. Create a Kbuild file in that directory:
 
-  echo "obj-m += echo.o" > drivers/staging/echo/Kbuild
-
-3. Edit drivers/dahdi/Kbuild and unrem the two lines related to OSLEC.
+2. Edit drivers/dahdi/Kbuild and unrem the two lines related to OSLEC.
 
 After doing that, you'll see the following when building (running
 'make')
