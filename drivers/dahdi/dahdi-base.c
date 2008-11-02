@@ -1058,7 +1058,7 @@ static void reset_conf(struct dahdi_chan *chan)
 
 static inline int hw_echocancel_off(struct dahdi_chan *chan)
 {
-	int ret;
+	int ret = 0;
 
 	if (!chan->span)
 		return -ENODEV;
