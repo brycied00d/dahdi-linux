@@ -89,6 +89,19 @@
 #define USB2420
 #endif
 
+#if defined(USE_HIGHRESTIMER) && ( LINUX_VERSION_CODE < KERNEL_VERSION(2,6,28) )
+/* compatibility with new hrtimer interface */
+static inline ktime_t hrtimer_get_expires(const struct hrtimer *timer)
+{
+	return timer->expires;
+}
+
+static inline void hrtimer_set_expires(struct hrtimer *timer, ktime_t time)
+{
+	timer->expires = time;
+}
+#endif
+
 struct dahdi_dummy {
 	struct dahdi_span span;
 	struct dahdi_chan _chan;
@@ -184,7 +197,7 @@ static enum hrtimer_restart dahdi_dummy_hr_int(struct hrtimer *htmr)
 	 * expired.
 	 * We should worry if overrun is 2 or more; then we really missed 
 	 * a tick */
-	overrun = hrtimer_forward(&zaptimer, htmr->expires, 
+	overrun = hrtimer_forward(&zaptimer, hrtimer_get_expires(htmr), 
 			ktime_set(0, DAHDI_TIME_NS));
 	if(overrun > 1) {
 		if(printk_ratelimit())
@@ -207,7 +220,7 @@ static enum hrtimer_restart dahdi_dummy_hr_int(struct hrtimer *htmr)
 /* use kernel system tick timer if PC architecture RTC is not available */
 static void dahdi_dummy_timer(unsigned long param)
 {
-	timer.expires = jiffies + 1;
+	hrtimer_set_expires(timer, jiffies + 1);
 	add_timer(&timer);
 
 	ztd->counter += DAHDI_TIME;
