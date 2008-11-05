@@ -1057,7 +1057,9 @@ void gpakLockAccess(unsigned short DspId)
 		struct vpm150m *vpm = wc->vpm150m;
 
 		if (vpm)
-			down_interruptible(&vpm->sem);
+			if (down_interruptible(&vpm->sem)) {
+				return;
+			}
 	}
 }
 
