@@ -74,7 +74,9 @@
 #define DBG_ALARM		(debug & DEBUG_ALARM)
 
 static int debug = 0;
+#ifdef LOOPBACK_SUPPORTED
 static int loopback = 0;
+#endif
 static int milliwatt = 0;
 static int pedanticpci = 0;
 static int teignorered = 0;
@@ -2377,6 +2379,7 @@ static int b4xxp_proc_read(char *buf, char **start, off_t offset, int count, int
 
 	*sBuf = 0;
 	strcat(sBuf, "\n-----\n\nAudio: ");
+#ifdef LOOPBACK_SUPPORTED
 	if(loopback >= 3)
 		strcat(sBuf, "DAHDI and S/T");
 	else if(loopback == 2)
@@ -2386,6 +2389,9 @@ static int b4xxp_proc_read(char *buf, char **start, off_t offset, int count, int
 	else
 		strcat(sBuf, "not");
 	strcat(sBuf, " looped back");
+#else
+	strcat(sBuf, "not looped back");
+#endif
 
 	if(milliwatt)
 		strcat(sBuf, ", outgoing S/T replaced with mu-law milliwatt tone");
@@ -2648,7 +2654,9 @@ static void __exit b4xx_exit(void)
 }
 
 module_param(debug, int, S_IRUGO | S_IWUSR);
+#ifdef LOOKBACK_SUPPORTED
 module_param(loopback, int, S_IRUGO | S_IWUSR);
+#endif
 module_param(milliwatt, int, S_IRUGO | S_IWUSR);
 module_param(pedanticpci, int, S_IRUGO);
 module_param(alarmdebounce, int, S_IRUGO | S_IWUSR);
@@ -2657,7 +2665,9 @@ module_param(timer_1_ms, int, S_IRUGO | S_IWUSR);
 module_param(timer_3_ms, int, S_IRUGO | S_IWUSR);
 
 MODULE_PARM_DESC(debug, "bitmap: 1=general 2=dtmf 4=regops 8=fops 16=ec 32=st state 64=hdlc 128=alarm");
+#ifdef LOOKBACK_SUPPORTED
 MODULE_PARM_DESC(loopback, "TODO: bitmap: 1=loop back S/T port 2=loop back DAHDI");
+#endif
 MODULE_PARM_DESC(milliwatt, "1=replace outgoing S/T data with mu-law milliwatt");
 MODULE_PARM_DESC(pedanticpci, "1=disable PCI back-to-back transfers and flush all PCI writes immediately");
 MODULE_PARM_DESC(teignorered, "1=ignore (do not inform DAHDI) if a red alarm exists in TE mode");
