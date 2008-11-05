@@ -573,8 +573,12 @@ static inline void ec_write(struct b4xxp *b4, int which, unsigned short addr, un
 
 	in = ec_read(b4, which, addr);
 
-	if(in != data)
-		dev_warn(b4->dev, "ec_write: Wrote 0x%02x to register 0x%02x of VPM %d but got back 0x%02x\n", data, addr, which, in);
+	if(in != data) {
+		if(printk_ratelimit()) {
+			dev_warn(b4->dev, "ec_write: Wrote 0x%02x to register 0x%02x "
+			         "of VPM %d but got back 0x%02x\n", data, addr, which, in);
+		}
+	}
 }
 
 #define NUM_EC 2
