@@ -60,7 +60,7 @@
 #	define ALLOC_FLAGS GFP_KERNEL
 #endif
 
-#define WARN() WARN_ON(1)
+#define WARN_ALWAYS() WARN_ON(1)
 
 #define DTE_PRINTK(_lvl, _fmt, _args...) \
 	   printk(KERN_##_lvl "%s: %s: " _fmt, THIS_MODULE->name, \
@@ -2192,7 +2192,7 @@ wctc4xxp_start_dma(struct wcdte *wc)
 	
 	for (i = 0; i < DRING_SIZE; ++i) { 
 		if (!(cmd = alloc_cmd())) {
-			WARN();
+			WARN_ALWAYS();
 			return;
 		}
 		cmd->data_len = SFRAME_SIZE;
@@ -2200,7 +2200,7 @@ wctc4xxp_start_dma(struct wcdte *wc)
 			/* When we're starting the DMA, we should always be
 			 * able to fill the ring....so something is wrong
 			 * here. */
-			WARN();
+			WARN_ALWAYS();
 			free_cmd(cmd);
 			break;
 		}
@@ -2714,7 +2714,7 @@ wctc4xxp_setup_channels(struct wcdte *wc)
 {
 	int ret;
 	if ((ret=down_interruptible(&wc->chansem))) {
-		WARN();
+		WARN_ALWAYS();
 		return ret;
 	}
 	ret = __wctc4xxp_setup_channels(wc);
