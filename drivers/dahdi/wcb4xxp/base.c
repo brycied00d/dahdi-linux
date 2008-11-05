@@ -2099,13 +2099,13 @@ static void init_spans(struct b4xxp *b4)
 		bspan->span.channels = WCB4XXP_CHANNELS_PER_SPAN;
 		bspan->span.flags = 0;
 
-		if(0 /* FIXME: some config parameter for europe/north america */) {
-			bspan->span.deflaw = DAHDI_LAW_MULAW;
-			bspan->span.linecompat = DAHDI_CONFIG_AMI | DAHDI_CONFIG_B8ZS | DAHDI_CONFIG_D4 | DAHDI_CONFIG_ESF;
-		} else {
-			bspan->span.deflaw = DAHDI_LAW_ALAW;
-			bspan->span.linecompat = DAHDI_CONFIG_HDB3 | DAHDI_CONFIG_CCS | DAHDI_CONFIG_CRC4;
-		}
+		bspan->span.deflaw = DAHDI_LAW_ALAW;
+		/* For simplicty, we'll accept all line modes since BRI
+		 * ignores this setting anyway.*/
+		bspan->span.linecompat = DAHDI_CONFIG_AMI | 
+			DAHDI_CONFIG_B8ZS | DAHDI_CONFIG_D4 | 
+			DAHDI_CONFIG_ESF | DAHDI_CONFIG_HDB3 |
+			DAHDI_CONFIG_CCS | DAHDI_CONFIG_CRC4;
 
 		sprintf(bspan->span.name, "B4/%d/%d", b4->cardno, i+1);
 		sprintf(bspan->span.desc, "B4XXP (PCI) Card %d Span %d", b4->cardno, i+1);
