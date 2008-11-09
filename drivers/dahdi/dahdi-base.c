@@ -5014,7 +5014,7 @@ static int dahdi_chan_ioctl(struct inode *inode, struct file *file, unsigned int
 
 					if (tec) {
 						ec_current->echo_can_free(tec);
-						release_echocan(ec_current)
+						release_echocan(ec_current);
 					}
 				} else
 					return -ENOMEM;
