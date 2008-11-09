@@ -1495,6 +1495,18 @@ char *dahdi_lboname(int x)
 }
 
 #if defined(CONFIG_DAHDI_NET) || defined(CONFIG_DAHDI_PPP)
+static inline void print_debug_writebuf(struct dahdi_chan* ss, struct sk_buff *skb, int oldbuf)
+{
+#ifdef CONFIG_DAHDI_DEBUG
+	int x;
+
+	module_printk(KERN_NOTICE, "Buffered %d bytes to go out in buffer %d\n", ss->writen[oldbuf], oldbuf);
+	module_printk(KERN_DEBUG "");
+	for (x=0;x<ss->writen[oldbuf];x++)
+		printk("%02x ", ss->writebuf[oldbuf][x]);
+	printk("\n");
+#endif
+}
 #endif
 
 #ifdef CONFIG_DAHDI_NET
@@ -1635,20 +1647,6 @@ static int dahdi_net_attach(struct net_device *dev, unsigned short encoding,
 static struct dahdi_hdlc *dahdi_hdlc_alloc(void)
 {
 	return kzalloc(sizeof(struct dahdi_hdlc), GFP_KERNEL);
-}
-
-static inline void print_debug_writebuf(struct dahdi_chan* ss, struct sk_buff *skb,
-		int oldbuf)
-{
-#ifdef CONFIG_DAHDI_DEBUG
-	int x;
-
-	module_printk(KERN_NOTICE, "Buffered %d bytes to go out in buffer %d\n", ss->writen[oldbuf], oldbuf);
-	module_printk(KERN_DEBUG "");
-	for (x=0;x<ss->writen[oldbuf];x++)
-		printk("%02x ", ss->writebuf[oldbuf][x]);
-	printk("\n");
-#endif
 }
 
 #ifdef NEW_HDLC_INTERFACE
