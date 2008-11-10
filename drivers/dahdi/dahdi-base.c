@@ -48,7 +48,6 @@
 #include <linux/kmod.h>
 #include <linux/moduleparam.h>
 #include <linux/list.h>
-#include <linux/interrupt.h>
 
 #ifdef CONFIG_DAHDI_NET
 #include <linux/netdevice.h>
@@ -868,7 +867,7 @@ static int dahdi_reallocbufs(struct dahdi_chan *ss, int j, int numbufs)
 
 	/* We need to allocate our buffers now */
 	if (j) {
-		if(!(newbuf = kcalloc(j * 2, numbufs, (in_atomic()) ? GFP_ATOMIC : GFP_KERNEL)))
+		if (!(newbuf = kcalloc(j * 2, numbufs, GFP_KERNEL)))
 			return -ENOMEM;
 	} else
 		newbuf = NULL;
@@ -1148,6 +1147,8 @@ static void close_channel(struct dahdi_chan *chan)
 #ifdef CONFIG_DAHDI_PPP
 	struct ppp_channel *ppp;
 #endif
+
+	might_sleep();
 
 	/* XXX Buffers should be send out before reallocation!!! XXX */
 	if (!(chan->flags & DAHDI_FLAG_NOSTDTXRX))
@@ -1455,6 +1456,8 @@ static int dahdi_chan_reg(struct dahdi_chan *chan)
 	int res = 0;
 	unsigned long flags;
 
+	might_sleep();
+
 	write_lock_irqsave(&chan_lock, flags);
 	for (x = 1; x < DAHDI_MAX_CHANNELS; x++) {
 		if (chans[x])
@@ -1471,6 +1474,7 @@ static int dahdi_chan_reg(struct dahdi_chan *chan)
 			chan->readchunk = chan->sreadchunk;
 		if (!chan->writechunk)
 			chan->writechunk = chan->swritechunk;
+		write_unlock_irqrestore(&chan_lock, flags);
 		dahdi_set_law(chan, 0);
 		close_channel(chan);
 		/* set this AFTER running close_channel() so that
@@ -1479,10 +1483,11 @@ static int dahdi_chan_reg(struct dahdi_chan *chan)
 		res = 0;
 		break;
 	}
-	write_unlock_irqrestore(&chan_lock, flags);
 
-	if (x == DAHDI_MAX_CHANNELS)
+	if (DAHDI_MAX_CHANNELS == x) {
+		write_unlock_irqrestore(&chan_lock, flags);
 		module_printk(KERN_ERR, "No more channels available\n");
+	}
 
 	return res;
 }
@@ -1835,6 +1840,9 @@ static void dahdi_chan_unreg(struct dahdi_chan *chan)
 {
 	int x;
 	unsigned long flags;
+
+	might_sleep();
+
 #ifdef CONFIG_DAHDI_NET
 	if (chan->flags & DAHDI_FLAG_NETDEV) {
 		unregister_hdlc_device(chan->hdlcnetdev->netdev);
@@ -2600,7 +2608,6 @@ static int dahdi_specchan_release(struct inode *node, struct file *file, int uni
 static struct dahdi_chan *dahdi_alloc_pseudo(void)
 {
 	struct dahdi_chan *pseudo;
-	unsigned long flags;
 
 	/* Don't allow /dev/dahdi/pseudo to open if there are no spans */
 	if (maxspans < 1)
@@ -2613,24 +2620,20 @@ static struct dahdi_chan *dahdi_alloc_pseudo(void)
 	pseudo->sigcap = DAHDI_SIG_CLEAR;
 	pseudo->flags = DAHDI_FLAG_PSEUDO | DAHDI_FLAG_AUDIO;
 
-	spin_lock_irqsave(&bigzaplock, flags);
 	if (dahdi_chan_reg(pseudo)) {
 		kfree(pseudo);
 		pseudo = NULL;
-	} else
-		sprintf(pseudo->name, "Pseudo/%d", pseudo->channo);
-	spin_unlock_irqrestore(&bigzaplock, flags);
+	} else {
+		sprintf(pseudo->name, "Pseudo/%d", pseudo->channo); 
+	}
 
 	return pseudo;
 }
 
 static void dahdi_free_pseudo(struct dahdi_chan *pseudo)
 {
-	unsigned long flags;
 	if (pseudo) {
-		spin_lock_irqsave(&bigzaplock, flags);
 		dahdi_chan_unreg(pseudo);
-		spin_unlock_irqrestore(&bigzaplock, flags);
 		kfree(pseudo);
 	}
 }
