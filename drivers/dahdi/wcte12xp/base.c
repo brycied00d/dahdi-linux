@@ -35,7 +35,6 @@
 #include <linux/pci.h>
 #include <linux/proc_fs.h>
 #include <linux/moduleparam.h>
-#include <linux/interrupt.h>
 
 #include <dahdi/kernel.h>
 
@@ -1071,7 +1070,7 @@ static int t1xxp_echocan_with_params(struct dahdi_chan *chan, struct dahdi_echoc
 	   to control whether the ec is on or off, so translate it */
 	params.tap_length = ecp->tap_length ? 1 : 0;
 
-	if (!(work = kmalloc(sizeof(*work), (in_atomic()) ? GFP_ATOMIC : GFP_KERNEL)))
+	if (!(work = kmalloc(sizeof(*work), GFP_KERNEL)))
 		return -ENOMEM;
 
 	work->params = params;
