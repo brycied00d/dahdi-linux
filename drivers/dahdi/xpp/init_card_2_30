@@ -67,7 +67,7 @@ sub debug {
 }
 
 # Arrange for error logging
-if (-t STDERR) {
+if (-t STDERR || $opts{v}) {
 	$unit_id = 'Interactive';
 	main::debug "Interactive startup";
 } else {
