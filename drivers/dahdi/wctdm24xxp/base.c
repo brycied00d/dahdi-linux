@@ -3879,7 +3879,7 @@ retry:
 	snprintf(wc->board_name, sizeof(wc->board_name)-1, "%s%d",
 		 wctdm_driver.name, i);
 	ret = voicebus_init(pdev, SFRAME_SIZE, wc->board_name,
-		handle_receive, handle_transmit, wc, &wc->vb);
+		handle_receive, handle_transmit, wc, debug, &wc->vb);
 	if (ret) {
 		kfree(wc);
 		return ret;
