@@ -599,10 +599,11 @@ vb_reset_interface(struct voicebus *vb)
 		pci_access = DEFAULT_PCI_ACCESS | (0x3 << 14);
 		break;
 	default:
-		VB_PRINTK(vb, WARNING, "Host system set a cache size "\
-		 "of %d which is not supported. " \
-		 "Disabling memory write line and memory read line.",
-		 vb->cache_line_size);
+		if (atomic_read(&vb->debuglevel))
+			VB_PRINTK(vb, WARNING, "Host system set a cache size "\
+			 "of %d which is not supported. " \
+			 "Disabling memory write line and memory read line.\n",
+			 vb->cache_line_size);
 		pci_access = 0xfe584202;
 		break;
 	}
@@ -1316,6 +1317,7 @@ voicebus_init(struct pci_dev *pdev, u32 framesize,
 		  void (*handle_receive)(void *vbb, void *context),
 		  void (*handle_transmit)(void *vbb, void *context),
 		  void *context, 
+		  u32 debuglevel,
 		  struct voicebus **vbp
 		  )
 {
@@ -1340,6 +1342,7 @@ voicebus_init(struct pci_dev *pdev, u32 framesize,
 		goto cleanup;
 	}
 	memset(vb,0,sizeof(*vb));
+	voicebus_setdebuglevel(vb, debuglevel);
 	/* \todo make sure there is a note that the caller needs to make sure
 	 * board_name stays in memory until voicebus_release is called.
 	 */

@@ -1609,7 +1609,8 @@ retry:
 	init_waitqueue_head(&wc->regq);
 	snprintf(wc->name, sizeof(wc->name)-1, "wcte12xp%d", index);
 	if ((res = voicebus_init(pdev, SFRAME_SIZE, wc->name,
-				 t1_handle_receive, t1_handle_transmit, wc, &wc->vb))) {
+				 t1_handle_receive, t1_handle_transmit, wc,
+				 debug, &wc->vb))) {
 		WARN_ON(1);
 		kfree(wc);
 		ifaces[index] = NULL;
