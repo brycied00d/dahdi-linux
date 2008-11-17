@@ -432,8 +432,6 @@ struct channel_pvt {
 	struct channel_stats stats;
 
 	u16 last_dte_seqno;
-	unsigned int wctc4xxp_seqno_rcv;
-
 	unsigned char ssrc;
 	struct list_head rx_queue;	/* Transcoded packets for this channel. */
 };
@@ -897,7 +895,7 @@ struct wctc4xxp_descriptor {
 	__le32 container; /* Unused */
 } __attribute__((packed));
 
-#define DRING_SIZE (1 << 3) /* Must be a power of two */
+#define DRING_SIZE (1 << 5) /* Must be a power of two */
 #define DRING_MASK (DRING_SIZE-1)
 #define MIN_PACKET_LEN  64
 
@@ -1443,6 +1441,7 @@ wctc4xxp_cleanup_channel_private(struct wcdte *wc, struct
 	spin_lock_bh(&cpvt->lock);
 	list_splice_init(&cpvt->rx_queue, &local_list);
 	dahdi_tc_clear_data_waiting(dtc);
+	cpvt->last_dte_seqno = 0;
 	spin_unlock_bh(&cpvt->lock);
 
 	list_for_each_entry_safe(cmd, temp, &local_list, node) {
@@ -1491,7 +1490,20 @@ do_channel_allocate(struct dahdi_transcoder_channel *dtc)
 	u8 wctc4xxp_dstfmt; /* Digium Transcoder Engine Dest Format */
 	int res;
 
-	down(&wc->chansem);
+	if (down_interruptible(&wc->chansem)) {
+		return -EINTR;
+	}
+
+	/* Check again to see if the channel was built after grabbing the
+	 * channel semaphore, in case the previous holder of the semaphore
+	 * built this channel as a complement to itself. */
+	if (dahdi_tc_is_built(dtc)) {
+		up(&wc->chansem);
+		DTE_DEBUG(DTE_DEBUG_CHANNEL_SETUP, 
+		          "Allocating channel %p which is already built.\n", dtc);
+		return 0;
+	}
+
 	DTE_DEBUG(DTE_DEBUG_CHANNEL_SETUP, 
 	          "Entering %s for channel %p.\n", __FUNCTION__, dtc);
 	/* Anything on the rx queue now is old news... */
@@ -1556,10 +1568,10 @@ wctc4xxp_operation_release(struct dahdi_transcoder_channel *dtc)
 		return -EIO;
 	}
 
-	/* !!!SRR!!! change this back to down after troubleshooting */
 	if (down_interruptible(&wc->chansem)) {
 		return -EINTR;
 	}
+
 	/* Remove any packets that are waiting on the outbound queue. */
 	wctc4xxp_cleanup_channel_private(wc, dtc);
 	index = cpvt->timeslot_in_num/2;
@@ -1577,9 +1589,9 @@ wctc4xxp_operation_release(struct dahdi_transcoder_channel *dtc)
 		goto error_exit;
 	}
 	/* If the channel complement (other half of the encoder/decoder pair) is
-	 * being used... */
+	 * being used. */
 	if (dahdi_tc_is_busy(compl_dtc)) {
-		res = -EBUSY;
+		res = 0;
 		goto error_exit;
 	}
 	if ((res = wctc4xxp_destroy_channel_pair(wc, cpvt))) {
@@ -1597,7 +1609,6 @@ wctc4xxp_operation_release(struct dahdi_transcoder_channel *dtc)
 	compl_cpvt = compl_dtc->pvt;
 	compl_cpvt->chan_in_num = INVALID;
 	compl_cpvt->chan_out_num = INVALID;
-	cpvt->wctc4xxp_seqno_rcv = 0;
 error_exit:
 	up(&wc->chansem);
 	return res;
@@ -1675,20 +1686,18 @@ wctc4xxp_read(struct file *file, char __user *frame, size_t count, loff_t *ppos)
 
 	atomic_inc(&cpvt->stats.packets_received);
 
-	if (0 == cpvt->wctc4xxp_seqno_rcv) {
-		cpvt->wctc4xxp_seqno_rcv = 1;
+	if (!(cpvt->last_dte_seqno)) {
 		cpvt->last_dte_seqno = be16_to_cpu(packet->rtphdr.seqno);
 	} else {
 		rtp_eseq = ++cpvt->last_dte_seqno;
-		if ( be16_to_cpu(packet->rtphdr.seqno) != rtp_eseq )
+		cpvt->last_dte_seqno = be16_to_cpu(packet->rtphdr.seqno);
+		if (rtp_eseq != cpvt->last_dte_seqno)
 			DTE_DEBUG(DTE_DEBUG_GENERAL,
 			 "Bad seqno from DTE! [%04X][%d][%d][%d]\n", 
 			 be16_to_cpu(packet->rtphdr.seqno), 
 			 (be16_to_cpu(packet->udphdr.dest) - 0x5000),
 			 be16_to_cpu(packet->rtphdr.seqno), 
 			 rtp_eseq);
-
-		cpvt->last_dte_seqno = be16_to_cpu(packet->rtphdr.seqno);
 	}
 
 	if (unlikely(copy_to_user(frame, &packet->payload[0], payload_bytes))) {
