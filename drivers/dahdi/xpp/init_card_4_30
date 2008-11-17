@@ -129,6 +129,10 @@ sub gen {
 
 sub init_quad() {
 	main::select_subunit(0);
+
+	PRI::gen "0 WD D6 20"; 		# GPC6.COMP_DIS=1
+					# (Compatibility Mode Disable)
+
 	# Tuning of clocking unit to the 16.384 MHz reference frequence
 	# by setting Global Clock Mode registers (GCM[1:8]), same for E1 and T1/J1
 	PRI::gen "0 WD 92 00"; 		# GCM1
@@ -162,9 +166,6 @@ sub finish_quad() {
 	PRI::gen "0 WD BC 00"; 		# REGFD
 
 #	PRI::gen "0 WD 80 00"; 	# PC1 (Port configuration 1): RPB_1.SYPR           , XPB_1.SYPX
-	PRI::gen "0 WD 81 0B"; 	# PC2 (Port configuration 2): RPB_1.GPOH (ResetID ), XPB_1.GPOL (MUX_SEL0)
-	PRI::gen "0 WD 82 9B"; 	# PC3 (Port configuration 3): RPC_1.GPI  (nConfig0), XPC_1.GPOL (MUX_SEL1)
-	PRI::gen "0 WD 83 9B"; 	# PC4 (Port configuration 4): RPD_1.GPI  (nConfig1), XPD_1.GPOL (MUX_SEL2)
 }
 
 sub read_defaults() {
@@ -233,9 +234,9 @@ sub port_setup($) {
 	my $port = shift;
 	my $portno = $port->{PORT_NUM};
 
-	# only one of the following loopbacks can be activated in the same time 
-	my $LIM1_RL  = 0 << 1; 	# RL  (Remote  Loopback)
-	my $lim1 = 0xB0 | $LIM1_RL;
+	my $cmr5 = sprintf("%x", ($portno << 5));
+
+	PRI::gen "$portno WD 42 $cmr5"; # CMR5.DRSS=portno
 
 	PRI::gen "$portno WD 26 F6"; 	# XPM0: Pulse Shape Programming for R1=18Ohms 
 	PRI::gen "$portno WD 27 02"; 	# XPM1: ...3V Pulse Level at the line (Vp-p=6v)
@@ -255,6 +256,9 @@ sub port_setup($) {
 	#	PRI::gen "0 WD 1F 20";	# LOOP (Channel Looback): 
 	#}
 
+	# only one of the following loopbacks can be activated in the same time 
+	my $LIM1_RL  = 0 << 1; 	# RL  (Remote  Loopback)
+	my $lim1 = 0xB0 | $LIM1_RL;
 	PRI::gen "$portno WD 37 %02X", $lim1;
 					# LIM1: ~RL (Remote Loop bit 0x02),
 					#       ~DRS (Dual Rail Select, latch receive data while trasmit),

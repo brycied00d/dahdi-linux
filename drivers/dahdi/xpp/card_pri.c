@@ -203,7 +203,8 @@ struct pri_leds {
 #define	REG_FMR1_XAIS	BIT(0)	/* Transmit AIS toward transmit end */
 #define	REG_FMR1_SSD0	BIT(1)
 #define	REG_FMR1_ECM	BIT(2)
-#define	REG_FMR1_XFS	BIT(3)	/* Transmit Framing Select */
+#define	REG_FMR1_T_CRC	BIT(3)	/* Enable CRC6 */
+#define	REG_FMR1_E_XFS	BIT(3)	/* Transmit Framing Select */
 #define	REG_FMR1_PMOD	BIT(4)	/* E1 = 0, T1/J1 = 1 */
 #define	REG_FMR1_EDL	BIT(5)
 #define	REG_FMR1_AFR	BIT(6)
@@ -275,6 +276,15 @@ struct pri_leds {
 #define	REG_RS14_E	0x7D	/* Receive CAS Register 14	*/
 #define	REG_RS15_E	0x7E	/* Receive CAS Register 15	*/
 #define	REG_RS16_E	0x7F	/* Receive CAS Register 16	*/
+
+#define	REG_PC2		0x81	/* Port Configuration 2	*/
+#define	REG_PC3		0x82	/* Port Configuration 3	*/
+#define	REG_PC4		0x83	/* Port Configuration 4	*/
+
+#define	VAL_PC_SYPR	0x00	/* Synchronous Pulse Receive (Input, low active) */
+#define	VAL_PC_GPI	0x90	/* General purpose input */
+#define	VAL_PC_GPOH	0x0A	/* General Purpose Output, high level */
+#define	VAL_PC_GPOL	0x0B	/* General Purpose Output, low level */
 
 #define	NUM_CAS_RS	(REG_RS16_E - REG_RS2_E + 1)
 
@@ -367,7 +377,7 @@ static int pri_write_reg(xpd_t *xpd, int regnum, byte val)
 		regnum, val);
 	return xpp_register_request(
 			xpd->xbus, xpd,
-			PRI_PORT(xpd),		/* portno	*/
+			0,			/* portno=0	*/
 			1,			/* writing	*/
 			regnum,
 			0,			/* do_subreg	*/
@@ -600,13 +610,16 @@ static void set_clocking(xpd_t *xpd)
 	}
 	/* Now set it */
 	if(best_xpd && ((struct PRI_priv_data *)(best_xpd->priv))->clock_source == 0) {
-		byte	cmr1_val =
-				REG_CMR1_RS |
-				REG_CMR1_STF |
-				(REG_CMR1_DRSS & (best_subunit << 6));
-		XPD_DBG(SYNC, best_xpd,
-			"ClockSource Set: cmr1=0x%02X\n", cmr1_val);
-		pri_write_reg(xpd, REG_CMR1, cmr1_val);
+		byte	reg_pc_init[] = { VAL_PC_SYPR, VAL_PC_GPI, VAL_PC_GPI };
+
+		for(i = 0; i < ARRAY_SIZE(reg_pc_init); i++) {
+			byte	reg_pc = reg_pc_init[i];
+
+			reg_pc |= (best_subunit & (1 << i)) ? VAL_PC_GPOH : VAL_PC_GPOL;
+			XPD_DBG(SYNC, best_xpd,
+					"ClockSource Set: PC%d=0x%02X\n", 2+i, reg_pc);
+			pri_write_reg(xpd, REG_PC2 + i, reg_pc);
+		}
 		((struct PRI_priv_data *)(best_xpd->priv))->clock_source = 1;
 	}
 	/* clear old clock sources */
@@ -758,7 +771,7 @@ static int pri_lineconfig(xpd_t *xpd, int lineconfig)
 		fmr4 = 0x9F;								/*  E1.XSW:  All spare bits = 1*/
 		xsp |= REG_XSP_E_EBP | REG_XSP_E_AXS | REG_XSP_E_XSIF;
 	} else if(priv->pri_protocol == PRI_PROTO_T1) {
-		fmr1 |= REG_FMR1_PMOD;
+		fmr1 |= REG_FMR1_PMOD | REG_FMR1_T_CRC;
 		fmr2 = REG_FMR2_T_SSP | REG_FMR2_T_AXRA;	/* 0x22 */
 		fmr4 = 0x0C;
 		xsp |= REG_FMR5_T_XTM;
@@ -804,10 +817,14 @@ static int pri_lineconfig(xpd_t *xpd, int lineconfig)
 		priv->is_cas = 1;
 	}
 	pri_pcm_update(xpd);
-	/* E1's can enable CRC checking */
+	/*
+	 * E1's can enable CRC checking
+	 * CRC4 is legal only for E1, and it is checked by pri_linecompat()
+	 * in the beginning of the function.
+	 */
 	if (lineconfig & DAHDI_CONFIG_CRC4) {
 		crcstr = "CRC4";
-		fmr1 |= REG_FMR1_XFS;
+		fmr1 |= REG_FMR1_E_XFS;
 		fmr2 |= REG_FMR2_E_RFS1;
 		fmr3 |= REG_FMR3_EXTIW;
 	}
@@ -1289,7 +1306,7 @@ static int pri_rbsbits(struct dahdi_chan *chan, int bits)
 	spin_unlock_irqrestore(&xpd->lock, flags);
 	LINE_DBG(SIGNAL, xpd, pos, "RBS: TX: bits=0x%X (reg=0x%X val=0x%02X)\n",
 		bits, regnum, val);
-	pri_write_reg(xpd, regnum, val);
+	write_subunit(xpd, regnum, val);
 	return 0;
 }
 
