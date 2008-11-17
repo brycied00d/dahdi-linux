@@ -504,19 +504,6 @@ struct b4xxp {
 		zlen += (HFC_ZMAX - HFC_ZMIN) + 1;	\
 	}
 
-#define get_Z32(z1, z2, zlen) {					\
-	{ 							\
-		unsigned int tmp;				\
-		tmp = hfc_readcounter32(b4, A_Z12);		\
-		z1 = tmp & 0xffff; 				\
-		z2 = (tmp >> 16); 				\
-		zlen = z1 - z2;					\
-								\
-		if(zlen < 0)					\
-			zlen += (HFC_ZMAX - HFC_ZMIN) + 1;	\
-		}						\
-	}
-
 #define flush_pci()	(void)ioread8(b4->addr + R_STATUS)
 
 #endif	/* __KERNEL__ */
