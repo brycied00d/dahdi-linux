@@ -1426,7 +1426,7 @@ static int hfc_poll_one_bchan_fifo(struct b4xxp_span *span, int c)
 /* select RX FIFO */
 	hfc_setreg_waitbusy(b4, R_FIFO, (fifo << V_FIFO_NUM_SHIFT) | V_FIFO_DIR | V_REV);
 
-	get_Z32(z1, z2, zlen);
+	get_Z(z1, z2, zlen);
 
 /* TODO: error checking, full FIFO mostly */
 
@@ -1495,7 +1495,7 @@ static inline void debug_fz(struct b4xxp *b4, int fifo, const char *prefix)
 	int f1, f2, flen, z1, z2, zlen;
 
 	get_F(f1, f2, flen);
-	get_Z32(z1, z2, zlen);
+	get_Z(z1, z2, zlen);
 
 	pr_info("%s: (fifo %d): f1/f2/flen=%d/%d/%d, z1/z2/zlen=%d/%d/%d\n", prefix, fifo, f1, f2, flen, z1, z2, zlen);
 }
@@ -1539,7 +1539,7 @@ static int hdlc_rx_frame(struct b4xxp_span *bspan)
 
 	spin_lock_irqsave(&b4->fifolock, irq_flags);
 	hfc_setreg_waitbusy(b4, R_FIFO, (fifo << V_FIFO_NUM_SHIFT) | V_FIFO_DIR);
-	get_Z32(z1, z2, zlen);
+	get_Z(z1, z2, zlen);
 	spin_unlock_irqrestore(&b4->fifolock, irq_flags);
 
 	zlen++;		/* include STAT byte that the HFC injects after FCS */
@@ -1563,7 +1563,7 @@ static int hdlc_rx_frame(struct b4xxp_span *bspan)
 		zleft -= j;
 		if (DBG_HDLC) {
 			dev_info(b4->dev, "hdlc_rx_frame(span %d): z1/z2/zlen=%d/%d/%d, zleft=%d\n",
-				bspan->port, z1, z2, zlen, zleft);
+				bspan->port + 1, z1, z2, zlen, zleft);
 			for (i=0; i < j; i++) printk("%02x%c", buf[i], (i < ( j - 1)) ? ' ':'\n');
 		}
 	} while (zleft > 0);
@@ -1582,7 +1582,7 @@ static int hdlc_rx_frame(struct b4xxp_span *bspan)
 /* STAT != 0 = bad frame */
 		if (stat != 0x00) {
 			if (DBG_HDLC)
-				dev_info(b4->dev, "(span %d) STAT=0x%02x indicates frame problem: ", bspan->port, stat);
+				dev_info(b4->dev, "(span %d) STAT=0x%02x indicates frame problem: ", bspan->port + 1, stat);
 			if (stat == 0xff) {
 				if (DBG_HDLC)
 					printk("HDLC Abort\n");
@@ -1595,7 +1595,7 @@ static int hdlc_rx_frame(struct b4xxp_span *bspan)
 /* STAT == 0 = frame was OK */
 		} else {
 			if (DBG_HDLC)
-				dev_info(b4->dev, "(span %d) Frame %d is good!\n", bspan->port, bspan->frames_in);
+				dev_info(b4->dev, "(span %d) Frame %d is good!\n", bspan->port + 1, bspan->frames_in);
 			dahdi_hdlc_finish(bspan->sigchan);
 			ret = 1;
 		}
@@ -1631,7 +1631,7 @@ static int hdlc_tx_frame(struct b4xxp_span *bspan)
 	spin_lock_irqsave(&b4->fifolock, irq_flags);
 	hfc_setreg_waitbusy(b4, R_FIFO, (fifo << V_FIFO_NUM_SHIFT));
 
-	get_Z32(z1, z2, zlen);
+	get_Z(z1, z2, zlen);
 
 /* TODO: check zlen, etc. */
 
@@ -1661,7 +1661,7 @@ static int hdlc_tx_frame(struct b4xxp_span *bspan)
 
 	if (DBG_HDLC) {
 		dev_info(b4->dev, "hdlc_tx_frame(span %d): DAHDI gave %d bytes for FIFO %d (res=%d)\n",
-			bspan->port, size, fifo, res);
+			bspan->port + 1, size, fifo, res);
 		for (i=0; i < size; i++)
 			printk("%02x%c", buf[i], (i < (size - 1)) ? ' ' : '\n');
 
@@ -2046,8 +2046,8 @@ static void b4xxp_hdlc_hard_xmit(struct dahdi_chan *chan)
 	unsigned long irq_flags;
 
 	if (DBG_FOPS || DBG_HDLC)
-		dev_info(b4->dev, "hdlc_hard_xmit on chan %s (%i/%i), span=%i, sigchan=%p\n",
-			chan->name, chan->channo, chan->chanpos, span, bspan->sigchan);
+		dev_info(b4->dev, "hdlc_hard_xmit on chan %s (%i/%i), span=%i\n",
+			chan->name, chan->channo, chan->chanpos, span + 1);
 
 	if ((bspan->sigchan == chan) && !bspan->sigactive) {
 		fifo = bspan->fifos[2];
