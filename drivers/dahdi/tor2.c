@@ -98,7 +98,7 @@ struct tor2 {
 	__iomem volatile unsigned char *mem8;	/* Virtual representation of 8 bit Xilinx memory area */
 	struct dahdi_span spans[SPANS_PER_CARD];		/* Spans */
 	struct tor2_span tspans[SPANS_PER_CARD];	/* Span data */
-	struct dahdi_chan **chans[SPANS_PER_CARD];		/* Pointers to blocks of 24(30/31) contiguous dahdi_chans for each span */
+	struct dahdi_chan **chans[SPANS_PER_CARD]; /* Pointers to card channels */
 	struct tor2_chan tchans[32 * SPANS_PER_CARD];	/* Channel user data */
 	unsigned char txsigs[SPANS_PER_CARD][16];	/* Copy of tx sig registers */
 	int loopupcnt[SPANS_PER_CARD];	/* loop up code counter */
@@ -257,6 +257,7 @@ static int tor2_close(struct dahdi_chan *chan)
 static void init_spans(struct tor2 *tor)
 {
 	int x, y, c;
+	/* TODO: a debug printk macro */
 	for (x = 0; x < SPANS_PER_CARD; x++) {
 		sprintf(tor->spans[x].name, "Tor2/%d/%d", tor->num, x + 1);
 		snprintf(tor->spans[x].desc, sizeof(tor->spans[x].desc) - 1,
@@ -350,6 +351,8 @@ static void free_tor(struct tor2 *tor)
 				kfree(tor->chans[x][f]);
 			}
 		}
+		if (tor->chans[x])
+			kfree(tor->chans[x]);
 	}
 	kfree(tor);
 }
@@ -357,6 +360,7 @@ static void free_tor(struct tor2 *tor)
 static int __devinit tor2_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 {
 	int res,x,f;
+	int ret = -ENODEV;
 	struct tor2 *tor;
 	unsigned long endjif;
 	__iomem volatile unsigned long *gpdata_io, *lasdata_io;
@@ -429,7 +433,7 @@ static int __devinit tor2_probe(struct pci_dev *pdev, const struct pci_device_id
 		if (!cards[x]) break;
 	}
 	if (x >= MAX_TOR_CARDS) {
-		printk(KERN_DEBUG "No cards[] slot available!!\n");
+		printk(KERN_ERR "No cards[] slot available!!\n");
 		goto err_out_release_all;
 	}
 	tor->num = x;
@@ -450,21 +454,21 @@ static int __devinit tor2_probe(struct pci_dev *pdev, const struct pci_device_id
 	while (le32_to_cpu(*gpdata_io) & (GPIO_INIT | GPIO_DONE) && (jiffies <= endjif));
 
 	if (endjif < jiffies) {
-		printk(KERN_DEBUG "Timeout waiting for INIT and DONE to go low\n");
+		printk(KERN_ERR "Timeout waiting for INIT and DONE to go low\n");
 		goto err_out_release_all;
 	}
-	if (debug) printk(KERN_DEBUG "fwload: Init and done gone to low\n");
+	if (debug) printk(KERN_ERR "fwload: Init and done gone to low\n");
 	gpdata |= GPIO_PROGRAM;
 	*gpdata_io = cpu_to_le32(gpdata);  /* de-activate the PROGRAM signal */
 	/* wait for INIT to go high (clearing done */
 	endjif = jiffies + 10;
 	while (!(le32_to_cpu(*gpdata_io) & GPIO_INIT) && (jiffies <= endjif));
 	if (endjif < jiffies) {
-		printk(KERN_DEBUG "Timeout waiting for INIT to go high\n");
+		printk(KERN_ERR "Timeout waiting for INIT to go high\n");
 		goto err_out_release_all;
 	}
 
-	if (debug) printk(KERN_DEBUG "fwload: Init went high (clearing done)\nNow loading...\n");
+	if (debug) printk(KERN_ERR "fwload: Init went high (clearing done)\nNow loading...\n");
 	/* assert WRITE signal */
 	gpdata &= ~GPIO_WRITE;
 	*gpdata_io = cpu_to_le32(gpdata);
@@ -491,12 +495,12 @@ static int __devinit tor2_probe(struct pci_dev *pdev, const struct pci_device_id
 	while (jiffies < endjif); /* wait */
 	if (!(le32_to_cpu(*gpdata_io) & GPIO_INIT))
 	   {
-		printk(KERN_NOTICE "Drove Init low!! CRC Error!!!\n");
+		printk(KERN_ERR "Drove Init low!! CRC Error!!!\n");
 		goto err_out_release_all;
 	   }
 	if (!(le32_to_cpu(*gpdata_io) & GPIO_DONE))
 	   {
-		printk(KERN_DEBUG "Did not get DONE signal. Short file maybe??\n");
+		printk(KERN_ERR "Did not get DONE signal. Short file maybe??\n");
 		goto err_out_release_all;
 	   }
 	printk(KERN_INFO "Xilinx Chip successfully loaded, configured and started!!\n");
@@ -545,9 +549,19 @@ static int __devinit tor2_probe(struct pci_dev *pdev, const struct pci_device_id
 	}
 
 	for (x = 0; x < SPANS_PER_CARD; x++) {
-		for (f = 0; f < (tor->cardtype == TYPE_E1 ? 31 : 24); f++) {
+		int num_chans = tor->cardtype == TYPE_E1 ? 31 : 24;
+		
+		if (!(tor->chans[x] = kmalloc(num_chans * sizeof(*tor->chans[x]), GFP_KERNEL))) {
+			printk(KERN_ERR "tor2: Not enough memory for chans[%d]\n", x);
+			ret = -ENOMEM;
+			goto err_out_release_all;
+		}
+		for (f = 0; f < (num_chans); f++) {
 			if (!(tor->chans[x][f] = kmalloc(sizeof(*tor->chans[x][f]), GFP_KERNEL))) {
-				return -ENOMEM;
+				printk(KERN_ERR "tor2: Not enough memory for chans[%d][%d]\n", 
+						x, f);
+				ret = -ENOMEM;
+				goto err_out_release_all;
 			}
 			memset(tor->chans[x][f], 0, sizeof(*tor->chans[x][f]));
 		}
