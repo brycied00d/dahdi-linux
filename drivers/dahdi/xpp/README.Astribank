@@ -33,7 +33,7 @@ Astribank devices are used.
 
 
 Dahdi Init Configuration File
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 The dahdi init.d script, genzaptelconf and the XPD init scripts uses the 
 parameters located in file /etc/default/zaptel (on Debian) or 
 /etc/sysconfig/zaptel (on RedHats). There is a number of useful parameters 
@@ -80,7 +80,7 @@ that may be defined there:
 -----------------------------------------------------------
 
 /etc/dahdi/system.conf
-~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~
 
 Astribank 8
 ^^^^^^^^^^^
@@ -133,8 +133,8 @@ Astribank 4 PRI T1
     dchan=24,48,72,96
   
 
-/etc/asterisk/zapata.conf
-~~~~~~~~~~~~~~~~~~~~~~~~~
+/etc/asterisk/chan_dahdi.conf
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Astribank 8
 ^^^^^^^^^^^   
     [channels]
@@ -298,22 +298,25 @@ Astribank 4 PRI T1
 Sample dialplan (extensions.conf) for all the above:
 
 -----------------------------------------------------------
-[phones-zap]
+[phones-dahdi]
+; With Asterisk 1.4 you will may need to use here 'Zap' instead of
+; DAHDI. See Zaptel-to-DAHDI.txt .
+;
 ; 6001 will dial to channel 1, 6020, to Dahdi channel 20, etc.
-exten => _6XXX,1,Dial(ZAP/${EXTEN:1})
+exten => _6XXX,1,Dial(DAHDI/${EXTEN:1})
 ; Useful for debugging trunks. Will potentially allow users to
 ; bypass context limitations.
-;exten => _6XXX.,1,Dial(ZAP/${EXTEN:1:3}/${EXTEN:4})
+;exten => _6XXX.,1,Dial(DAHDI/${EXTEN:1:3}/${EXTEN:4})
 
 [trunk]
 ; A number that begins with 9: dial it through a trunk
 ; (we put FXO channels and TE channels in group 0).
 ; The leading 9 is stripped.
-exten => _9.,1,Dial(Zap/g0/${EXTEN:1})
+exten => _9.,1,Dial(DAHDI/g0/${EXTEN:1})
 ; dialing a number that begins with 83 will dial it through
 ; span 3, and so forth. The two leading digits are stripped.
 ; (Each digital span is also added to group 10+span number).
-exten => _8X.,1,Dial(Zap/g1${EXTEN:1:1}/${EXTEN:2})
+exten => _8X.,1,Dial(DAHDI/g1${EXTEN:1:1}/${EXTEN:2})
 
 [from-internal] 
 ; The context of FXS ports: analog phones.
@@ -328,7 +331,7 @@ include => astbank-test
 ; Calls from the PSTN enter here. Redirect calls to an IVR 
 ; or a default extension in the s context here. In this case we  
 ; redirect calls to Dahdi channel 1: 
-exten => s,1,Dial(Zap/1) 
+exten => s,1,Dial(DAHDI/1) 
 
 ; Alternatively, the following will redirect you to the demo IVR 
 ; from the sample extensions.conf of Asterisk:
@@ -350,13 +353,13 @@ exten => 203,n,SayNumber(${CALLERID(num)})
 exten => 203,n,Hangup
 
 [astbank-input] 
-exten => s,1,Set(ZAP_CHAN=${CUT(CHANNEL,-,1)}) 
-exten => s,n,Set(ZAP_CHAN=${CUT(ZAP_CHAN,/,2)}) 
+exten => s,1,Set(DAHDI_CHAN=${CUT(CHANNEL,-,1)}) 
+exten => s,n,Set(DAHDI_CHAN=${CUT(DAHDI_CHAN,/,2)}) 
 ; 11 is the number of the first input port. At least in the sample 
 ; configuration below. 
-;exten => s,n,Set(INPUT_NUM=$[${ZAP_CHAN}-11)]) 
+;exten => s,n,Set(INPUT_NUM=$[${DAHDI_CHAN}-11)]) 
 ; The sample below just logs the signal.  
-exten => s,n,NoOp(Got signal from Dahdi Channel ${ZAP_CHAN}) 
+exten => s,n,NoOp(Got signal from Dahdi Channel ${DAHDI_CHAN}) 
 ; Alternatively: 
 ;exten => s,n,System(run something) 
 
@@ -400,9 +403,9 @@ Check USB level status. You can use one of the following utilities for it:
   loading) - Check that the Astribank is connected indeed.
 
 
-Dahdi Registration
-~~~~~~~~~~~~~~~~~~~
-Check if the Astribank spans are registered in Dahdi
+DAHDI Registration
+~~~~~~~~~~~~~~~~~~
+Check if the Astribank spans are registered in DAHDI:
 
   dahdi_registration
 
@@ -420,8 +423,8 @@ Check if the Astribank spans are registered in Dahdi
   **zap_autoreg** for the further details.
 
 
-Dahdi Level Information
-~~~~~~~~~~~~~~~~~~~~~~~~
+DAHDI Level Information
+~~~~~~~~~~~~~~~~~~~~~~~
 You can get some information regarding Dahdi channels by running one of the
 following commands:
 
@@ -454,7 +457,7 @@ following commands:
 
 Asterisk Level Information
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
-  asterisk -rx 'zap show channels'
+  asterisk -rx 'dahdi show channels'
 
 - If you get error "Unable to connect to remote asterisk" then it
   means that the Asterisk is not running. It is possible that Asterisk
@@ -464,11 +467,11 @@ Asterisk Level Information
   chan_zap.so is not loaded. There are two reasons for such problem:
   * chan_zap.so is not even built. Check if the file exists:
 
-       ls -l /usr/lib/asterisk/modules/chan_zap.so
+       ls -l /usr/lib/asterisk/modules/chan_dahdi.so
 
   * the chan_zap.so file exists but it is not loaded. Try to load it manually:
 
-       asterisk -rx 'load module chan_zap.so'
+       asterisk -rx 'load module chan_dahdi.so'
 
 - You see "pseudo" channel only. It means that you have not configured any
   channels. If you have configured channels in zapata.conf, you may
@@ -1044,8 +1047,8 @@ parameter zap_autoreg in the modprobe configuration file (A file under
   options xpp zap_autoreg=1
 
 
-Dahdi And Above
-^^^^^^^^^^^^^^^^
+DAHDI And Above
+^^^^^^^^^^^^^^^
 From here you get a standard Dahdi span. It still needs to be
 configured by dahdi_cfg and used by a program such as Asterisk like any
 other Dahdi device. In order for you to get a dial-tone in a phone
