@@ -2032,7 +2032,7 @@ static int b4xxp_close(struct dahdi_chan *chan)
 	if (DBG_FOPS)
 		dev_info(b4->dev, "close() on chan %s (%i/%i)\n", chan->name, chan->channo, chan->chanpos);
 
-	hfc_reset_fifo_pair(b4, bspan->fifos[chan->chanpos], 0, 1);
+	hfc_reset_fifo_pair(b4, bspan->fifos[chan->chanpos], 1, 1);
 	return 0;
 }
 
