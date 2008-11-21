@@ -4045,13 +4045,13 @@ static int dahdi_ctl_ioctl(struct inode *inode, struct file *file, unsigned int 
 		if (copy_from_user(&tdp, (struct dahdi_dialparams *) data, sizeof(tdp)))
 			return -EFAULT;
 
-		if ((tdp.dtmf_tonelen <= 4000) || (tdp.dtmf_tonelen >= 10)) {
+		if ((tdp.dtmf_tonelen >= 10) && (tdp.dtmf_tonelen <= 4000)) {
 			global_dialparams.dtmf_tonelen = tdp.dtmf_tonelen;
 		}
-		if ((tdp.mfv1_tonelen <= 4000) || (tdp.mfv1_tonelen >= 10)) {
+		if ((tdp.mfv1_tonelen >= 10) && (tdp.mfv1_tonelen <= 4000)) {
 			global_dialparams.mfv1_tonelen = tdp.mfv1_tonelen;
 		}
-		if ((tdp.mfr2_tonelen <= 4000) || (tdp.mfr2_tonelen >= 10)) {
+		if ((tdp.mfr2_tonelen >= 10) && (tdp.mfr2_tonelen <= 4000)) {
 			global_dialparams.mfr2_tonelen = tdp.mfr2_tonelen;
 		}
 
