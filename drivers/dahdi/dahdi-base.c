@@ -548,7 +548,7 @@ static int fill_alarm_string(char *buf, int count, int alarms)
 			(alarms & DAHDI_ALARM_RECOVER) ? "RECOVERING " : "",
 			(alarms & DAHDI_ALARM_NOTOPEN) ? "NOTOPEN " : "");
 
-	if (len)
+	if (len > 0)
 		buf[--len] = '\0';	/* strip last space */
 
 	return len;
@@ -560,110 +560,135 @@ static int dahdi_proc_read(char *page, char **start, off_t off, int count, int *
 	long span;
 
 	/* In Linux 2.6, this MUST NOT EXECEED 1024 bytes in one read! */
-
 	span = (long)data;
 
 	if (!span)
 		return 0;
 
 	if (spans[span]->name)
-		len += sprintf(page + len, "Span %ld: %s ", span, spans[span]->name);
+		len += snprintf(page + len, count - len, "Span %ld: %s ",
+				span, spans[span]->name);
 	if (spans[span]->desc)
-		len += sprintf(page + len, "\"%s\"", spans[span]->desc);
+		len += snprintf(page + len, count - len, "\"%s\"",
+				spans[span]->desc);
 	else
-		len += sprintf(page + len, "\"\"");
+		len += snprintf(page + len, count - len, "\"\"");
 
-	if(spans[span] == master)
-		len += sprintf(page + len, " (MASTER)");
+	if (spans[span] == master)
+		len += snprintf(page + len, count - len, " (MASTER)");
 
 	if (spans[span]->lineconfig) {
 		/* framing first */
 		if (spans[span]->lineconfig & DAHDI_CONFIG_B8ZS)
-			len += sprintf(page + len, " B8ZS/");
+			len += snprintf(page + len, count - len, " B8ZS/");
 		else if (spans[span]->lineconfig & DAHDI_CONFIG_AMI)
-			len += sprintf(page + len, " AMI/");
+			len += snprintf(page + len, count - len, " AMI/");
 		else if (spans[span]->lineconfig & DAHDI_CONFIG_HDB3)
-			len += sprintf(page + len, " HDB3/");
+			len += snprintf(page + len, count - len, " HDB3/");
 		/* then coding */
 		if (spans[span]->lineconfig & DAHDI_CONFIG_ESF)
-			len += sprintf(page + len, "ESF");
+			len += snprintf(page + len, count - len, "ESF");
 		else if (spans[span]->lineconfig & DAHDI_CONFIG_D4)
-			len += sprintf(page + len, "D4");
+			len += snprintf(page + len, count - len, "D4");
 		else if (spans[span]->lineconfig & DAHDI_CONFIG_CCS)
-			len += sprintf(page + len, "CCS");
+			len += snprintf(page + len, count - len, "CCS");
 		/* E1's can enable CRC checking */
 		if (spans[span]->lineconfig & DAHDI_CONFIG_CRC4)
-			len += sprintf(page + len, "/CRC4");
+			len += snprintf(page + len, count - len, "/CRC4");
 	}
 
-	len += sprintf(page + len, " ");
+	len += snprintf(page + len, count - len, " ");
 
 	/* list alarms */
 	len += fill_alarm_string(page + len, count - len, spans[span]->alarms);
-	if (spans[span]->syncsrc && (spans[span]->syncsrc == spans[span]->spanno))
-		len += sprintf(page + len, "ClockSource ");
-	len += sprintf(page + len, "\n");
+	if (spans[span]->syncsrc &&
+		(spans[span]->syncsrc == spans[span]->spanno))
+		len += snprintf(page + len, count - len, "ClockSource ");
+	len += snprintf(page + len, count - len, "\n");
 	if (spans[span]->bpvcount)
-		len += sprintf(page + len, "\tBPV count: %d\n", spans[span]->bpvcount);
+		len += snprintf(page + len, count - len, "\tBPV count: %d\n",
+				spans[span]->bpvcount);
 	if (spans[span]->crc4count)
-		len += sprintf(page + len, "\tCRC4 error count: %d\n", spans[span]->crc4count);
+		len += snprintf(page + len, count - len,
+				"\tCRC4 error count: %d\n",
+				spans[span]->crc4count);
 	if (spans[span]->ebitcount)
-		len += sprintf(page + len, "\tE-bit error count: %d\n", spans[span]->ebitcount);
+		len += snprintf(page + len, count - len,
+				"\tE-bit error count: %d\n",
+				spans[span]->ebitcount);
 	if (spans[span]->fascount)
-		len += sprintf(page + len, "\tFAS error count: %d\n", spans[span]->fascount);
+		len += snprintf(page + len, count - len,
+				"\tFAS error count: %d\n",
+				spans[span]->fascount);
 	if (spans[span]->irqmisses)
-		len += sprintf(page + len, "\tIRQ misses: %d\n", spans[span]->irqmisses);
+		len += snprintf(page + len, count - len,
+				"\tIRQ misses: %d\n",
+				spans[span]->irqmisses);
 	if (spans[span]->timingslips)
-		len += sprintf(page + len, "\tTiming slips: %d\n", spans[span]->timingslips);
-	len += sprintf(page + len, "\n");
+		len += snprintf(page + len, count - len,
+				"\tTiming slips: %d\n",
+				spans[span]->timingslips);
+	len += snprintf(page + len, count - len, "\n");
 
 	for (x = 0; x < spans[span]->channels; x++) {
 		struct dahdi_chan *chan = spans[span]->chans[x];
 
 		if (chan->name)
-			len += sprintf(page + len, "\t%4d %s ", chan->channo, chan->name);
+			len += snprintf(page + len, count - len,
+					"\t%4d %s ", chan->channo, chan->name);
 
 		if (chan->sig) {
 			if (chan->sig == DAHDI_SIG_SLAVE)
-				len += sprintf(page + len, "%s ", sigstr(chan->master->sig));
+				len += snprintf(page+len, count-len, "%s ",
+						sigstr(chan->master->sig));
 			else {
-				len += sprintf(page + len, "%s ", sigstr(chan->sig));
-				if (chan->nextslave && chan->master->channo == chan->channo)
-					len += sprintf(page + len, "Master ");
+				len += snprintf(page+len, count-len, "%s ",
+						sigstr(chan->sig));
+				if (chan->nextslave &&
+					(chan->master->channo == chan->channo))
+					len += snprintf(page+len, count-len,
+							"Master ");
 			}
 		}
 
 		if (test_bit(DAHDI_FLAGBIT_OPEN, &chan->flags))
-			len += sprintf(page + len, "(In use) ");
+			len += snprintf(page + len, count - len, "(In use) ");
 
 #ifdef	OPTIMIZE_CHANMUTE
 		if (chan->chanmute)
-			len += sprintf(page + len, "(no pcm) ");
+			len += snprintf(page+len, count-len, "(no pcm) ");
 #endif
 
-		len += fill_alarm_string(page + len, count - len, chan->chan_alarms);
+		len += fill_alarm_string(page+len, count-len,
+				chan->chan_alarms);
 
 		if (chan->ec_factory)
-			len += sprintf(page + len, " (EC: %s) ", chan->ec_factory->name);
+			len += snprintf(page+len, count-len, " (EC: %s) ",
+					chan->ec_factory->name);
 
-		len += sprintf(page + len, "\n");
+		len += snprintf(page+len, count-len, "\n");
 
-		if (len <= off) { /* If everything printed so far is before beginning of request */
+		/* If everything printed so far is before beginning 
+		 * of request */
+		if (len <= off) {
 			off -= len;
 			len = 0;
 		}
 
-		if (len > off + count) /* stop if we've already generated enough */
+		/* stop if we've already generated enough */
+		if (len > off + count)
 			break;
 	}
-	if (len <= off) { /* If everything printed so far is before beginning of request */
+	/* If everything printed so far is before beginning of request */
+	if (len <= off) {
 		off -= len;
 		len = 0;
 	}
 	*start = page + off;
-	len -= off;     /* un-count any remaining offset */
+	len -= off;		/* un-count any remaining offset */
+	*eof = 1;
 	if (len > count)
-		len = count;   /* don't return bytes not asked for */
+		len = count;	/* don't return bytes not asked for */
 	return len;
 }
 #endif
@@ -2624,7 +2649,7 @@ static struct dahdi_chan *dahdi_alloc_pseudo(void)
 		kfree(pseudo);
 		pseudo = NULL;
 	} else {
-		sprintf(pseudo->name, "Pseudo/%d", pseudo->channo); 
+		snprintf(pseudo->name, sizeof(pseudo->name)-1,"Pseudo/%d", pseudo->channo); 
 	}
 
 	return pseudo;
@@ -5438,7 +5463,7 @@ int dahdi_unregister(struct dahdi_span *span)
 	if (debug)
 		module_printk(KERN_NOTICE, "Unregistering Span '%s' with %d channels\n", span->name, span->channels);
 #ifdef CONFIG_PROC_FS
-	sprintf(tempfile, "dahdi/%d", span->spanno);
+	snprintf(tempfile, sizeof(tempfile)-1, "dahdi/%d", span->spanno);
         remove_proc_entry(tempfile, NULL);
 #endif /* CONFIG_PROC_FS */
 
