@@ -381,6 +381,7 @@
 #define MAX_SPANS_PER_CARD			4
 
 #define WCB4XXP_CHANNELS_PER_SPAN		3	/* 2 B-channels and 1 D-Channel for each BRI span */
+#define WCB4XXP_HDLC_BUF_LEN			32	/* arbitrary, just the max # of byts we will send to DAHDI per call */
 
 struct b4xxp_span {
 	struct b4xxp *parent;
@@ -508,3 +509,4 @@ struct b4xxp {
 
 #endif	/* __KERNEL__ */
 #endif	/* _B4XX_H_ */
+

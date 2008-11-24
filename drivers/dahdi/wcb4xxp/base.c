@@ -1522,32 +1522,44 @@ static void hdlc_stop(struct b4xxp *b4, int fifo)
 /*
  * Inner loop for D-channel receive function.
  * Retrieves a full HDLC frame from the hardware.
- * If the hardware indicates that the frame is complete, checks the FCS and updates
- * DAHDI as needed.
- * Returns 1 if an HDLC frame was correctly received, 0 otherwise.
+ * If the hardware indicates that the frame is complete,
+ * we check the HDLC engine's STAT byte and update DAHDI as needed.
+ *
+ * Returns the number of HDLC frames left in the FIFO.
  */
 static int hdlc_rx_frame(struct b4xxp_span *bspan)
 {
-	int fifo, i, j, zlen, zleft, z1, z2, ret;
-	unsigned char buf[32];		/* arbitrary */
+	int fifo, i, j, zleft;
+	int z1, z2, zlen, f1, f2, flen;
+	unsigned char buf[WCB4XXP_HDLC_BUF_LEN];
 	unsigned long irq_flags;
 	struct b4xxp *b4 = bspan->parent;
 
-	ret = 0;
 	fifo = bspan->fifos[2];
 	++bspan->frames_in;
 
 	spin_lock_irqsave(&b4->fifolock, irq_flags);
 	hfc_setreg_waitbusy(b4, R_FIFO, (fifo << V_FIFO_NUM_SHIFT) | V_FIFO_DIR);
+	get_F(f1, f2, flen);
 	get_Z(z1, z2, zlen);
 	spin_unlock_irqrestore(&b4->fifolock, irq_flags);
+
+/* first check to make sure we really do have HDLC frames available to retrieve */
+	if (flen == 0) {
+		if (DBG_HDLC) {
+			dev_info(b4->dev, "hdlc_rx_frame(span %d): no frames available?\n",
+				bspan->port + 1);
+		}
+
+		return flen;
+	}
 
 	zlen++;		/* include STAT byte that the HFC injects after FCS */
 	zleft = zlen;
 
 	do {
-		if (zleft > 32)
-			j = 32;
+		if (zleft > WCB4XXP_HDLC_BUF_LEN)
+			j = WCB4XXP_HDLC_BUF_LEN;
 		else
 			j = zleft;
 
@@ -1558,7 +1570,7 @@ static int hdlc_rx_frame(struct b4xxp_span *bspan)
 		spin_unlock_irqrestore(&b4->fifolock, irq_flags);
 
 /* don't send STAT byte to DAHDI */
-		dahdi_hdlc_putbuf(bspan->sigchan, buf, (j == 32) ? j : j - 1);
+		dahdi_hdlc_putbuf(bspan->sigchan, buf, (j == WCB4XXP_HDLC_BUF_LEN) ? j : j - 1);
 
 		zleft -= j;
 		if (DBG_HDLC) {
@@ -1568,8 +1580,10 @@ static int hdlc_rx_frame(struct b4xxp_span *bspan)
 		}
 	} while (zleft > 0);
 
+/* Frame received, increment F2 and get an updated count of frames left */
 	spin_lock_irqsave(&b4->fifolock, irq_flags);
 	hfc_setreg_waitbusy(b4, A_INC_RES_FIFO, V_INC_F);
+	get_F(f1, f2, flen);
 	spin_unlock_irqrestore(&b4->fifolock, irq_flags);
 
 	if (zlen < 3) {
@@ -1597,11 +1611,10 @@ static int hdlc_rx_frame(struct b4xxp_span *bspan)
 			if (DBG_HDLC)
 				dev_info(b4->dev, "(span %d) Frame %d is good!\n", bspan->port + 1, bspan->frames_in);
 			dahdi_hdlc_finish(bspan->sigchan);
-			ret = 1;
 		}
 	}
 
-	return ret;
+	return flen;
 }
 
 
@@ -1615,9 +1628,9 @@ static int hdlc_tx_frame(struct b4xxp_span *bspan)
 {
 	struct b4xxp *b4 = bspan->parent;
 	int res, i, fifo;
-	unsigned int size = 32;
 	int z1, z2, zlen;
-	unsigned char buf[32];
+	unsigned char buf[WCB4XXP_HDLC_BUF_LEN];
+	unsigned int size = sizeof(buf) / sizeof(buf[0]);
 	unsigned long irq_flags;
 
 /* if we're ignoring TE red alarms and we are in alarm, restart the S/T state machine */
@@ -2269,7 +2282,15 @@ static void b4xxp_bottom_half(unsigned long data)
 
 			if (b & V_IRQ_FIFOx_RX) {
 				if (fifo >=8 && fifo <= 11) {
-					hdlc_rx_frame(&b4->spans[fifo - 8]);
+/*
+ * I have to loop here until hdlc_rx_frame says there are no more frames waiting.
+ * for whatever reason, the HFC will not generate another interrupt if there are
+ * still HDLC frames waiting to be received.
+ * i.e. I get an int when F1 changes, not when F1 != F2.
+ */
+					do {
+						k = hdlc_rx_frame(&b4->spans[fifo - 8]);
+					} while (k);
 				} else {
 					if (printk_ratelimit())
 						dev_warn(b4->dev, "Got FIFO RX int from non-d-chan FIFO %d??\n", fifo);
