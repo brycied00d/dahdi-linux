@@ -405,6 +405,7 @@ struct b4xxp_span {
 	/* HDLC controller fields */
 	struct dahdi_chan *sigchan;		/* pointer to the signalling channel for this span */
 	int sigactive;				/* nonzero means we're in the middle of sending an HDLC frame */
+	atomic_t hdlc_pending;			/* hdlc_hard_xmit() increments, hdlc_tx_frame() decrements */
 	int frames_out;
 	int frames_in;
 
