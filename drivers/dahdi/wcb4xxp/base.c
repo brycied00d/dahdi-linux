@@ -73,7 +73,10 @@
 #define DBG_HDLC		(debug & DEBUG_HDLC)
 #define DBG_ALARM		(debug & DEBUG_ALARM)
 
+#define DBG_SPANFILTER		((1 << bspan->port) & spanfilter)
+
 static int debug = 0;
+static int spanfilter = 15;
 #ifdef LOOPBACK_SUPPORTED
 static int loopback = 0;
 #endif
@@ -1546,7 +1549,7 @@ static int hdlc_rx_frame(struct b4xxp_span *bspan)
 
 /* first check to make sure we really do have HDLC frames available to retrieve */
 	if (flen == 0) {
-		if (DBG_HDLC) {
+		if (DBG_HDLC && DBG_SPANFILTER) {
 			dev_info(b4->dev, "hdlc_rx_frame(span %d): no frames available?\n",
 				bspan->port + 1);
 		}
@@ -1573,7 +1576,7 @@ static int hdlc_rx_frame(struct b4xxp_span *bspan)
 		dahdi_hdlc_putbuf(bspan->sigchan, buf, (j == WCB4XXP_HDLC_BUF_LEN) ? j : j - 1);
 
 		zleft -= j;
-		if (DBG_HDLC) {
+		if (DBG_HDLC && DBG_SPANFILTER) {
 			dev_info(b4->dev, "hdlc_rx_frame(span %d): z1/z2/zlen=%d/%d/%d, zleft=%d\n",
 				bspan->port + 1, z1, z2, zlen, zleft);
 			for (i=0; i < j; i++) printk("%02x%c", buf[i], (i < ( j - 1)) ? ' ':'\n');
@@ -1587,7 +1590,7 @@ static int hdlc_rx_frame(struct b4xxp_span *bspan)
 	spin_unlock_irqrestore(&b4->fifolock, irq_flags);
 
 	if (zlen < 3) {
-		if (DBG_HDLC)
+		if (DBG_HDLC && DBG_SPANFILTER)
 			dev_notice(b4->dev, "odd, zlen less then 3?\n");
 		dahdi_hdlc_abort(bspan->sigchan, DAHDI_EVENT_ABORT);
 	} else {
@@ -1595,20 +1598,20 @@ static int hdlc_rx_frame(struct b4xxp_span *bspan)
 
 /* STAT != 0 = bad frame */
 		if (stat != 0x00) {
-			if (DBG_HDLC)
+			if (DBG_HDLC && DBG_SPANFILTER)
 				dev_info(b4->dev, "(span %d) STAT=0x%02x indicates frame problem: ", bspan->port + 1, stat);
 			if (stat == 0xff) {
-				if (DBG_HDLC)
+				if (DBG_HDLC && DBG_SPANFILTER)
 					printk("HDLC Abort\n");
 				dahdi_hdlc_abort(bspan->sigchan, DAHDI_EVENT_ABORT);
 			} else {
-				if (DBG_HDLC)
+				if (DBG_HDLC && DBG_SPANFILTER)
 					printk("Bad FCS\n");
 				dahdi_hdlc_abort(bspan->sigchan, DAHDI_EVENT_BADFCS);
 			}
 /* STAT == 0 = frame was OK */
 		} else {
-			if (DBG_HDLC)
+			if (DBG_HDLC && DBG_SPANFILTER)
 				dev_info(b4->dev, "(span %d) Frame %d is good!\n", bspan->port + 1, bspan->frames_in);
 			dahdi_hdlc_finish(bspan->sigchan);
 		}
@@ -1677,7 +1680,7 @@ static int hdlc_tx_frame(struct b4xxp_span *bspan)
 
 	spin_unlock_irqrestore(&b4->fifolock, irq_flags);
 
-	if (DBG_HDLC) {
+	if (DBG_HDLC && DBG_SPANFILTER) {
 		dev_info(b4->dev, "hdlc_tx_frame(span %d): DAHDI gave %d bytes for FIFO %d (res=%d)\n",
 			bspan->port + 1, size, fifo, res);
 		for (i=0; i < size; i++)
@@ -2033,7 +2036,7 @@ static int b4xxp_open(struct dahdi_chan *chan)
 		return -EBUSY;
 	}
 
-	if (DBG_FOPS)
+	if (DBG_FOPS && DBG_SPANFILTER)
 		dev_info(b4->dev, "open() on chan %s (%i/%i)\n", chan->name, chan->channo, chan->chanpos);
 
 	hfc_reset_fifo_pair(b4, bspan->fifos[chan->chanpos], 0, 0);
@@ -2048,7 +2051,7 @@ static int b4xxp_close(struct dahdi_chan *chan)
 
 	module_put(THIS_MODULE);
 
-	if (DBG_FOPS)
+	if (DBG_FOPS && DBG_SPANFILTER)
 		dev_info(b4->dev, "close() on chan %s (%i/%i)\n", chan->name, chan->channo, chan->chanpos);
 
 	hfc_reset_fifo_pair(b4, bspan->fifos[chan->chanpos], 1, 1);
@@ -2062,7 +2065,7 @@ static void b4xxp_hdlc_hard_xmit(struct dahdi_chan *chan)
 	int span = chan->span->offset;
 	struct b4xxp_span *bspan = &b4->spans[span];
 
-	if (DBG_FOPS || DBG_HDLC)
+	if ((DBG_FOPS || DBG_HDLC) && DBG_SPANFILTER)
 		dev_info(b4->dev, "hdlc_hard_xmit on chan %s (%i/%i), span=%i\n",
 			chan->name, chan->channo, chan->chanpos, span + 1);
 
@@ -2675,6 +2678,7 @@ static void __exit b4xx_exit(void)
 }
 
 module_param(debug, int, S_IRUGO | S_IWUSR);
+module_param(spanfilter, int, S_IRUGO | S_IWUSR);
 #ifdef LOOKBACK_SUPPORTED
 module_param(loopback, int, S_IRUGO | S_IWUSR);
 #endif
@@ -2686,6 +2690,7 @@ module_param(timer_1_ms, int, S_IRUGO | S_IWUSR);
 module_param(timer_3_ms, int, S_IRUGO | S_IWUSR);
 
 MODULE_PARM_DESC(debug, "bitmap: 1=general 2=dtmf 4=regops 8=fops 16=ec 32=st state 64=hdlc 128=alarm");
+MODULE_PARM_DESC(spanfilter, "debug filter for spans. bitmap: 1=port 1, 2=port 2, 4=port 3, 8=port 4");
 #ifdef LOOKBACK_SUPPORTED
 MODULE_PARM_DESC(loopback, "TODO: bitmap: 1=loop back S/T port 2=loop back DAHDI");
 #endif
