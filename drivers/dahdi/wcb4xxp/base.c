@@ -1654,13 +1654,18 @@ static int hdlc_tx_frame(struct b4xxp_span *bspan)
 		for (i=0; i < size; i++)
 			b4xxp_setreg8(b4, A_FIFO_DATA0, buf[i]);
 
-/* increment F and kick-start the FIFO if we have a complete frame to send. */
+/*
+ * If we got a full frame from DAHDI, increment F and decrement our HDLC pending counter.
+ * Otherwise, select the FIFO again (to start transmission) and make sure the
+ * TX IRQ is enabled so we will get called again to finish off the data
+ */
 		if (res != 0) {
 			++bspan->frames_out;
 			bspan->sigactive = 0;
 			hfc_setreg_waitbusy(b4, A_INC_RES_FIFO, V_INC_F);
-			hfc_setreg_waitbusy(b4, R_FIFO, (fifo << V_FIFO_NUM_SHIFT));
+			atomic_dec(&bspan->hdlc_pending);
 		} else {
+			hfc_setreg_waitbusy(b4, R_FIFO, (fifo << V_FIFO_NUM_SHIFT));
 			b4xxp_setreg8(b4, A_IRQ_MSK, V_IRQ);
 		}
 	}
@@ -2011,6 +2016,7 @@ static int b4xxp_chanconfig(struct dahdi_chan *chan, int sigtype)
 
 		bspan->sigchan = (sigtype == DAHDI_SIG_HARDHDLC) ? chan : NULL;
 		bspan->sigactive = 0;
+		atomic_set(&bspan->hdlc_pending, 0);
 	} else {
 /* FIXME: shouldn't I be returning an error? */
 	}
@@ -2055,45 +2061,17 @@ static void b4xxp_hdlc_hard_xmit(struct dahdi_chan *chan)
 	struct b4xxp *b4 = chan->pvt;
 	int span = chan->span->offset;
 	struct b4xxp_span *bspan = &b4->spans[span];
-	int fifo, f1, f2, flen;
-	unsigned long irq_flags;
 
 	if (DBG_FOPS || DBG_HDLC)
 		dev_info(b4->dev, "hdlc_hard_xmit on chan %s (%i/%i), span=%i\n",
 			chan->name, chan->channo, chan->chanpos, span + 1);
 
-	if ((bspan->sigchan == chan) && !bspan->sigactive) {
-		fifo = bspan->fifos[2];
-
-		spin_lock_irqsave(&b4->fifolock, irq_flags);
-		hfc_setreg_waitbusy(b4, R_FIFO, (fifo << V_FIFO_NUM_SHIFT));
-		get_F(f1, f2, flen);
-
-/* check flen, etc. */
-
 /*
- * WOW, more HFC suckage.
- * If the TX FIFO is empty and interrupts are enabled, I do not get an IRQ. (??)
- * If I increment F without writing any bytes (a zero-length HDLC frame),
- * I will get an interrupt immediately.
- * I can't just send it here, because I can't guarantee I'm not talking to another HFC
- * on the other side.  The HDLC controller is not supposed to give me an interrupt until
- * the entire frame is received, but it interrupts me anyway.
- *
- * SO: enable interrupts and increment F with 0 data to actually GET an IRQ.
- * Inside the interrupt bottom half, loop until all HDLC frame data is in the FIFO,
- * then increment F again to add on CRC and send it.
- * I can do it this way because I'm guaranteed not to process any RX interrupt
- * until my TX is done (by virtue of how the bottom half is written).
- * If I do it outside of interrupt context, I either have to hold the FIFO lock while
- * calling DAHDI (much wailing and gnashing of teeth) or I have to have a long enough
- * intermediate buffer so that I can do it all in one shot.
- *
- * Way to make FIFOs easy, Cologne Chip AG.
+ * increment the hdlc_pending counter and trigger the bottom-half so it
+ * will be picked up and sent.
  */
-		b4xxp_setreg8(b4, A_IRQ_MSK, V_IRQ);
-		hfc_setreg_waitbusy(b4, A_INC_RES_FIFO, V_INC_F);
-		spin_unlock_irqrestore(&b4->fifolock, irq_flags);
+	if (bspan->sigchan == chan) {
+		atomic_inc(&bspan->hdlc_pending);
 	}
 }
 
@@ -2337,6 +2315,24 @@ static void b4xxp_bottom_half(unsigned long data)
 /* clear the timer interrupt flag. */
 		b4->misc_irqstatus &= ~V_TI_IRQ;
 	}
+
+/*
+ * Check for outgoing HDLC frame requests
+ * The HFC does not generate TX interrupts when there is room to send, so
+ * I use an atomic counter that is incremented every time DAHDI wants to send
+ * a frame, and decremented every time I send a frame.  It'd be better if I could
+ * just use the interrupt handler, but the HFC seems to trigger a FIFO TX IRQ 
+ * only when it has finished sending a frame, not when one can be sent.
+ */
+	for (i=0; i < b4->numspans; i++) {
+		struct b4xxp_span *bspan = &b4->spans[i];
+
+		if (atomic_read(&bspan->hdlc_pending)) {
+			do {
+				k = hdlc_tx_frame(bspan);
+			}  while (k);
+                }
+        }
 }
 
 
