@@ -1493,14 +1493,14 @@ static int hfc_poll_fifos(struct b4xxp *b4)
 }
 
 /* NOTE: assumes fifo lock is held */
-static inline void debug_fz(struct b4xxp *b4, int fifo, const char *prefix)
+static inline void debug_fz(struct b4xxp *b4, int fifo, const char *prefix, char *buf)
 {
 	int f1, f2, flen, z1, z2, zlen;
 
 	get_F(f1, f2, flen);
 	get_Z(z1, z2, zlen);
 
-	pr_info("%s: (fifo %d): f1/f2/flen=%d/%d/%d, z1/z2/zlen=%d/%d/%d\n", prefix, fifo, f1, f2, flen, z1, z2, zlen);
+	sprintf(buf, "%s: (fifo %d): f1/f2/flen=%d/%d/%d, z1/z2/zlen=%d/%d/%d\n", prefix, fifo, f1, f2, flen, z1, z2, zlen);
 }
 
 /* enable FIFO RX int and reset the FIFO */
@@ -1535,17 +1535,22 @@ static int hdlc_rx_frame(struct b4xxp_span *bspan)
 	int fifo, i, j, zleft;
 	int z1, z2, zlen, f1, f2, flen;
 	unsigned char buf[WCB4XXP_HDLC_BUF_LEN];
+	char debugbuf[256];
 	unsigned long irq_flags;
 	struct b4xxp *b4 = bspan->parent;
 
 	fifo = bspan->fifos[2];
-	++bspan->frames_in;
 
 	spin_lock_irqsave(&b4->fifolock, irq_flags);
 	hfc_setreg_waitbusy(b4, R_FIFO, (fifo << V_FIFO_NUM_SHIFT) | V_FIFO_DIR);
 	get_F(f1, f2, flen);
 	get_Z(z1, z2, zlen);
+	debug_fz(b4, fifo, "hdlc_rx_frame", debugbuf);
 	spin_unlock_irqrestore(&b4->fifolock, irq_flags);
+
+	if (DBG_HDLC && DBG_SPANFILTER) {
+		pr_info("%s", debugbuf);
+	}
 
 /* first check to make sure we really do have HDLC frames available to retrieve */
 	if (flen == 0) {
@@ -1557,8 +1562,7 @@ static int hdlc_rx_frame(struct b4xxp_span *bspan)
 		return flen;
 	}
 
-	zlen++;		/* include STAT byte that the HFC injects after FCS */
-	zleft = zlen;
+	zleft = zlen + 1;	/* include STAT byte that the HFC injects after FCS */
 
 	do {
 		if (zleft > WCB4XXP_HDLC_BUF_LEN)
@@ -1589,6 +1593,7 @@ static int hdlc_rx_frame(struct b4xxp_span *bspan)
 	get_F(f1, f2, flen);
 	spin_unlock_irqrestore(&b4->fifolock, irq_flags);
 
+	++bspan->frames_in;
 	if (zlen < 3) {
 		if (DBG_HDLC && DBG_SPANFILTER)
 			dev_notice(b4->dev, "odd, zlen less then 3?\n");
@@ -1596,7 +1601,7 @@ static int hdlc_rx_frame(struct b4xxp_span *bspan)
 	} else {
 		unsigned char stat = buf[i - 1];
 
-/* STAT != 0 = bad frame */
+/* if STAT != 0, indicates bad frame */
 		if (stat != 0x00) {
 			if (DBG_HDLC && DBG_SPANFILTER)
 				dev_info(b4->dev, "(span %d) STAT=0x%02x indicates frame problem: ", bspan->port + 1, stat);
@@ -1609,7 +1614,7 @@ static int hdlc_rx_frame(struct b4xxp_span *bspan)
 					printk("Bad FCS\n");
 				dahdi_hdlc_abort(bspan->sigchan, DAHDI_EVENT_BADFCS);
 			}
-/* STAT == 0 = frame was OK */
+/* STAT == 0, means frame was OK */
 		} else {
 			if (DBG_HDLC && DBG_SPANFILTER)
 				dev_info(b4->dev, "(span %d) Frame %d is good!\n", bspan->port + 1, bspan->frames_in);
@@ -1634,6 +1639,7 @@ static int hdlc_tx_frame(struct b4xxp_span *bspan)
 	int z1, z2, zlen;
 	unsigned char buf[WCB4XXP_HDLC_BUF_LEN];
 	unsigned int size = sizeof(buf) / sizeof(buf[0]);
+	char debugbuf[256];
 	unsigned long irq_flags;
 
 /* if we're ignoring TE red alarms and we are in alarm, restart the S/T state machine */
@@ -1648,6 +1654,7 @@ static int hdlc_tx_frame(struct b4xxp_span *bspan)
 	hfc_setreg_waitbusy(b4, R_FIFO, (fifo << V_FIFO_NUM_SHIFT));
 
 	get_Z(z1, z2, zlen);
+	debug_fz(b4, fifo, "hdlc_tx_frame", debugbuf);
 
 /* TODO: check zlen, etc. */
 
@@ -1681,6 +1688,7 @@ static int hdlc_tx_frame(struct b4xxp_span *bspan)
 	spin_unlock_irqrestore(&b4->fifolock, irq_flags);
 
 	if (DBG_HDLC && DBG_SPANFILTER) {
+		dev_info(b4->dev, "%s", debugbuf);
 		dev_info(b4->dev, "hdlc_tx_frame(span %d): DAHDI gave %d bytes for FIFO %d (res=%d)\n",
 			bspan->port + 1, size, fifo, res);
 		for (i=0; i < size; i++)
