@@ -944,7 +944,7 @@ static int t1xxp_spanconfig(struct dahdi_span *span, struct dahdi_lineconfig *lc
 	struct t1 *wc = span->pvt;
 
 	/* Do we want to SYNC on receive or not */
-	wc->sync = lc->sync;
+	wc->sync = (lc->sync) ? 1 : 0;
 	/* If already running, apply changes immediately */
 	if (span->flags & DAHDI_FLAG_RUNNING)
 		return t1xxp_startup(span);
