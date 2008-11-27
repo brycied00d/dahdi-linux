@@ -10,7 +10,7 @@ It is generally a more technical document than the
 http://www.xorcom.com/documentation/manuals/[Astribank User Manual]
 
 An HTML version of the latest version of this document could be found at 
-http://zaptel.tzafrir.org.il/README.Astribank.html[]
+http://docs.tzafrir.org.il/dahdi-linux/README.Astribank.html[]
 
 Building and Installation
 -------------------------
@@ -32,52 +32,42 @@ the following can serve as reference configurations for a system where
 Astribank devices are used.
 
 
-Dahdi Init Configuration File
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-The dahdi init.d script, genzaptelconf and the XPD init scripts uses the 
-parameters located in file /etc/default/zaptel (on Debian) or 
-/etc/sysconfig/zaptel (on RedHats). There is a number of useful parameters 
-that may be defined there:
-
+xpp.conf: Astribank Initialization
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/etc/dahdi/xpp.conf is read by the initialization modules of dahdi
+scripts.
 -----------------------------------------------------------
-# Lines beginning with '#' are considered comments and ignored.
-
-# A two-letter country code. genzaptelconf uses it to better guess 
-# the configuration it generates. E.g: the signalling of E1 spans, and 
-# a few other country-specific settings.
-#lc_country=us
-
-# See genzaptelconf(8) and the script itself for a longer list of 
-# variables.
-
-# Equivalent to the parameter opermode to the module wctdm: country-specific
-# settings to the FXO lines. For a complete list of possible values, see
-# /usr/share/dahdi/init_fxo_mode .
-#opermode=FRANCE
-
-# xpp_sync runs with the value of 'XPP_SYNC' as its parameter to set the
-# synchronization source. The default is 'auto' that selects the best
-# Astribank. 'DAHDI' gets synchronization from the Dahdi sync master
-# span. Or a specific XBUS number.
-#XPP_SYNC=DAHDI
-
-# Disables hot-plug firmware loading
-#XPP_HOTPLUG_DISABLED=yes
+# /etc/dahdi/xpp.conf
+#
+# This file is used to configure the operation
+# of init_card_* initialization scripts.
 #
 
-# Disables udev hook called when an Astribank is added and ready
-# or removed.
-#ASTRIBANK_HOOK_DISABLED=yes
+# Adds many more tracing messages that are sent to syslog:
+#debug		1
 
-# Setup for the Astribank PRI module:
-# All the ports in the unit connected to the USB port 0000:00:1d.7-1
-# will be NT and E1. Ports no. 1 and 3 of all the other Astribanks will 
-# be NT and E1 (and thus ports 0 and 2 will be TE and E1).
-#XPP_PRI_SETUP='
-#	CONNECTOR/usb-0000:00:1d.7-1/XPD-01=NT,E1
-#	NUM/*/XPD-0[13]=NT,E1
-#	'
+# xpd_pri: E1 or T1. The default is E1 for all the ports.
+#   Setting T1 instead:
+#pri_protocol	T1
+#
+#  Or if you actually want to mix E1 and T1:
+#pri_protocol/xbus-00/xpd-02	T1
+#pri_protocol/connector:usb-0000:00:1d.7-7/xpd-03	T1
+#pri_protocol/label:usb:0000183/xpd-03	T1
+# If several definitions can refer to a port, the last wins. 
+# If none applies, the default of E1 holds.
+
+#  Don't run power calibration on the FXS units. This can save time
+#  but can also get you unit randomly disconnect, if badly used:
+#fxs_skip_calib	1
+
+#  FXO: country to adjust settings to:
+#opermode	ISRAEL
 -----------------------------------------------------------
+
+/////////////////////////////////////////////
+TODO: genconf_parameters, init.conf: need documentation?
+/////////////////////////////////////////////
 
 /etc/dahdi/system.conf
 ~~~~~~~~~~~~~~~~~~~~~~
@@ -717,6 +707,9 @@ NT::
     Orange LED of the upper socket will light. Hint that this is an
     NT (network) port.
 
+//////////////////////////////////////////////////
+FIXME: Update for DAHDI
+//////////////////////////////////////////////////
 To set them to a non-default value, you should use the variable
 XPP_PRI_SETUP in the 
 xref:dahdi_init_configuration_file[Dahdi Init Configuration File]
@@ -954,7 +947,7 @@ The driver of the Astribank is composed of several modules:
 * xpd_fxo - the module for controlling FXO modules. 
 * xpd_bri - the module for controlling BRI modules. 
 * xpd_pri - the module for controlling E1/T1 modules. 
-* xpd_usb - the module that holds the functionality needed to connect to the
+* xpp_usb - the module that holds the functionality needed to connect to the
             USB bus.
 
 All modules depend on xpp, and modprobing them will install xpp as well.
@@ -989,8 +982,8 @@ Before registering a XPD as a span in Dahdi, we run an initialization
 script: /usr/share/dahdi/init_card_N_MM (
 where,
 
-* N  - is 3 for an FXS span and 4 for an FXO span, and 6 or 7 for BRI.
-* MM - is a version number. Currently it equals 26
+* N  - is 1 for an FXS span and 2 for an FXO span, 3 for BRI and 4 for PRI.
+* MM - is a version number. Currently it equals 30.
 
 Those scripts must be executable. Funny things happen if such a script
 exists but is not executable.
@@ -1007,8 +1000,8 @@ faster "blinking" when the XPDs register as Dahdi spans. The initialization
 of an FXS XPD may take a few seconds.
 
 
-Registering in Dahdi
-^^^^^^^^^^^^^^^^^^^^^
+Registering in DAHDI
+^^^^^^^^^^^^^^^^^^^^
 The XPDs will not automatically register as Dahdi spans. This is
 intended to allow you to set the registration order (and hence the order
 of Dahdi spans and channels) among multiple Astribank devices,
