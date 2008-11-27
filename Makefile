@@ -72,7 +72,7 @@ ROOT_PREFIX:=
 ASCIIDOC:=asciidoc
 ASCIIDOC_CMD:=$(ASCIIDOC) -n -a toc -a toclevels=4
 
-GENERATED_DOCS:=README.html README.Astribank.html
+GENERATED_DOCS:=README.html
 
 ifneq ($(wildcard .version),)
   DAHDIVERSION:=$(shell cat .version)
@@ -243,9 +243,6 @@ test:
 docs: $(GENERATED_DOCS)
 
 README.html: README
-	$(ASCIIDOC_CMD) -o $@ $<
-
-README.Astribank.html: drivers/dahdi/xpp/README.Astribank
 	$(ASCIIDOC_CMD) -o $@ $<
 
 .PHONY: distclean dist-clean clean all install devices modules stackcheck install-udev update install-modules install-include uninstall-modules firmware-download install-xpp-firm
