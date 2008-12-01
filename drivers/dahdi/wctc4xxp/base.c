@@ -1818,8 +1818,9 @@ do_rx_response_packet(struct wcdte *wc, struct tcb *cmd)
 		    (listhdr->channel == rxhdr->channel)) {
 			list_del_init(&pos->node);
 			pos->flags &= ~(__WAIT_FOR_RESPONSE);
-			WARN_ON(pos->response);
 			pos->response = cmd;
+			WARN_ON(pos->response);
+			WARN_ON(!(pos->flags & TX_COMPLETE));
 			complete(&pos->complete);
 			break;
 		}
@@ -1844,6 +1845,7 @@ do_rx_ack_packet(struct wcdte *wc, struct tcb *cmd)
 			wc->seq_num = (rxhdr->seq_num + 1) & 0xff;
 			WARN_ON(!(pos->flags & DO_NOT_AUTO_FREE));
 			list_del_init(&pos->node);
+			WARN_ON(!(pos->flags & TX_COMPLETE));
 			complete(&pos->complete);
 		} else if ((listhdr->seq_num == rxhdr->seq_num) && 
 			   (listhdr->channel == rxhdr->channel)) {
@@ -1853,6 +1855,7 @@ do_rx_ack_packet(struct wcdte *wc, struct tcb *cmd)
 				list_del_init(&pos->node);
 
 				if (pos->flags & DO_NOT_AUTO_FREE) {
+					WARN_ON(!(pos->flags & TX_COMPLETE));
 					complete(&pos->complete);
 				} else {
 					free_cmd(pos);
@@ -1975,14 +1978,44 @@ wctc4xxp_receiveprep(struct wcdte *wc, struct tcb *cmd)
 	}
 }
 
-static inline void service_dte(struct wcdte *wc) 
+static inline void service_tx_ring(struct wcdte *wc)
 {
 	struct tcb *cmd;
+	while ((cmd = wctc4xxp_retrieve(wc->txd))) {
+		if (!(cmd->flags & (__WAIT_FOR_ACK | __WAIT_FOR_RESPONSE))) {
+			/* If we're not waiting for an ACK or Response from
+			 * the DTE, this message should not be sitting on any
+			 * lists. */
+			WARN_ON(!list_empty(&cmd->node));
+			if (DO_NOT_AUTO_FREE & cmd->flags) {
+				WARN_ON(!(pos->flags & TX_COMPLETE));
+				complete(&cmd->complete);
+			} else {
+				free_cmd(cmd);
+			}
+		}
+		/* We've freed up a spot in the hardware ring buffer.  If
+		 * another packet is queued up, let's submit it to the
+		 * hardware. */
+		spin_lock_bh(&wc->cmd_list_lock);
+		if (!list_empty(&wc->cmd_list)) {
+			cmd = list_entry(wc->cmd_list.next, struct tcb, node);
+			list_del_init(&cmd->node);
+		} else {
+			cmd = NULL;
+		}
+		spin_unlock_bh(&wc->cmd_list_lock);
 
-	/* 
-	 * Process the received packets
-	 */
-	while((cmd = wctc4xxp_retrieve(wc->rxd))) {
+		if (cmd) {
+			wctc4xxp_transmit_cmd(wc, cmd);
+		}
+	}
+}
+
+static inline void service_rx_ring(struct wcdte *wc)
+{
+	struct tcb *cmd;
+	while ((cmd = wctc4xxp_retrieve(wc->rxd))) {
 		struct tcb *newcmd;
 
 		wctc4xxp_net_capture_cmd(wc, cmd);
@@ -2007,38 +2040,12 @@ static inline void service_dte(struct wcdte *wc)
 		wctc4xxp_receiveprep(wc, cmd);
 	}
 	wctc4xxp_receive_demand_poll(wc);
-	
-	/* 
-	 * Process the transmit packets
-	 */
-	while((cmd = wctc4xxp_retrieve(wc->txd))) {
-		if (!(cmd->flags & (__WAIT_FOR_ACK | __WAIT_FOR_RESPONSE))) {
-			/* If we're not waiting for an ACK or Response from
-			 * the DTE, this message should not be sitting on any
-			 * lists. */
-			WARN_ON(!list_empty(&cmd->node));
-			if (DO_NOT_AUTO_FREE & cmd->flags) {
-				complete(&cmd->complete);
-			} else {
-				free_cmd(cmd);
-			}
-		}
-		/* We've freed up a spot in the hardware ring buffer.  If
-		 * another packet is queued up, let's submit it to the
-		 * hardware. */
-		spin_lock_bh(&wc->cmd_list_lock);
-		if (!list_empty(&wc->cmd_list)) {
-			cmd = list_entry(wc->cmd_list.next, struct tcb, node);
-			list_del_init(&cmd->node);
-		} else {
-			cmd = NULL;
-		}
-		spin_unlock_bh(&wc->cmd_list_lock);
+}
 
-		if (cmd) {
-			wctc4xxp_transmit_cmd(wc, cmd);
-		}
-	}
+static inline void service_dte(struct wcdte *wc) 
+{
+	service_tx_ring(wc);
+	service_rx_ring(wc);	
 }
 
 
@@ -2832,6 +2839,9 @@ wctc4xxp_watchdog(unsigned long data)
 	LIST_HEAD(cmds_to_retry);
 	const int MAX_RETRIES = 5;
 
+	/* Check for any commands that have completed transmitted. */
+	service_tx_ring(wc);
+
 	spin_lock(&wc->cmd_list_lock);
 	/* Go through the list of messages that are waiting for responses from
 	 * the DTE, and complete or retry any that have timed out. */
@@ -2850,7 +2860,6 @@ wctc4xxp_watchdog(unsigned long data)
 				 * received the ACK or the response. */
 				cmd->flags |= DTE_CMD_TIMEOUT;
 				list_del_init(&cmd->node);
-				complete(&cmd->complete);
 			} else if (cmd->flags & TX_COMPLETE) {
 				/* Move this to the local list because we're
 				 * going to resend it once we free the locks */
