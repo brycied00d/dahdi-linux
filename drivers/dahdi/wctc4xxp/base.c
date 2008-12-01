@@ -1988,7 +1988,7 @@ static inline void service_tx_ring(struct wcdte *wc)
 			 * lists. */
 			WARN_ON(!list_empty(&cmd->node));
 			if (DO_NOT_AUTO_FREE & cmd->flags) {
-				WARN_ON(!(pos->flags & TX_COMPLETE));
+				WARN_ON(!(cmd->flags & TX_COMPLETE));
 				complete(&cmd->complete);
 			} else {
 				free_cmd(cmd);
