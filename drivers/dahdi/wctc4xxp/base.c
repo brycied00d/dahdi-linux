@@ -1521,6 +1521,9 @@ do_channel_allocate(struct dahdi_transcoder_channel *dtc)
 	/* Mark this channel as built */
 	dahdi_tc_set_built(dtc);
 	dtc->built_fmts = dtc->dstfmt | dtc->srcfmt;
+	DTE_DEBUG(DTE_DEBUG_CHANNEL_SETUP,
+	  "Channel %p has dstfmt=%x and srcfmt=%x\n", dtc, dtc->dstfmt,
+	  dtc->srcfmt);
 	/* Mark the channel complement (other half of encoder/decoder pair) as built */
 	res = wctc4xxp_mark_channel_complement_built(wc, dtc);
 	up(&wc->chansem);
@@ -1756,6 +1759,8 @@ wctc4xxp_write(struct file *file, const char __user *frame, size_t count, loff_t
 			return -EINVAL;
 		}
 		cpvt->timestamp = G723_SAMPLES;
+	} else if (DAHDI_FORMAT_G723_1 == dtc->dstfmt) {
+		cpvt->timestamp = G723_SAMPLES;
 	} else {
 		/* Same for ulaw and alaw */
 		cpvt->timestamp = G729_SAMPLES; 
@@ -1819,7 +1824,6 @@ do_rx_response_packet(struct wcdte *wc, struct tcb *cmd)
 			list_del_init(&pos->node);
 			pos->flags &= ~(__WAIT_FOR_RESPONSE);
 			pos->response = cmd;
-			WARN_ON(pos->response);
 			WARN_ON(!(pos->flags & TX_COMPLETE));
 			complete(&pos->complete);
 			break;
