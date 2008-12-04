@@ -179,8 +179,8 @@ static int dahdi_tc_release(struct inode *inode, struct file *file)
 
 /* Find a free channel on the transcoder and mark it busy. */
 static inline struct dahdi_transcoder_channel *
-get_free_channel(struct dahdi_transcoder *tc)
-
+get_free_channel(struct dahdi_transcoder *tc,
+	const struct dahdi_transcoder_formats *fmts)
 {
 	struct dahdi_transcoder_channel *chan;
 	int i;
@@ -190,8 +190,18 @@ get_free_channel(struct dahdi_transcoder *tc)
 	for (i = 0; i < tc->numchannels; i++) {
 		chan = &tc->channels[i];
 		if (!dahdi_tc_is_busy(chan)) {
-			dahdi_tc_set_busy(chan);
-			return chan;
+			if (!dahdi_tc_is_built(chan)) {
+				dahdi_tc_set_busy(chan);
+				return chan;
+			} else {
+				/* If the channel is already built, we must
+				 * make sure that it can support the formats
+				 * that we're interested in. */
+				if ((fmts->srcfmt|fmts->dstfmt) == chan->built_fmts) {
+					dahdi_tc_set_busy(chan);
+					return chan;
+				}
+			}
 		}
 	}
 	return NULL;
@@ -216,7 +226,7 @@ __find_free_channel(struct list_head *list, const struct dahdi_transcoder_format
 			/* We found a transcoder that can handle our formats.
 			 * Now look for an available channel. */
 			match = 1; 
-			if ((chan = get_free_channel(tc))) {
+			if ((chan = get_free_channel(tc, fmts))) {
 				/* transcoder tc has a free channel.  In order
 				 * to spread the load among available
 				 * transcoders (when there are more than one
