@@ -1,0 +1,220 @@
+#!/bin/sh
+
+set -e
+
+LINUX_DIR=${LINUX_DIR:=$PWD}
+TOOLS_DIR=${TOOLS_DIR:=../dahdi-tools}
+DESTDIR=$PWD/live
+KVERS=${KVERS:-`uname -r`}
+MODULES_DIR="$DESTDIR/lib/modules/$KVERS/dahdi"
+XPP_SYNC=auto
+AST_SCRIPT=/etc/init.d/asterisk
+# Use this file to pass options to modules:
+PERLLIBDIR=`perl -V:sitelib | cut -d "'" -f 2`
+
+# Manual list of modules. They will be loaded by insmod.
+# If reside in a subdir, add it explicitly.
+
+MODULES_LOAD="dahdi dahdi_echocan_mg2"
+
+# this one *is* resolved recusively. 
+# the only reason to set a different value is if you use hpec / oslec,
+# as Zaptel depends on them.
+REMOVE_MODULES="dahdi" # "dahdi oslec"?
+
+if [ -r $DESTDIR/live.conf ]; then . $DESTDIR/live.conf; fi
+
+# Give priority to our installed binaries:
+PATH=$DESTDIR/sbin:$DESTDIR/usr/sbin:$PATH
+export PATH
+
+# TODO: If you already use PERL5DIR, please fix this part:
+PERL5LIB="$DESTDIR/$PERLLIBDIR"
+export PERL5LIB
+
+# used in xpp_fxloader:
+FIRMWARE_DIR="$DESTDIR/usr/share/dahdi"
+export FIRMWARE_DIR
+
+# make sure Astribank initialization scripts are from our tree.
+xpp_ARGS="$xpp_ARGS initdir=$FIRMWARE_DIR"
+
+# the same as xpp/utils/dahdi_drivers .
+# With the remote mode, I can't rely on files in the source directory.
+dahdi_drivers() {
+	perl -MDahdi::Hardware -e '
+		my $hardware = Dahdi::Hardware->scan;
+		print join(" ", $hardware->drivers);
+		'
+}
+
+# Detect the modules used in the system:
+for mod in `dahdi_drivers`; do
+	case "$mod" in
+		xpp_usb) 
+			MODULES_LOAD="$MODULES_LOAD xpp/xpp xpp/xpd_fxs"
+			MODULES_LOAD="$MODULES_LOAD xpp/xpd_fxo xpp/xpd_pri" 
+			if [ -r "$MODULES_DIR/xpp/xpd_bri.ko" ]; then
+				MODULES_LOAD="$MODULES_LOAD xpp/xpd_bri"
+			fi
+			MODULES_LOAD="$MODULES_LOAD xpp/xpp_usb"
+			;;
+		wctdm24xxp | wct4xxp | wcte12xp | wctc4xp)
+			MODULES_LOAD="$MODULES_LOAD $mod/$mod"
+			;;
+		wanpipe)
+			: # requires different handling
+			;;
+		*)
+			MODULES_LOAD="$MODULES_LOAD $mod"
+			;;
+	esac
+done
+
+# Initialize the Xorcom Astribank (xpp/) using perl utiliites:
+# intended to replace all the the three functions below if user has 
+# installed the dahdi-perl utilities.
+xpp_startup() {
+	# do nothing if there are no astribank devices:
+	if ! grep -q connected /proc/xpp/xbuses 2>/dev/null; then return 0; fi
+
+	echo "Waiting for Astribank devices to initialize:"
+	$TOOLS_DIR/xpp/waitfor_xpds # Asusmes a recent dahdi-tools
+	
+	# overriding locales for the above two, as perl can be noisy
+	# when locales are missing.
+	# No register all the devices if they didn't auto-register:
+	LC_ALL=C dahdi_registration on
+
+	# this one could actually be run after dahdi_cfg:
+	LC_ALL=C xpp_sync "$XPP_SYNC"
+}
+
+# recursively unload a module and its dependencies, if possible.
+# where's modprobe -r when you need it?
+# inputs: module to unload.
+# returns: the result from 
+unload_module() {
+	module="$1"
+	line=`lsmod 2>/dev/null | grep "^$1 "`
+	if [ "$line" = '' ]; then return; fi # module was not loaded
+
+	set -- $line
+	# $1: the original module, $2: size, $3: refcount, $4: deps list
+	mods=`echo $4 | tr , ' '`
+	# xpp_usb keeps the xpds below busy if an xpp hardware is
+	# connected. Hence must be removed before them:
+	case "$module" in xpd_*) mods="xpp_usb $mods";; esac
+	for mod in $mods; do
+		# run in a subshell, so it won't step over our vars:
+		(unload_module $mod) 
+		# TODO: the following is probably the error handling we want:
+		# if [ $? != 0 ]; then return 1; fi
+	done
+	rmmod $module
+}
+
+usage() {
+	me=`basename $0`
+	echo "$me: Run DAHDI in a test environment"
+	echo 'Version: $Id$'
+	echo ''
+	echo "Usage:           equivalent of:"
+	echo "$me configure  ./configure"
+	echo "$me install    make install"
+	echo "$me config     make config"
+	echo "$me unload     /etc/init.d/dahdi stop"
+	echo "$me load       /etc/init.d/dahdi start"
+	echo "$me reload     /etc/init.d/dahdi restart"
+	echo "$me xpp-firm       (Reset and load xpp firmware)"
+	echo "$me rsync TARGET   (copy filea to /tmp/live in host TARGET)"
+	echo "$me exec  COMMAND  (Run COMMAND in 'live' environment)"
+	echo ""
+	echo "dahdi-linux: $LINUX_DIR"
+	echo "dahdi-tools: $TOOLS_DIR"
+}
+
+case "$1" in
+configure)
+	shift
+	cd "$TOOLS_DIR"; ./configure --with-dahdi="$LINUX_DIR" "$@"
+	;;
+install)
+	shift
+	cd "$LINUX_DIR"; make install DESTDIR=$DESTDIR "$@"
+	cd "$TOOLS_DIR"; make install DESTDIR=$DESTDIR DYNFS=yes "$@"
+	;;
+config)
+	shift
+	cd "$TOOLS_DIR"; make config DESTDIR=$DESTDIR "$@"
+	mkdir -p $DESTDIR/etc/asterisk
+	;;
+rsync)
+	if [ $# -ne 2 ]; then
+		echo >&2 "$0: Error: rsync requires a target parameter".
+		exit 1
+	fi
+	# copy the script itself and the installed directory to the
+	# target host:
+	rsync -ai "$0" $DESTDIR "$2:/tmp/"
+	;;
+unload)
+	$AST_SCRIPT stop
+	for mod in $REMOVE_MODULES; do
+		unload_module $mod
+	done
+	;;
+load)
+	# TODO: Find a way to use modprobe.
+	# Or implement a way to pass arguments to modules here (yuck)
+	for module in $MODULES_LOAD; do
+		eval module_args="\$`basename ${module}`_ARGS"
+		insmod $MODULES_DIR/$module.ko $module_args
+	done
+	xpp_startup
+	GENCONF_PARAMETERS=$DESTDIR/etc/dahdi/genconf_parameters \
+	DAHDI_CONF_FILE=$DESTDIR/etc/dahdi/system.conf \
+	DAHDI_MODS_FILE=$DESTDIR/etc/dahdi/modules \
+	CHAN_DAHDI_CHANNELS_FILE=$DESTDIR/etc/asterisk/dahdi-channels.conf \
+		dahdi_genconf
+	dahdi_cfg -c $DESTDIR/etc/dahdi/system.conf
+	# TODO: fxotune, hpec
+	# or find a way to reuse init.d start sequence.
+
+	# TODO: A local copy of Asterisk, configured with dahdi_gnconf. 
+	# doable, but trickier.
+	$AST_SCRIPT start
+	;;
+reload)
+	$0 unload
+	$0 load
+	;;
+exec)
+	if [ $# -lt 2 ]; then
+		# No command given: start a subshell in the environemnt
+		# of the "live" system:
+		echo >&2 "$0: Error: exec requires a command to run"
+		exit 1
+	fi
+
+	# Command given: run it:
+	shift
+	"$@"
+	;;
+xpp-firm)
+	# Still broken. Needs to be run several times.
+	# set XPP_HOTPLUG_DISABLED=yes in /etc/dahdi/init.conf
+	XPP_FIRMWARE_DIR=$FIRMWARE_DIR \
+		sh "$TOOLS_DIR"/xpp/xpp_fxloader reset
+	sleep 5
+	XPP_FIRMWARE_DIR=$FIRMWARE_DIR \
+		sh "$TOOLS_DIR"/xpp/xpp_fxloader load
+	;;
+help)
+	usage
+	;;
+*)
+	echo >&2 "$0: Error: incorrect command \"$1\". Aborting"
+	usage
+	exit 1
+esac
