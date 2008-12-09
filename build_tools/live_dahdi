@@ -2,7 +2,7 @@
 
 set -e
 
-LINUX_DIR=${LINUX_DIR:=$PWD}
+LINUX_DIR=${LINUX_DIR:=..}
 TOOLS_DIR=${TOOLS_DIR:=../dahdi-tools}
 DESTDIR=$PWD/live
 KVERS=${KVERS:-`uname -r`}
