@@ -319,7 +319,7 @@ void astribank_uevent_send(xbus_t *xbus, enum kobject_action act)
 	XBUS_DBG(DEVICES, xbus, "SYFS bus_id=%s action=%d\n",
 		xbus->astribank.bus_id, act);
 
-#ifdef	OLD_HOTPLUG_SUPPORT_269
+#if defined(OLD_HOTPLUG_SUPPORT_269)
  	{
  		/* Copy from new kernels lib/kobject_uevent.c */
  		static const char	*str[] = {
@@ -333,6 +333,8 @@ void astribank_uevent_send(xbus_t *xbus, enum kobject_action act)
  		};
  		kobject_hotplug(str[act], kobj);
  	}
+#elif defined(OLD_HOTPLUG_SUPPORT)
+	kobject_hotplug(kobj, act);
 #else
 	kobject_uevent(kobj, act);
 #endif
