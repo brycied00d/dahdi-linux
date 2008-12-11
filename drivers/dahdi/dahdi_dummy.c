@@ -220,8 +220,7 @@ static enum hrtimer_restart dahdi_dummy_hr_int(struct hrtimer *htmr)
 /* use kernel system tick timer if PC architecture RTC is not available */
 static void dahdi_dummy_timer(unsigned long param)
 {
-	hrtimer_set_expires(timer, jiffies + 1);
-	add_timer(&timer);
+	mod_timer(&timer, jiffies + 1);
 
 	ztd->counter += DAHDI_TIME;
 	while (ztd->counter >= HZ) {
