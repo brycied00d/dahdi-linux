@@ -78,6 +78,13 @@
 #define DAHDI_IRQ_SHARED_DISABLED SA_SHIRQ | SA_INTERRUPT
 #endif
 
+#if LINUX_VERSION_CODE <= KERNEL_VERSION(2,6,16)
+#ifndef dev_notice
+#define dev_notice(dev, format, arg...)         \
+        dev_printk(KERN_NOTICE , dev , format , ## arg)
+#endif
+#endif
+
 /*! Default chunk size for conferences and such -- static right now, might make
    variable sometime.  8 samples = 1 ms = most frequent service interval possible
    for a USB device */
