@@ -172,6 +172,13 @@ struct csm_create_channel_cmd {
 	__le16 timeslot;
 } __attribute__((packed));
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,14)
+/* also added in RHEL kernels with the OpenInfiniband backport: */
+#if LINUX_VERSION_CODE != KERNEL_VERSION(2,6,9) || !defined(DEFINE_SPINLOCK)
+typedef	unsigned gfp_t;		/* Added in 2.6.14 */
+#endif
+#endif
+
 #define CMD_MSG_TDM_SELECT_BUS_MODE_LEN 30
 #define CMD_MSG_TDM_SELECT_BUS_MODE(s) { \
 	0x00,0x11,0x22,0x33,0x44,0x55, 0xAA,0xBB,0xCC,0xDD,0xEE,0xFF, 0x88,0x9B, \
