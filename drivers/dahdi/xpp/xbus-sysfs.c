@@ -320,19 +320,7 @@ void astribank_uevent_send(xbus_t *xbus, enum kobject_action act)
 		xbus->astribank.bus_id, act);
 
 #ifdef	OLD_HOTPLUG_SUPPORT
-	{
-		/* Copy from new kernels lib/kobject_uevent.c */
-		static const char	*str[] = {
-			[KOBJ_ADD]	"add",
-			[KOBJ_REMOVE]	"remove",
-			[KOBJ_CHANGE]	"change",
-			[KOBJ_MOUNT]	"mount",
-			[KOBJ_UMOUNT]	"umount",
-			[KOBJ_OFFLINE]	"offline",
-			[KOBJ_ONLINE]	"online"
-		};
-		kobject_hotplug(str[act], kobj);
-	}
+	kobject_hotplug(str[act], kobj);
 #else
 	kobject_uevent(kobj, act);
 #endif
