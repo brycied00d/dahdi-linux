@@ -320,7 +320,7 @@ void astribank_uevent_send(xbus_t *xbus, enum kobject_action act)
 		xbus->astribank.bus_id, act);
 
 #ifdef	OLD_HOTPLUG_SUPPORT
-	kobject_hotplug(str[act], kobj);
+	kobject_hotplug(kobj, act);
 #else
 	kobject_uevent(kobj, act);
 #endif
