@@ -46,7 +46,14 @@ static void echo_can_free(struct echo_can_state *ec)
 
 static void echo_can_update(struct echo_can_state *ec, short *iref, short *isig)
 {
-	oslec_update((struct oslec_state *)ec, *iref, *isig);
+	unsigned int SampleNum;
+
+	for (SampleNum = 0; SampleNum < DAHDI_CHUNKSIZE; SampleNum++, iref++)
+	{
+		short iCleanSample;
+		iCleanSample = (short) oslec_update((struct oslec_state *)ec, *iref, *isig);
+		*isig++ = iCleanSample;
+	}
 }
 
 static int echo_can_create(struct dahdi_echocanparams *ecp, struct dahdi_echocanparam *p,
@@ -57,8 +64,7 @@ static int echo_can_create(struct dahdi_echocanparams *ecp, struct dahdi_echocan
 		return -EINVAL;
 	}
 
-	/* TODO: get adaption mode from EC parameters? */
-	*ec = (struct echo_can_state *)oslec_create(ecp->tap_length, 0);
+	*ec = (struct echo_can_state *)oslec_create(ecp->tap_length, ECHO_CAN_USE_ADAPTION | ECHO_CAN_USE_NLP  | ECHO_CAN_USE_CLIP | ECHO_CAN_USE_TX_HPF | ECHO_CAN_USE_RX_HPF);
 
 	return *ec ? 0 : -ENOTTY;
 }
