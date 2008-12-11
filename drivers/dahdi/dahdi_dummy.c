@@ -54,7 +54,7 @@
  * the #define USE_RTC should be commented out.
  */
 #if defined(__i386__) || defined(__x86_64__)
-#if LINUX_VERSION_CODE >= VERSION_CODE(2,6,13)
+#if LINUX_VERSION_CODE >= VERSION_CODE(2,6,15)
 /* The symbol hrtimer_forward is only exported as of 2.6.22: */
 #if defined(CONFIG_HIGH_RES_TIMERS) && LINUX_VERSION_CODE >= VERSION_CODE(2,6,22)
 #define USE_HIGHRESTIMER
