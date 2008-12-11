@@ -34,7 +34,6 @@
 #include <linux/delay.h>
 #include <asm/io.h>
 #include <linux/spinlock.h>
-#include <linux/mutex.h>
 #include <linux/device.h>	/* dev_err() */
 #include <linux/interrupt.h>
 #include <asm/system.h>		/* cli(), *_flags */
