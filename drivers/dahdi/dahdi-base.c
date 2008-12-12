@@ -1146,7 +1146,7 @@ retry:
 		*c = tolower(*d);
 	}
 
-	request_module(modname_buf);
+	request_module("%s", modname_buf);
 
 	tried_once = 1;
 
