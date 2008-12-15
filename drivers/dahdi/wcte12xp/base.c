@@ -225,8 +225,8 @@ static inline int t1_setreg_full(struct t1 *wc, int addr, int val, int inisr, in
 		}
 		if (inisr)
 			break;
-	
-		spin_unlock_irqrestore(&wc->reglock, flags);
+		else
+			spin_unlock_irqrestore(&wc->reglock, flags);
 		if (hit < 0) {
 			if ((ret = schluffen(&wc->regq)))
 				return ret;
