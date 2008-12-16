@@ -203,9 +203,9 @@ static inline void cmd_decipher(struct t1 *wc, volatile unsigned char *readchunk
 	}
 }
 
-static inline int t1_setreg_full(struct t1 *wc, int addr, int val, int inisr, int vpm_num)
+static inline int t1_setreg_full(struct t1 *wc, int addr, int val, const int inisr, int vpm_num)
 {
-	unsigned long flags;
+	unsigned long flags = 0;
 	int hit;
 	int ret;
 
@@ -301,9 +301,9 @@ static inline int t1_getreg_isr(struct t1 *wc, int addr)
 	return ret;
 }
 
-static inline int t1_getreg_full(struct t1 *wc, int addr, int inisr, int vpm_num)
+static inline int t1_getreg_full(struct t1 *wc, int addr, const int inisr, int vpm_num)
 {
-	unsigned long flags;
+	unsigned long flags = 0;
 	int hit;
 	int ret = 0;
 
@@ -356,9 +356,9 @@ static inline int t1_getreg(struct t1 *wc, int addr, int inisr)
 	return t1_getreg_full(wc, addr, inisr, NOT_VPM);
 }
 
-static inline int t1_setleds(struct t1 *wc, int leds, int inisr)
+static inline int t1_setleds(struct t1 *wc, int leds, const int inisr)
 {
-	unsigned long flags;
+	unsigned long flags = 0;
 	int hit;
 	int ret = 0;
 
