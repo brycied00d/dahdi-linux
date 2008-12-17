@@ -681,25 +681,33 @@ static void ec_init(struct b4xxp *b4)
 }
 
 /* performs a register write and then waits for the HFC "busy" bit to clear */
-static inline void hfc_setreg_waitbusy(struct b4xxp *b4, const unsigned int reg, const unsigned int val)
+static void hfc_setreg_waitbusy(struct b4xxp *b4, const unsigned int reg, const unsigned int val)
 {
-	unsigned long maxwait;
+	int timeout = 0;
+	unsigned long start;
+	const int TIMEOUT = HZ/4; /* 250ms */
 
-	maxwait = 1048576;
+	start = jiffies;
 	while (unlikely((b4xxp_getreg8(b4, R_STATUS) & V_BUSY))) {
-		maxwait--; /* FIXME: do what? it isn't busy for long */
+		if (time_after(jiffies, start + TIMEOUT)) {
+			timeout = 1;
+			break;
+		}
 	};
 
 	mb();
 	b4xxp_setreg8(b4, reg, val);
 	mb();
 
-	maxwait = 1048576;
+	start = jiffies;
 	while (likely((b4xxp_getreg8(b4, R_STATUS) & V_BUSY))) {
-		maxwait--; /* FIXME: do what? it isn't busy for long */
+		if (time_after(jiffies, start + TIMEOUT)) {
+			timeout = 1;
+			break;
+		}
 	};
 
-	if (!maxwait) {
+	if (timeout) {
 		if (printk_ratelimit())
 			dev_warn(b4->dev, "hfc_setreg_waitbusy(write 0x%02x to 0x%02x) timed out waiting for busy flag to clear!\n", val, reg);
 	}
