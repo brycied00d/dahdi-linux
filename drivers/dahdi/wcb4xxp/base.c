@@ -135,9 +135,8 @@ static inline unsigned char __pci_in8(struct b4xxp *b4, const unsigned int reg)
 	unsigned char ret = ioread8(b4->addr + reg);
 
 #ifdef DEBUG_LOWLEVEL_REGS
-	if (unlikely(DBG_REGS)) {
-		drv_dbg(b4->dev, "read 0x%02x from 0x%08x\n", ret, b4->addr + reg);
-	}
+	if (unlikely(DBG_REGS))
+		drv_dbg(b4->dev, "read 0x%02x from 0x%p\n", ret, b4->addr + reg);
 #endif
 	if (unlikely(pedanticpci)) {
 		udelay(3);
@@ -151,9 +150,8 @@ static inline unsigned short __pci_in16(struct b4xxp *b4, const unsigned int reg
 	unsigned short ret = ioread16(b4->addr + reg);
 
 #ifdef DEBUG_LOWLEVEL_REGS
-	if (unlikely(DBG_REGS)) {
-		drv_dbg(b4->dev, "read 0x%04x from 0x%08x\n", ret, b4->addr + reg);
-	}
+	if (unlikely(DBG_REGS))
+		drv_dbg(b4->dev, "read 0x%04x from 0x%p\n", ret, b4->addr + reg);
 #endif
 	if (unlikely(pedanticpci)) {
 		udelay(3);
@@ -167,9 +165,8 @@ static inline unsigned int __pci_in32(struct b4xxp *b4, const unsigned int reg)
 	unsigned int ret = ioread32(b4->addr + reg);
 
 #ifdef DEBUG_LOWLEVEL_REGS
-	if (unlikely(DBG_REGS)) {
-		drv_dbg(b4->dev, "read 0x%04x from 0x%08x\n", ret, b4->addr + reg);
-	}
+	if (unlikely(DBG_REGS))
+		drv_dbg(b4->dev, "read 0x%04x from 0x%p\n", ret, b4->addr + reg);
 #endif
 	if (unlikely(pedanticpci)) {
 		udelay(3);
@@ -181,9 +178,8 @@ static inline unsigned int __pci_in32(struct b4xxp *b4, const unsigned int reg)
 static inline void __pci_out32(struct b4xxp *b4, const unsigned int reg, const unsigned int val)
 {
 #ifdef DEBUG_LOWLEVEL_REGS
-	if (unlikely(DBG_REGS)) {
-		drv_dbg(b4->dev, "writing 0x%02x to 0x%08x\n", val, b4->addr + reg);
-	}
+	if (unlikely(DBG_REGS))
+		drv_dbg(b4->dev, "writing 0x%02x to 0x%p\n", val, b4->addr + reg);
 #endif
 	iowrite32(val, b4->addr + reg);
 
@@ -196,9 +192,8 @@ static inline void __pci_out32(struct b4xxp *b4, const unsigned int reg, const u
 static inline void __pci_out8(struct b4xxp *b4, const unsigned int reg, const unsigned char val)
 {
 #ifdef DEBUG_LOWLEVEL_REGS
-	if (unlikely(DBG_REGS)) {
-		drv_dbg(b4->dev, "writing 0x%02x to 0x%08x\n", val, b4->addr + reg);
-	}
+	if (unlikely(DBG_REGS)) 
+		drv_dbg(b4->dev, "writing 0x%02x to 0x%p\n", val, b4->addr + reg);
 #endif
 	iowrite8(val, b4->addr + reg);
 
