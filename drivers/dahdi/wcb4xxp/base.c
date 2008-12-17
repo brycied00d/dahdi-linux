@@ -1579,7 +1579,8 @@ static int hdlc_rx_frame(struct b4xxp_span *bspan)
 		spin_unlock_irqrestore(&b4->fifolock, irq_flags);
 
 /* don't send STAT byte to DAHDI */
-		dahdi_hdlc_putbuf(bspan->sigchan, buf, (j == WCB4XXP_HDLC_BUF_LEN) ? j : j - 1);
+		if (bspan->sigchan)
+			dahdi_hdlc_putbuf(bspan->sigchan, buf, (j == WCB4XXP_HDLC_BUF_LEN) ? j : j - 1);
 
 		zleft -= j;
 		if (DBG_HDLC && DBG_SPANFILTER) {
@@ -1594,6 +1595,11 @@ static int hdlc_rx_frame(struct b4xxp_span *bspan)
 	hfc_setreg_waitbusy(b4, A_INC_RES_FIFO, V_INC_F);
 	get_F(f1, f2, flen);
 	spin_unlock_irqrestore(&b4->fifolock, irq_flags);
+
+	/* If this channel is not configured with a signalling span we don't
+	 * need to notify the rest of dahdi about this frame. */
+	if (!bspan->sigchan)
+		return flen;
 
 	++bspan->frames_in;
 	if (zlen < 3) {
