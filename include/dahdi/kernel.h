@@ -139,6 +139,10 @@ struct dahdi_chan {
 	int do_ppp_error;
 	struct sk_buff_head ppp_rq;
 #endif
+#ifdef BUFFER_DEBUG
+	int statcount;
+	int lastnumbufs;
+#endif
 	spinlock_t lock;
 	char name[40];
 	/* Specified by DAHDI */
