@@ -940,7 +940,7 @@ static int dahdi_reallocbufs(struct dahdi_chan *ss, int j, int numbufs)
 	ss->outwritebuf = -1;
 	ss->numbufs = numbufs;
 
-	if (ss->txbufpolicy == DAHDI_POLICY_WHEN_FULL)
+	if ((ss->txbufpolicy == DAHDI_POLICY_WHEN_FULL) || (ss->txbufpolicy == DAHDI_POLICY_HALF_FULL))
 		ss->txdisable = 1;
 	else
 		ss->txdisable = 0;
@@ -2022,6 +2022,29 @@ static ssize_t dahdi_chan_read(struct file *file, char *usrbuf, size_t count, in
 	return amnt;
 }
 
+static int num_filled_bufs(struct dahdi_chan *chan)
+{
+	int range1, range2;
+
+	if (chan->inwritebuf < 0) {
+		return chan->numbufs;
+	}
+
+	if (chan->outwritebuf < 0) {
+		return 0;
+	}
+
+	if (chan->outwritebuf <= chan->inwritebuf) {
+		return chan->inwritebuf - chan->outwritebuf;
+	}
+
+	/* This means (in > out) and we have wrap around */
+	range1 = chan->numbufs - chan->outwritebuf;
+	range2 = chan->inwritebuf;
+
+	return range1 + range2;
+}
+
 static ssize_t dahdi_chan_write(struct file *file, const char *usrbuf, size_t count, int unit)
 {
 	unsigned long flags;
@@ -2034,8 +2057,9 @@ static ssize_t dahdi_chan_write(struct file *file, const char *usrbuf, size_t co
 	if (!chan)
 		return -EINVAL;
 
-	if (count < 1)
+	if (count < 1) {
 		return -EINVAL;
+	}
 
 	for (;;) {
 		spin_lock_irqsave(&chan->lock, flags);
@@ -2054,12 +2078,17 @@ static ssize_t dahdi_chan_write(struct file *file, const char *usrbuf, size_t co
 		spin_unlock_irqrestore(&chan->lock, flags);
 		if (res >= 0)
 			break;
-		if (file->f_flags & O_NONBLOCK)
+		if (file->f_flags & O_NONBLOCK) {
+#ifdef BUFFER_DEBUG
+			printk("Error: Nonblock\n");
+#endif
 			return -EAGAIN;
+		}
 		/* Wait for something to be available */
 		rv = schluffen(&chan->writebufq);
-		if (rv)
+		if (rv) {
 			return rv;
+		}
 	}
 
 	amnt = count;
@@ -2097,8 +2126,9 @@ static ssize_t dahdi_chan_write(struct file *file, const char *usrbuf, size_t co
 				pass = left;
 				if (pass > 128)
 					pass = 128;
-				if (copy_from_user(lindata, usrbuf + (pos << 1), pass << 1))
+				if (copy_from_user(lindata, usrbuf + (pos << 1), pass << 1)) {
 					return -EFAULT;
+				}
 				left -= pass;
 				for (x = 0; x < pass; x++)
 					chan->writebuf[res][x + pos] = DAHDI_LIN2X(lindata[x], chan);
@@ -2106,8 +2136,9 @@ static ssize_t dahdi_chan_write(struct file *file, const char *usrbuf, size_t co
 			}
 			chan->writen[res] = amnt >> 1;
 		} else {
-			if (copy_from_user(chan->writebuf[res], usrbuf, amnt))
+			if (copy_from_user(chan->writebuf[res], usrbuf, amnt)) {
 				return -EFAULT;
+			}
 			chan->writen[res] = amnt;
 		}
 		chan->writeidx[res] = 0;
@@ -2116,6 +2147,7 @@ static ssize_t dahdi_chan_write(struct file *file, const char *usrbuf, size_t co
 		oldbuf = res;
 		spin_lock_irqsave(&chan->lock, flags);
 		chan->inwritebuf = (res + 1) % chan->numbufs;
+
 		if (chan->inwritebuf == chan->outwritebuf) {
 			/* Don't stomp on the transmitter, just wait for them to
 			   wake us up */
@@ -2123,10 +2155,29 @@ static ssize_t dahdi_chan_write(struct file *file, const char *usrbuf, size_t co
 			/* Make sure the transmitter is transmitting in case of POLICY_WHEN_FULL */
 			chan->txdisable = 0;
 		}
+
 		if (chan->outwritebuf < 0) {
 			/* Okay, the interrupt handler has been waiting for us.  Give them a buffer */
 			chan->outwritebuf = oldbuf;
 		}
+
+		if ((chan->txbufpolicy == DAHDI_POLICY_HALF_FULL) && (chan->txdisable)) {
+			if (num_filled_bufs(chan) >= (chan->numbufs >> 1)) {
+#ifdef BUFFER_DEBUG
+				printk("Reached buffer fill mark of %d\n", num_filled_bufs(chan));
+#endif
+				chan->txdisable = 0;
+			}
+		}
+
+#ifdef BUFFER_DEBUG
+		if ((chan->statcount <= 0) || (amnt != 128) || (num_filled_bufs(chan) != chan->lastnumbufs)) {
+			printk("amnt: %d Number of filled buffers: %d\n", amnt, num_filled_bufs(chan));
+			chan->statcount = 32000;
+			chan->lastnumbufs = num_filled_bufs(chan);
+		}
+#endif
+
 		spin_unlock_irqrestore(&chan->lock, flags);
 
 		if (chan->flags & DAHDI_FLAG_NOSTDTXRX && chan->span->hdlc_hard_xmit)
@@ -4306,7 +4357,7 @@ static int dahdi_chanandpseudo_ioctl(struct inode *inode, struct file *file, uns
 		 * different since we might want to allow the kernel to build
 		 * up a buffer in order to prevent underruns from the
 		 * interrupt context. */
-		chan->txbufpolicy = stack.bi.txbufpolicy & 0x1;
+		chan->txbufpolicy = stack.bi.txbufpolicy & 0x3;
 		if ((rv = dahdi_reallocbufs(chan,  stack.bi.bufsize, stack.bi.numbufs)))
 			return (rv);
 		break;
@@ -5956,7 +6007,8 @@ static inline void __dahdi_getbuf_chunk(struct dahdi_chan *ss, unsigned char *tx
 						if (ms->iomask & (DAHDI_IOMUX_WRITE | DAHDI_IOMUX_WRITEEMPTY))
 							wake_up_interruptible(&ms->eventbufq);
 						/* If we're only supposed to start when full, disable the transmitter */
-						if (ms->txbufpolicy == DAHDI_POLICY_WHEN_FULL)
+						if ((ms->txbufpolicy == DAHDI_POLICY_WHEN_FULL) ||
+							(ms->txbufpolicy == DAHDI_POLICY_HALF_FULL))
 							ms->txdisable = 1;
 					}
 				} else {
@@ -5965,7 +6017,8 @@ static inline void __dahdi_getbuf_chunk(struct dahdi_chan *ss, unsigned char *tx
 						if (ms->iomask & (DAHDI_IOMUX_WRITE | DAHDI_IOMUX_WRITEEMPTY))
 							wake_up_interruptible(&ms->eventbufq);
 						/* If we're only supposed to start when full, disable the transmitter */
-						if (ms->txbufpolicy == DAHDI_POLICY_WHEN_FULL)
+						if ((ms->txbufpolicy == DAHDI_POLICY_WHEN_FULL) ||
+							(ms->txbufpolicy == DAHDI_POLICY_HALF_FULL))
 							ms->txdisable = 1;
 					}
 				}
@@ -7023,7 +7076,7 @@ static inline void __putbuf_chunk(struct dahdi_chan *ss, unsigned char *rxb, int
 							/* Whoops, we're full, and have no where else
 							   to store into at the moment.  We'll drop it
 							   until there's a buffer available */
-#ifdef CONFIG_DAHDI_DEBUG
+#ifdef BUFFER_DEBUG
 							module_printk(KERN_NOTICE, "Out of storage space\n");
 #endif
 							ms->inreadbuf = -1;
@@ -7275,7 +7328,7 @@ int dahdi_hdlc_getbuf(struct dahdi_chan *ss, unsigned char *bufptr, unsigned int
 				if (ss->iomask & (DAHDI_IOMUX_WRITE | DAHDI_IOMUX_WRITEEMPTY))
 					wake_up_interruptible(&ss->eventbufq);
 				/* If we're only supposed to start when full, disable the transmitter */
-				if (ss->txbufpolicy == DAHDI_POLICY_WHEN_FULL)
+				if ((ss->txbufpolicy == DAHDI_POLICY_WHEN_FULL) || (ss->txbufpolicy == DAHDI_POLICY_HALF_FULL))
 					ss->txdisable = 1;
 				res = -1;
 			}
@@ -7681,6 +7734,9 @@ int dahdi_receive(struct dahdi_span *span)
 					}
 				}
 			}
+#ifdef BUFFER_DEBUG
+			span->chans[x]->statcount -= DAHDI_CHUNKSIZE;
+#endif
 			spin_unlock_irqrestore(&span->chans[x]->lock, flags);
 		}
 	}

@@ -110,7 +110,7 @@
 
 #define DAHDI_MAX_BLOCKSIZE	8192
 #define DAHDI_DEFAULT_NUM_BUFS	2
-#define DAHDI_MAX_NUM_BUFS	32
+#define DAHDI_MAX_NUM_BUFS	128
 #define DAHDI_MAX_BUF_SPACE	32768
 
 #define DAHDI_DEFAULT_BLOCKSIZE 1024
@@ -118,6 +118,8 @@
 
 #define DAHDI_POLICY_IMMEDIATE	0		/* Start play/record immediately */
 #define DAHDI_POLICY_WHEN_FULL	1		/* Start play/record when buffer is full */
+#define DAHDI_POLICY_HALF_FULL	2		/* Start play/record when buffer is half full.
+						   Note -- This policy only works on tx buffers */
 
 #define DAHDI_GET_PARAMS_RETURN_MASTER 0x40000000
 
