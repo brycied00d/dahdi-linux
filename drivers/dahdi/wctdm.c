@@ -270,6 +270,7 @@ static struct wctdm *ifaces[WC_MAX_IFACES];
 
 static void wctdm_release(struct wctdm *wc);
 
+static unsigned int fxovoltage;
 static unsigned int battdebounce;
 static unsigned int battalarm;
 static unsigned int battthresh;
@@ -824,6 +825,13 @@ static inline void wctdm_voicedaa_check_hook(struct wctdm *wc, int card)
 	}
 
 	b = wc->reg1shadow[card];
+
+	if (fxovoltage) {
+		static int count = 0;
+		if (!(count++ % 100)) {
+			printk(KERN_DEBUG "Card %d: Voltage: %d Debounce %d\n", card + 1, b, fxo->battdebounce);
+		}
+	}
 
 	if (abs(b) < battthresh) {
 		/* possible existing states:
@@ -2476,6 +2484,7 @@ static void __exit wctdm_cleanup(void)
 }
 
 module_param(debug, int, 0600);
+module_param(fxovoltage, int, 0600);
 module_param(loopcurrent, int, 0600);
 module_param(reversepolarity, int, 0600);
 module_param(robust, int, 0600);
