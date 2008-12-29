@@ -86,8 +86,8 @@ all: modules
 
 modules: prereq
 ifeq (no,$(HAS_KSRC))
-	echo "You do not appear to have the sources for the $(KVERS) kernel installed."
-	exit 1
+	@echo "You do not appear to have the sources for the $(KVERS) kernel installed."
+	@exit 1
 endif
 	$(KMAKE) modules DAHDI_BUILD_ALL=$(DAHDI_BUILD_ALL)
 
@@ -195,8 +195,8 @@ endif
 
 uninstall-modules:
 ifdef DESTDIR
-	echo "Uninstalling modules is not supported with a DESTDIR specified."
-	exit 1
+	@echo "Uninstalling modules is not supported with a DESTDIR specified."
+	@exit 1
 else
 	@if modinfo dahdi > /dev/null 2>&1 ; then \
 		echo -n "Removing DAHDI modules for kernel $(KVERS), please wait..."; \
