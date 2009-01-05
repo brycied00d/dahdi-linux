@@ -73,6 +73,7 @@
 	}                                                                   \
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,18)
+#ifndef WARN_ON_ONCE
 #define WARN_ON_ONCE(__condition) do {         \
 	static int __once = 1;                 \
 	if (unlikely(__condition)) {           \
@@ -82,6 +83,7 @@
 		}                              \
 	}                                      \
 } while(0) 
+#endif
 #endif
 
 #define INVALID 999 /* Used to mark invalid channels, commands, etc.. */
