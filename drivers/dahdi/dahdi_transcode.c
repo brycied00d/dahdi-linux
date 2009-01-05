@@ -185,7 +185,9 @@ get_free_channel(struct dahdi_transcoder *tc,
 	struct dahdi_transcoder_channel *chan;
 	int i;
 	/* Should be called with the translock held. */
+#ifdef CONFIG_SMP
 	WARN_ON(!spin_is_locked(&translock));
+#endif
 
 	for (i = 0; i < tc->numchannels; i++) {
 		chan = &tc->channels[i];
