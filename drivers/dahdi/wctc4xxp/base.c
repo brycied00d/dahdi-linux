@@ -265,6 +265,7 @@ typedef	unsigned gfp_t;		/* Added in 2.6.14 */
 /* Supervisor function codes */
 #define SUPVSR_CREATE_CHANNEL  0x0010
 
+#define MONITOR_LIVE_INDICATION_TYPE 0x75
 #define CONFIG_CHANGE_TYPE        0x00 
 #define CONFIG_DEVICE_CLASS       0x06
 
@@ -1887,6 +1888,38 @@ is_response(const struct csm_encaps_hdr *hdr)
 	return ((0x02 == hdr->type) || (0x04 == hdr->type)) ? 1 : 0;
 }
 
+static void
+print_command(struct wcdte *wc, const struct tcb *cmd)
+{
+	int i, curlength;
+	const struct csm_encaps_hdr *hdr = cmd->data;
+	char *buffer;
+	const int BUFFER_SIZE = 1024;
+	int parameters = ((hdr->length - 8)/sizeof(__le16));
+
+	buffer = kzalloc(BUFFER_SIZE + 1, GFP_ATOMIC);
+	if (!buffer) {
+		DTE_PRINTK(DEBUG, "Failed print_command\n");
+		return;
+	}
+	curlength = snprintf(buffer, BUFFER_SIZE, 
+		"opcode: %04x seq: %02x control: %02x "
+		"channel: %04x ", be16_to_cpu(hdr->op_code),
+		hdr->seq_num, hdr->control, be16_to_cpu(hdr->channel));
+	curlength += snprintf(buffer + curlength, BUFFER_SIZE - curlength,
+		"length: %02x index: %02x type: %02x "
+		"class: %02x function: %04x",
+		hdr->length, hdr->index, hdr->type, hdr->class,
+		le16_to_cpu(hdr->function));
+	for (i = 0; i < parameters; ++i) {
+		curlength += snprintf(buffer + curlength,
+			BUFFER_SIZE - curlength, " %04x",
+			le16_to_cpu(hdr->params[i]));
+	}
+	DTE_PRINTK(DEBUG, "%s\n", buffer);
+	kfree(buffer);
+}
+
 static void 
 receive_csm_encaps_packet(struct wcdte *wc, struct tcb *cmd)
 {
@@ -1922,6 +1955,10 @@ receive_csm_encaps_packet(struct wcdte *wc, struct tcb *cmd)
 				wctc4xxp_set_ready(wc);
 				wake_up(&wc->waitq);
 			}
+			free_cmd(cmd);
+		} else if (MONITOR_LIVE_INDICATION_TYPE == hdr->type) {
+			DTE_PRINTK(WARNING, "Received diagnostic message:\n");
+			print_command(wc, cmd);
 			free_cmd(cmd);
 		} else {
 			DTE_PRINTK(WARNING, "Unknown command type received. %02x\n", hdr->type);
