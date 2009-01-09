@@ -2,8 +2,8 @@
 
 set -e
 
-LINUX_DIR=${LINUX_DIR:=..}
-TOOLS_DIR=${TOOLS_DIR:=`(cd ../../dahdi-tools; pwd)`}
+LINUX_DIR=${LINUX_DIR:=.}
+TOOLS_DIR=${TOOLS_DIR:=`(cd ../dahdi-tools; pwd)`}
 DESTDIR=$PWD/live
 KVERS=${KVERS:-`uname -r`}
 MODULES_DIR="$DESTDIR/lib/modules/$KVERS/dahdi"
@@ -49,6 +49,8 @@ dahdi_drivers() {
 }
 
 # Detect the modules used in the system:
+# This may an annoying warning when live_dahdi is run before
+# installation. Ignore it for now.
 for mod in `dahdi_drivers`; do
 	case "$mod" in
 		xpp_usb) 
