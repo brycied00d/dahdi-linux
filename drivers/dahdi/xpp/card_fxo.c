@@ -40,6 +40,8 @@ static DEF_PARM(uint, poll_metering_interval, 500, 0644, "Poll metering interval
 #endif
 static DEF_PARM(int, ring_debounce, 50, 0644, "Number of ticks to debounce a false RING indication");
 static DEF_PARM(int, caller_id_style, 0, 0444, "Caller-Id detection style: 0 - [BELL], 1 - [ETSI_FSK], 2 - [ETSI_DTMF]");
+static DEF_PARM(int, power_denial_safezone, 650, 0644, "msec after offhook to ignore power-denial ( (0 - disable power-denial)");
+static DEF_PARM(int, power_denial_minlen, 80, 0644, "Minimal detected power-denial length (msec) (0 - disable power-denial)");
 
 enum cid_style {
 	CID_STYLE_BELL		= 0,	/* E.g: US (Bellcore) */
@@ -71,8 +73,6 @@ enum fxo_leds {
 #define	BAT_THRESHOLD		3
 #define	BAT_DEBOUNCE		1000	/* compensate for battery voltage fluctuation (in ticks) */
 #define	POWER_DENIAL_CURRENT	3
-#define	POWER_DENIAL_TIME	80	/* ticks */
-#define	POWER_DENIAL_SAFEZONE	100	/* ticks */
 #define	POWER_DENIAL_DELAY	2500	/* ticks */
 
 /* Shortcuts */
@@ -138,10 +138,8 @@ struct FXO_priv_data {
 	enum polarity_state	polarity[CHANNELS_PERXPD];
 	ushort			polarity_debounce[CHANNELS_PERXPD];
 	enum power_state	power[CHANNELS_PERXPD];
-	xpp_line_t		maybe_power_denial;
-	ushort			power_denial_debounce[CHANNELS_PERXPD];
 	ushort			power_denial_delay[CHANNELS_PERXPD];
-	ushort			power_denial_minimum[CHANNELS_PERXPD];
+	ushort			power_denial_length[CHANNELS_PERXPD];
 	ushort			power_denial_safezone[CHANNELS_PERXPD];
 	xpp_line_t		cidfound;		/* 0 - OFF, 1 - ON */
 	unsigned int		cidtimer[CHANNELS_PERXPD];
@@ -169,14 +167,33 @@ struct FXO_priv_data {
 
 /*---------------- FXO: Static functions ----------------------------------*/
 
+static const char *power2str(enum power_state pw)
+{
+	switch(pw) {
+		case POWER_UNKNOWN:	return "UNKOWN";
+		case POWER_OFF:		return "OFF";
+		case POWER_ON:		return "ON";
+	}
+	return NULL;
+}
+
+static void power_change(xpd_t *xpd, int portno, enum power_state pw)
+{
+	struct FXO_priv_data	*priv;
+
+	priv = xpd->priv;
+	LINE_DBG(SIGNAL, xpd, portno, "power: %s -> %s\n",
+			power2str(priv->power[portno]),
+			power2str(pw));
+	priv->power[portno] = pw;
+}
+
 static void reset_battery_readings(xpd_t *xpd, lineno_t pos)
 {
 	struct FXO_priv_data	*priv = xpd->priv;
 
 	priv->nobattery_debounce[pos] = 0;
-	priv->power_denial_debounce[pos] = 0;
 	priv->power_denial_delay[pos] = 0;
-	BIT_CLR(priv->maybe_power_denial, pos);
 }
 
 static const int	led_register_mask[] = { 	BIT(7),	BIT(6),	BIT(5) };
@@ -259,30 +276,15 @@ static void handle_fxo_leds(xpd_t *xpd)
 
 static void update_dahdi_ring(xpd_t *xpd, int pos, bool on)
 {
-	enum dahdi_rxsig	rxsig;
-
 	BUG_ON(!xpd);
-	if(on) {
-		if(caller_id_style == CID_STYLE_BELL) {
-			LINE_DBG(SIGNAL, xpd, pos, "Caller-ID PCM: off\n");
-			BIT_CLR(xpd->cid_on, pos);
-		}
-		rxsig = DAHDI_RXSIG_RING;
-	} else {
-		if(caller_id_style == CID_STYLE_BELL) {
-			LINE_DBG(SIGNAL, xpd, pos, "Caller-ID PCM: on\n");
-			BIT_SET(xpd->cid_on, pos);
-		}
-		rxsig = DAHDI_RXSIG_OFFHOOK;
-	}
-	pcm_recompute(xpd, 0);
+	if(caller_id_style == CID_STYLE_BELL)
+		oht_pcm(xpd, pos, !on);
 	/*
 	 * We should not spinlock before calling dahdi_hooksig() as
 	 * it may call back into our xpp_hooksig() and cause
 	 * a nested spinlock scenario
 	 */
-	if(SPAN_REGISTERED(xpd))
-		dahdi_hooksig(xpd->chans[pos], rxsig);
+	notify_rxsig(xpd, pos, (on) ? DAHDI_RXSIG_RING : DAHDI_RXSIG_OFFHOOK);
 }
 
 static void mark_ring(xpd_t *xpd, lineno_t pos, bool on, bool update_dahdi)
@@ -343,24 +345,22 @@ static int do_sethook(xpd_t *xpd, int pos, bool to_offhook)
 	else
 		MARK_OFF(priv, pos, LED_GREEN);
 	ret = DAA_DIRECT_REQUEST(xbus, xpd, pos, DAA_WRITE, REG_DAA_CONTROL1, value);
-	if(to_offhook) {
-		BIT_SET(xpd->offhook, pos);
-	} else {
-		BIT_CLR(xpd->offhook, pos);
-	}
-	if(caller_id_style != CID_STYLE_ETSI_DTMF) {
-		LINE_DBG(SIGNAL, xpd, pos, "Caller-ID PCM: off\n");
-		BIT_CLR(xpd->cid_on, pos);
-	}
+	mark_offhook(xpd, pos, to_offhook);
+	if(caller_id_style != CID_STYLE_ETSI_DTMF)
+		oht_pcm(xpd, pos, 0);
 #ifdef	WITH_METERING
 	priv->metering_count[pos] = 0;
 	priv->metering_tone_state = 0L;
 	DAA_DIRECT_REQUEST(xbus, xpd, pos, DAA_WRITE, DAA_REG_METERING, 0x2D);
 #endif
 	reset_battery_readings(xpd, pos);	/* unstable during hook changes */
-	priv->power_denial_safezone[pos] = (to_offhook) ? POWER_DENIAL_SAFEZONE : 0;
-	if(!to_offhook)
-		priv->power[pos] = POWER_UNKNOWN;
+	if(to_offhook) {
+		priv->power_denial_safezone[pos] = power_denial_safezone;
+	} else {
+		power_change(xpd, pos, POWER_UNKNOWN);
+		priv->power_denial_length[pos] = 0;
+		priv->power_denial_safezone[pos] = 0;
+	}
 	priv->cidtimer[pos] = xpd->timer_count;
 	spin_unlock_irqrestore(&xpd->lock, flags);
 	return ret;
@@ -461,10 +461,11 @@ static int FXO_card_init(xbus_t *xbus, xpd_t *xpd)
 	for_each_line(xpd, i) {
 		do_sethook(xpd, i, 0);
 		priv->polarity[i] = POL_UNKNOWN;	/* will be updated on next battery sample */
+		priv->polarity_debounce[i] = 0;
 		priv->battery[i] = BATTERY_UNKNOWN;	/* will be updated on next battery sample */
 		priv->power[i] = POWER_UNKNOWN;	/* will be updated on next battery sample */
 		if(caller_id_style == CID_STYLE_ETSI_DTMF)
-			BIT_SET(xpd->cid_on, i);
+			oht_pcm(xpd, i, 1);
 	}
 	XPD_DBG(GENERAL, xpd, "done\n");
 	for_each_line(xpd, i) {
@@ -478,7 +479,7 @@ static int FXO_card_init(xbus_t *xbus, xpd_t *xpd)
 		do_led(xpd, i, LED_GREEN, 0);
 		msleep(50);
 	}
-	pcm_recompute(xpd, 0);
+	CALL_XMETHOD(card_pcm_recompute, xbus, xpd, 0);
 	return 0;
 }
 
@@ -509,7 +510,7 @@ static int FXO_card_dahdi_preregistration(xpd_t *xpd, bool on)
 	XPD_DBG(GENERAL, xpd, "%s\n", (on)?"ON":"OFF");
 	xpd->span.spantype = "FXO";
 	for_each_line(xpd, i) {
-		struct dahdi_chan	*cur_chan = xpd->chans[i];
+		struct dahdi_chan	*cur_chan = XPD_CHAN(xpd, i);
 
 		XPD_DBG(GENERAL, xpd, "setting FXO channel %d\n", i);
 		snprintf(cur_chan->name, MAX_CHANNAME, "XPP_FXO/%02d/%1d%1d/%d",
@@ -563,7 +564,6 @@ static int FXO_card_hooksig(xbus_t *xbus, xpd_t *xpd, int pos, enum dahdi_txsig 
 	/* XXX Enable hooksig for FXO XXX */
 	switch(txsig) {
 		case DAHDI_TXSIG_START:
-			break;
 		case DAHDI_TXSIG_OFFHOOK:
 			ret = do_sethook(xpd, pos, 1);
 			break;
@@ -575,7 +575,6 @@ static int FXO_card_hooksig(xbus_t *xbus, xpd_t *xpd, int pos, enum dahdi_txsig 
 				txsig2str(txsig), txsig);
 			return -EINVAL;
 	}
-	pcm_recompute(xpd, 0);
 	return ret;
 }
 
@@ -592,11 +591,11 @@ static void dahdi_report_battery(xpd_t *xpd, lineno_t chan)
 				break;
 			case BATTERY_OFF:
 				LINE_DBG(SIGNAL, xpd, chan, "Send DAHDI_ALARM_RED\n");
-				dahdi_alarm_channel(xpd->chans[chan], DAHDI_ALARM_RED);
+				dahdi_alarm_channel(XPD_CHAN(xpd, chan), DAHDI_ALARM_RED);
 				break;
 			case BATTERY_ON:
 				LINE_DBG(SIGNAL, xpd, chan, "Send DAHDI_ALARM_NONE\n");
-				dahdi_alarm_channel(xpd->chans[chan], DAHDI_ALARM_NONE);
+				dahdi_alarm_channel(XPD_CHAN(xpd, chan), DAHDI_ALARM_NONE);
 				break;
 		}
 	}
@@ -626,7 +625,7 @@ static void poll_metering(xbus_t *xbus, xpd_t *xpd)
 	int	i;
 
 	for_each_line(xpd, i) {
-		if (IS_SET(xpd->offhook, i))
+		if (IS_OFFHOOK(xpd, i))
 			DAA_DIRECT_REQUEST(xbus, xpd, i, DAA_READ, DAA_REG_METERING, 0);
 	}
 }
@@ -656,20 +655,13 @@ static void handle_fxo_power_denial(xpd_t *xpd)
 	struct FXO_priv_data	*priv;
 	int			i;
 
+	if(!power_denial_safezone)
+		return;		/* Ignore power denials */
 	priv = xpd->priv;
 	for_each_line(xpd, i) {
-		if(priv->power_denial_minimum[i] > 0) {
-			priv->power_denial_minimum[i]--;
-			if(priv->power_denial_minimum[i] <= 0) {
-				/*
-				 * But maybe the FXS started to ring (and the firmware haven't
-				 * detected it yet). This would cause false power denials.
-				 * So we just flag it and schedule more ticks to wait.
-				 */
-				LINE_DBG(SIGNAL, xpd, i, "Possible Power Denial Hangup\n");
-				priv->power_denial_debounce[i] = 0;
-				BIT_SET(priv->maybe_power_denial, i);
-			}
+		if(xpd->ringing[i] || !IS_OFFHOOK(xpd, i)) {
+			priv->power_denial_delay[i] = 0;
+			continue;
 		}
 		if(priv->power_denial_safezone[i] > 0) {
 			if(--priv->power_denial_safezone[i]) {
@@ -678,25 +670,36 @@ static void handle_fxo_power_denial(xpd_t *xpd)
 				 */
 				DAA_DIRECT_REQUEST(xpd->xbus, xpd, i, DAA_READ, DAA_REG_CURRENT, 0);
 			}
+			continue;
 		}
-		if(IS_SET(priv->maybe_power_denial, i) && !xpd->ringing[i] && IS_SET(xpd->offhook, i)) {
+		if(priv->power_denial_length[i] > 0) {
+			priv->power_denial_length[i]--;
+			if(priv->power_denial_length[i] <= 0) {
+				/*
+				 * But maybe the FXS started to ring (and the firmware haven't
+				 * detected it yet). This would cause false power denials.
+				 * So we just flag it and schedule more ticks to wait.
+				 */
+				LINE_DBG(SIGNAL, xpd, i, "Possible Power Denial Hangup\n");
+				priv->power_denial_delay[i] = POWER_DENIAL_DELAY;
+			}
+			continue;
+		}
+		if (priv->power_denial_delay[i] > 0) {
 			/*
 			 * Ring detection by the firmware takes some time.
 			 * Therefore we delay our decision until we are
 			 * sure that no ring has started during this time.
 			 */
-			priv->power_denial_delay[i]++;
-			if (priv->power_denial_delay[i] >= POWER_DENIAL_DELAY) {
+			priv->power_denial_delay[i]--;
+			if (priv->power_denial_delay[i] <= 0) {
 				LINE_DBG(SIGNAL, xpd, i, "Power Denial Hangup\n");
 				priv->power_denial_delay[i] = 0;
-				BIT_CLR(priv->maybe_power_denial, i);
-				do_sethook(xpd, i, 0);
-				update_line_status(xpd, i, 0);
-				pcm_recompute(xpd, 0);
+				/*
+				 * Let Asterisk decide what to do
+				 */
+				notify_rxsig(xpd, i, DAHDI_RXSIG_ONHOOK);
 			}
-		} else {
-			priv->power_denial_delay[i] = 0;
-			BIT_CLR(priv->maybe_power_denial, i);
 		}
 	}
 }
@@ -705,7 +708,7 @@ static void handle_fxo_power_denial(xpd_t *xpd)
  * For caller-id CID_STYLE_ETSI_DTMF:
  *   - No indication is passed before the CID
  *   - We try to detect it and send "fake" polarity reversal.
- *   - The zapata.conf should have cidstart=polarity
+ *   - The chan_dahdi.conf should have cidstart=polarity
  *   - Based on an idea in http://bugs.digium.com/view.php?id=9096
  */
 static void check_etsi_dtmf(xpd_t *xpd) 
@@ -721,7 +724,7 @@ static void check_etsi_dtmf(xpd_t *xpd)
 	timer_count = xpd->timer_count;
 	for_each_line(xpd, portno) {
 		/* Skip offhook and ringing ports */
-		if(IS_SET(xpd->offhook, portno) || xpd->ringing[portno])
+		if(IS_OFFHOOK(xpd, portno) || xpd->ringing[portno])
 			continue;
 		if(IS_SET(priv->cidfound, portno)) {
 			if(timer_count > priv->cidtimer[portno] + 4000) {
@@ -733,7 +736,7 @@ static void check_etsi_dtmf(xpd_t *xpd)
 			continue;
 		}
 		if(timer_count > priv->cidtimer[portno] + 400) {
-			struct dahdi_chan	*chan = xpd->span.chans[portno];
+			struct dahdi_chan	*chan = XPD_CHAN(xpd, portno);
 			int			sample;
 			int			i;
 
@@ -773,7 +776,6 @@ static int FXO_card_tick(xbus_t *xbus, xpd_t *xpd)
 	return 0;
 }
 
-/* FIXME: based on data from from wctdm.h */
 #include <dahdi/wctdm_user.h>
 /*
  * The first register is the ACIM, the other are coefficient registers.
@@ -912,8 +914,11 @@ static void update_battery_voltage(xpd_t *xpd, byte data_low, xportno_t portno)
 				priv->battery[portno] = BATTERY_OFF;
 				if(SPAN_REGISTERED(xpd))
 					dahdi_report_battery(xpd, portno);
-				priv->polarity[portno] = POL_UNKNOWN;	/* What's the polarity ? */
-				priv->power[portno] = POWER_UNKNOWN;	/* What's the current ? */
+				/* What's the polarity ? */
+				priv->polarity[portno] = POL_UNKNOWN;
+				priv->polarity_debounce[portno] = 0;
+				/* What's the current ? */
+				power_change(xpd, portno, POWER_UNKNOWN);
 				/*
 				 * Stop further processing for now
 				 */
@@ -966,7 +971,7 @@ static void update_battery_voltage(xpd_t *xpd, byte data_low, xportno_t portno)
 	msec = priv->polarity_debounce[portno]++ * poll_battery_interval;
 	if (msec >= POLREV_THRESHOLD) {
 		priv->polarity_debounce[portno] = 0;
-		if(pol != POL_UNKNOWN) {
+		if(pol != POL_UNKNOWN && priv->polarity[portno] != POL_UNKNOWN) {
 			char	*polname = NULL;
 
 			if(pol == POL_POSITIVE)
@@ -983,14 +988,12 @@ static void update_battery_voltage(xpd_t *xpd, byte data_low, xportno_t portno)
 			 * 2. In some countries used to report caller-id during onhook
 			 *    but before first ring.
 			 */
-			if(caller_id_style == CID_STYLE_ETSI_FSK) {
-				LINE_DBG(SIGNAL, xpd, portno, "Caller-ID PCM: on\n");
-				BIT_SET(xpd->cid_on, portno);	/* will be cleared on ring/offhook */
-			}
+			if(caller_id_style == CID_STYLE_ETSI_FSK)
+				oht_pcm(xpd, portno, 1);	/* will be cleared on ring/offhook */
 			if(SPAN_REGISTERED(xpd)) {
 				LINE_DBG(SIGNAL, xpd, portno,
 					"Send DAHDI_EVENT_POLARITY: %s\n", polname);
-				dahdi_qevent_lock(xpd->chans[portno], DAHDI_EVENT_POLARITY);
+				dahdi_qevent_lock(XPD_CHAN(xpd, portno), DAHDI_EVENT_POLARITY);
 			}
 		}
 		priv->polarity[portno] = pol;
@@ -1014,7 +1017,7 @@ static void update_battery_current(xpd_t *xpd, byte data_low, xportno_t portno)
 	 * During ringing, current is not stable.
 	 * During onhook there should not be current anyway.
 	 */
-	if(xpd->ringing[portno] || !IS_SET(xpd->offhook, portno))
+	if(xpd->ringing[portno] || !IS_OFFHOOK(xpd, portno))
 		goto ignore_it;
 	/*
 	 * Power denial with no battery voltage is meaningless
@@ -1026,20 +1029,20 @@ static void update_battery_current(xpd_t *xpd, byte data_low, xportno_t portno)
 		goto ignore_it;
 	if(data_low < POWER_DENIAL_CURRENT) {
 		if(priv->power[portno] == POWER_ON) {
-			LINE_DBG(SIGNAL, xpd, portno, "power: ON -> OFF\n");
-			priv->power[portno] = POWER_OFF;
-			priv->power_denial_minimum[portno] = POWER_DENIAL_TIME;
+			power_change(xpd, portno, POWER_OFF);
+			priv->power_denial_length[portno] = power_denial_minlen;
 		}
 	} else {
-		LINE_DBG(SIGNAL, xpd, portno, "power: ON\n");
-		priv->power[portno] = POWER_ON;
-		priv->power_denial_minimum[portno] = 0;
-		update_line_status(xpd, portno, 1);
+		if(priv->power[portno] != POWER_ON) {
+			power_change(xpd, portno, POWER_ON);
+			priv->power_denial_length[portno] = 0;
+			/* We are now OFFHOOK */
+			hookstate_changed(xpd, portno, 1);
+		}
 	}
 	return;
 ignore_it:
-	BIT_CLR(priv->maybe_power_denial, portno);
-	priv->power_denial_debounce[portno] = 0;
+	priv->power_denial_delay[portno] = 0;
 }
 
 #ifdef	WITH_METERING
@@ -1125,6 +1128,7 @@ static xproto_table_t PROTO_TABLE(FXO) = {
 		.card_dahdi_postregistration	= FXO_card_dahdi_postregistration,
 		.card_hooksig	= FXO_card_hooksig,
 		.card_tick	= FXO_card_tick,
+		.card_pcm_recompute	= generic_card_pcm_recompute,
 		.card_pcm_fromspan	= generic_card_pcm_fromspan,
 		.card_pcm_tospan	= generic_card_pcm_tospan,
 		.card_ioctl	= FXO_card_ioctl,
@@ -1241,14 +1245,6 @@ static int proc_fxo_info_read(char *page, char **start, off_t off, int count, in
 		else
 			curr = ".";
 		len += sprintf(page + len, "%4s ", curr);
-	}
-	len += sprintf(page + len, "\n\t%-17s: ", "maybe");
-	for_each_line(xpd, i) {
-		len += sprintf(page + len, "%4d ", IS_SET(priv->maybe_power_denial, i));
-	}
-	len += sprintf(page + len, "\n\t%-17s: ", "debounce");
-	for_each_line(xpd, i) {
-		len += sprintf(page + len, "%4d ", priv->power_denial_debounce[i]);
 	}
 	len += sprintf(page + len, "\n\t%-17s: ", "safezone");
 	for_each_line(xpd, i) {

@@ -56,7 +56,7 @@ static struct xpp_ticker	dahdi_ticker;
  */
 static struct xpp_ticker	*ref_ticker = NULL;
 static spinlock_t		ref_ticker_lock = SPIN_LOCK_UNLOCKED;
-static bool			force_dahdi_sync = 0;	/* from "/proc/xpp/sync" */
+static bool			force_dahdi_sync = 0;	/* from /sys/bus/astribanks/drivers/xppdrv/sync */
 static xbus_t			*global_ticker;
 static struct xpp_ticker	global_ticks_series;
 
@@ -170,9 +170,12 @@ static void xpp_drift_step(xbus_t *xbus, const struct timeval *tv)
 
 		driftinfo->delta_tick = new_delta_tick;
 		if(lost_ticks) {
+			static int	rate_limit;
+
 			driftinfo->lost_ticks++;
 			driftinfo->lost_tick_count += abs(lost_ticks);
-			if(printk_ratelimit()) {
+
+			if((rate_limit++ % 1003) == 0) {
 				XBUS_DBG(SYNC, xbus, "Lost %d tick%s\n",
 					lost_ticks,
 					(abs(lost_ticks) > 1) ? "s": "");
@@ -445,14 +448,8 @@ int dahdi_sync_tick(struct dahdi_span *span, int is_master)
 	if(is_master) {
 		static int	rate_limit;
 
-		if(xpd->xbus != syncer && ((rate_limit % 1003) == 0)) {
-			XPD_ERR(xpd,
-				"Dahdi master, but syncer=%s\n",
-				xpd->xbus->busname);
-		}
-		if((rate_limit % 5003) == 0)
-			XPD_NOTICE(xpd, "Dahdi master: ignore DAHDI sync\n");
-		rate_limit++;
+		if((rate_limit++ % 1003) == 0)
+			XPD_NOTICE(xpd, "Is a DAHDI sync master: ignore sync from DAHDI\n");
 		goto noop;
 	}
 	/* Now we know for sure someone else is dahdi sync master */
@@ -461,7 +458,7 @@ int dahdi_sync_tick(struct dahdi_span *span, int is_master)
 
 		if((rate_limit++ % 5003) == 0)
 			XBUS_DBG(SYNC, syncer,
-				"Already a syncer, ignore DAHDI sync\n");
+				"is a SYNCer: ignore sync from DAHDI\n");
 		goto noop;
 	}
 	/* ignore duplicate calls from all our registered spans */
@@ -488,12 +485,15 @@ noop:
  * if new_syncer is NULL, than we move all to SYNC_MODE_PLL
  * for DAHDI sync.
  */
-static void update_sync_master(xbus_t *new_syncer)
+static void update_sync_master(xbus_t *new_syncer, bool force_dahdi)
 {
-	const char	*msg = (force_dahdi_sync) ? "DAHDI" : "NO-SYNC";
+	const char	*msg;
 	int		i;
 	unsigned long	flags;
 
+	WARN_ON(new_syncer && force_dahdi);	/* Ambigous */
+	force_dahdi_sync = force_dahdi;
+	msg = (force_dahdi_sync) ? "DAHDI" : "NO-SYNC";
 	DBG(SYNC, "%s => %s\n",
 		(syncer) ? syncer->busname : msg,
 		(new_syncer) ? new_syncer->busname : msg);
@@ -545,9 +545,9 @@ void elect_syncer(const char *msg)
 		xbus_t	*xbus = xbus_num(i);
 		if(!xbus)
 			continue;
-		if(!the_xbus)
-			the_xbus = xbus;
 		if(XBUS_IS(xbus, READY)) {
+			if(!the_xbus)
+				the_xbus = xbus;	/* First candidate */
 			for(j = 0; j < MAX_XPDS; j++) {
 				xpd_t	*xpd = xpd_of(xbus, j);
 
@@ -568,26 +568,25 @@ void elect_syncer(const char *msg)
 	} else
 		DBG(SYNC, "%s: No more syncers\n", msg);
 	if(the_xbus != syncer)
-		update_sync_master(the_xbus);
+		update_sync_master(the_xbus, force_dahdi_sync);
 }
 
 /*
  * This function is used by FXS/FXO. The pcm_mask argument signifies
  * channels which should be *added* to the automatic calculation.
  * Normally, this argument is 0.
- *
- * The caller should spinlock the XPD before calling it.
  */
-void __pcm_recompute(xpd_t *xpd, xpp_line_t pcm_mask)
+void generic_card_pcm_recompute(xbus_t *xbus, xpd_t *xpd, xpp_line_t pcm_mask)
 {
 	int		i;
 	int		line_count = 0;
+	unsigned long	flags;
 
-	XPD_DBG(SIGNAL, xpd, "pcm_mask=0x%X\n", pcm_mask);
+	spin_lock_irqsave(&xpd->lock_recompute_pcm, flags);
+	//XPD_DBG(SIGNAL, xpd, "pcm_mask=0x%X\n", pcm_mask);
 	/* Add/remove all the trivial cases */
-	pcm_mask |= xpd->offhook;
-	pcm_mask |= xpd->cid_on;
-	pcm_mask &= ~xpd->digital_signalling;	/* No PCM in D-Channels */
+	pcm_mask |= xpd->offhook_state;
+	pcm_mask |= xpd->oht_pcm_pass;
 	pcm_mask &= ~xpd->digital_inputs;
 	pcm_mask &= ~xpd->digital_outputs;
 	for_each_line(xpd, i)
@@ -605,18 +604,9 @@ void __pcm_recompute(xpd_t *xpd, xpp_line_t pcm_mask)
 		? RPACKET_HEADERSIZE + sizeof(xpp_line_t) + line_count * DAHDI_CHUNKSIZE
 		: 0L;
 	xpd->wanted_pcm_mask = pcm_mask;
-}
-
-/*
- * A spinlocked version of __pcm_recompute()
- */
-void pcm_recompute(xpd_t *xpd, xpp_line_t pcm_mask)
-{
-	unsigned long	flags;
-
-	spin_lock_irqsave(&xpd->lock, flags);
-	__pcm_recompute(xpd, pcm_mask);
-	spin_unlock_irqrestore(&xpd->lock, flags);
+	XPD_DBG(SIGNAL, xpd, "pcm_len=%d wanted_pcm_mask=0x%X\n",
+		xpd->pcm_len, xpd->wanted_pcm_mask);
+	spin_unlock_irqrestore(&xpd->lock_recompute_pcm, flags);
 }
 
 void fill_beep(u_char *buf, int num, int duration)
@@ -647,17 +637,18 @@ void fill_beep(u_char *buf, int num, int duration)
 
 static void do_ec(xpd_t *xpd)
 {
-	struct dahdi_chan **chans = xpd->span.chans;
-	int		i;
+	int	i;
 
 	for (i = 0;i < xpd->span.channels; i++) {
+		struct dahdi_chan	*chan = XPD_CHAN(xpd, i);
+
 		if(unlikely(IS_SET(xpd->digital_signalling, i)))	/* Don't echo cancel BRI D-chans */
 			continue;
 		if(!IS_SET(xpd->wanted_pcm_mask, i))			/* No ec for unwanted PCM */
 			continue;
-		dahdi_ec_chunk(chans[i], chans[i]->readchunk, xpd->ec_chunk2[i]);
+		dahdi_ec_chunk(chan, chan->readchunk, xpd->ec_chunk2[i]);
 		memcpy(xpd->ec_chunk2[i], xpd->ec_chunk1[i], DAHDI_CHUNKSIZE);
-		memcpy(xpd->ec_chunk1[i], chans[i]->writechunk, DAHDI_CHUNKSIZE);
+		memcpy(xpd->ec_chunk1[i], chan->writechunk, DAHDI_CHUNKSIZE);
 	}
 }
 
@@ -761,31 +752,33 @@ dropit:
  * Generic implementations of card_pcmfromspan()/card_pcmtospan()
  * For FXS/FXO
  */
-void generic_card_pcm_fromspan(xbus_t *xbus, xpd_t *xpd, xpp_line_t lines, xpacket_t *pack)
+void generic_card_pcm_fromspan(xbus_t *xbus, xpd_t *xpd, xpacket_t *pack)
 {
-	byte			*pcm;
-	struct dahdi_chan	**chans;
-	unsigned long		flags;
-	int			i;
+	byte		*pcm;
+	unsigned long	flags;
+	xpp_line_t	wanted_lines;
+	int		i;
 
 	BUG_ON(!xbus);
 	BUG_ON(!xpd);
 	BUG_ON(!pack);
-	RPACKET_FIELD(pack, GLOBAL, PCM_WRITE, lines) = lines;
+	wanted_lines = xpd->wanted_pcm_mask;
+	RPACKET_FIELD(pack, GLOBAL, PCM_WRITE, lines) = wanted_lines;
 	pcm = RPACKET_FIELD(pack, GLOBAL, PCM_WRITE, pcm);
 	spin_lock_irqsave(&xpd->lock, flags);
-	chans = xpd->span.chans;
 	for (i = 0; i < xpd->channels; i++) {
-		if(IS_SET(lines, i)) {
+		struct dahdi_chan	*chan = XPD_CHAN(xpd, i);
+
+		if(IS_SET(wanted_lines, i)) {
 			if(SPAN_REGISTERED(xpd)) {
 #ifdef	DEBUG_PCMTX
-				int	channo = xpd->span.chans[i]->channo;
+				int	channo = chan->channo;
 
 				if(pcmtx >= 0 && pcmtx_chan == channo)
 					memset((u_char *)pcm, pcmtx, DAHDI_CHUNKSIZE);
 				else
 #endif
-					memcpy((u_char *)pcm, chans[i]->writechunk, DAHDI_CHUNKSIZE);
+					memcpy((u_char *)pcm, chan->writechunk, DAHDI_CHUNKSIZE);
 			} else
 				memset((u_char *)pcm, 0x7F, DAHDI_CHUNKSIZE);
 			pcm += DAHDI_CHUNKSIZE;
@@ -814,7 +807,7 @@ void generic_card_pcm_tospan(xbus_t *xbus, xpd_t *xpd, xpacket_t *pack)
 	if(!SPAN_REGISTERED(xpd))
 		goto out;
 	for (i = 0; i < xpd->channels; i++) {
-		volatile u_char	*r = xpd->span.chans[i]->readchunk;
+		volatile u_char	*r = XPD_CHAN(xpd, i)->readchunk;
 		bool		got_data = IS_SET(pcm_mask, i);
 
 		if(got_data && !IS_SET(pcm_mute, i)) {
@@ -914,7 +907,6 @@ static void xbus_tick(xbus_t *xbus)
 	xpd_t		*xpd;
 	xframe_t	*xframe = NULL;
 	xpacket_t	*pack = NULL;
-	size_t		pcm_len;
 	bool		sent_sync_bit = 0;
 
 	/*
@@ -930,7 +922,7 @@ static void xbus_tick(xbus_t *xbus)
 			xmit_mask |= xpd->silence_pcm;
 			xmit_mask |= xpd->digital_signalling;
 			for_each_line(xpd, j) {
-				xpd->chans[j].chanmute = (optimize_chanmute)
+				XPD_CHAN(xpd, j)->chanmute = (optimize_chanmute)
 					? !IS_SET(xmit_mask, j)
 					: 0;
 			}
@@ -946,6 +938,8 @@ static void xbus_tick(xbus_t *xbus)
 	 * Fill xframes
 	 */
 	for(i = 0; i < MAX_XPDS; i++) {
+		size_t		pcm_len;
+
 		if((xpd = xpd_of(xbus, i)) == NULL)
 			continue;
 		pcm_len = xpd->pcm_len;
@@ -978,7 +972,7 @@ static void xbus_tick(xbus_t *xbus)
 					XPACKET_ADDR_SYNC(pack) = 1;
 					sent_sync_bit = 1;
 				}
-				CALL_XMETHOD(card_pcm_fromspan, xbus, xpd, xpd->wanted_pcm_mask, pack);
+				CALL_XMETHOD(card_pcm_fromspan, xbus, xpd, pack);
 				XBUS_COUNTER(xbus, TX_PACK_PCM)++;
 			}
 		}
@@ -1070,7 +1064,50 @@ void xframe_receive_pcm(xbus_t *xbus, xframe_t *xframe)
 		xbus->xbus_frag_count++;
 }
 
-#ifdef CONFIG_PROC_FS
+int exec_sync_command(const char *buf, size_t count)
+{
+	int	ret = count;
+	int	xbusno;
+	xbus_t	*xbus;
+
+	if(strncmp("DAHDI", buf, 6) == 0) {	/* Ignore the newline */
+		DBG(SYNC, "DAHDI\n");
+		update_sync_master(NULL, 1);
+	} else if(sscanf(buf, "SYNC=%d\n", &xbusno) == 1) {
+		DBG(SYNC, "SYNC=%d\n", xbusno);
+		if((xbus = xbus_num(xbusno)) == NULL) {
+			ERR("No bus %d exists\n", xbusno);
+			return -ENXIO;
+		}
+		update_sync_master(xbus, 0);
+	} else if(sscanf(buf, "QUERY=%d\n", &xbusno) == 1) {
+		DBG(SYNC, "QUERY=%d\n", xbusno);
+		if((xbus = xbus_num(xbusno)) == NULL) {
+			ERR("No bus %d exists\n", xbusno);
+			return -ENXIO;
+		}
+		CALL_PROTO(GLOBAL, SYNC_SOURCE, xbus, NULL, SYNC_MODE_QUERY, 0);
+	} else {
+		ERR("%s: cannot parse '%s'\n", __FUNCTION__, buf);
+		ret = -EINVAL;
+	}
+	return ret;
+}
+
+int fill_sync_string(char *buf, size_t count)
+{
+	int	len = 0;
+
+	if(!syncer) {
+		len += snprintf(buf, count, "%s\n",
+			(force_dahdi_sync) ? "DAHDI" : "NO-SYNC");
+	} else
+		len += snprintf(buf, count, "SYNC=%02d\n", syncer->num);
+	return len;
+}
+
+#ifdef	OLD_PROC
+#ifdef	CONFIG_PROC_FS
 static int proc_sync_read(char *page, char **start, off_t off, int count, int *eof, void *data)
 {
 	int		len = 0;
@@ -1079,17 +1116,13 @@ static int proc_sync_read(char *page, char **start, off_t off, int count, int *e
 	unsigned long	usec;
 
 	do_gettimeofday(&now);
+	NOTICE("%s: DEPRECATED: %s[%d] read from /proc interface instead of /sys\n",
+		__FUNCTION__, current->comm, current->tgid);
 	len += sprintf(page + len, "# To modify sync source write into this file:\n");
 	len += sprintf(page + len, "#     DAHDI       - Another dahdi device provide sync\n");
 	len += sprintf(page + len, "#     SYNC=nn     - XBUS-nn provide sync\n");
 	len += sprintf(page + len, "#     QUERY=nn    - Query XBUS-nn for sync information (DEBUG)\n");
-	if(!syncer) {
-		if(force_dahdi_sync)
-			len += sprintf(page + len, "DAHDI\n");
-		else
-			len += sprintf(page + len, "NO-SYNC\n");
-	} else
-		len += sprintf(page + len, "SYNC=%02d\n", syncer->num);
+	len += fill_sync_string(page + len, PAGE_SIZE - len);
 #ifdef	DAHDI_SYNC_TICK
 	if(force_dahdi_sync) {
 		len += sprintf(page + len,
@@ -1123,68 +1156,26 @@ static int proc_sync_read(char *page, char **start, off_t off, int count, int *e
 static int proc_sync_write(struct file *file, const char __user *buffer, unsigned long count, void *data)
 {
 	char		buf[MAX_PROC_WRITE];
-	int		xbusno;
-	int		xpd_num;
-	xbus_t		*xbus;
-	xpd_t		*xpd;
 
 	// DBG(SYNC, "%s: count=%ld\n", __FUNCTION__, count);
+	NOTICE("%s: DEPRECATED: %s[%d] write to /proc interface instead of /sys\n",
+		__FUNCTION__, current->comm, current->tgid);
 	if(count >= MAX_PROC_WRITE)
 		return -EINVAL;
 	if(copy_from_user(buf, buffer, count))
 		return -EFAULT;
 	buf[count] = '\0';
-	if(strncmp("DAHDI", buf, 5) == 0) {
-		DBG(SYNC, "DAHDI\n");
-		force_dahdi_sync=1;
-		update_sync_master(NULL);
-	} else if(sscanf(buf, "SYNC=%d", &xbusno) == 1) {
-		DBG(SYNC, "SYNC=%d\n", xbusno);
-		if((xbus = xbus_num(xbusno)) == NULL) {
-			ERR("No bus %d exists\n", xbusno);
-			return -ENXIO;
-		}
-		update_sync_master(xbus);
-	} else if(sscanf(buf, "QUERY=%d", &xbusno) == 1) {
-		DBG(SYNC, "QUERY=%d\n", xbusno);
-		if((xbus = xbus_num(xbusno)) == NULL) {
-			ERR("No bus %d exists\n", xbusno);
-			return -ENXIO;
-		}
-		CALL_PROTO(GLOBAL, SYNC_SOURCE, xbus, NULL, SYNC_MODE_QUERY, 0);
-	} else if(sscanf(buf, "%d %d", &xbusno, &xpd_num) == 2) {
-		NOTICE("Using deprecated syntax to update %s file\n", 
-				PROC_SYNC);
-		if(xpd_num != 0) {
-			ERR("Currently can only set sync for XPD #0\n");
-			return -EINVAL;
-		}
-		if((xbus = xbus_num(xbusno)) == NULL) {
-			ERR("No bus %d exists\n", xbusno);
-			return -ENXIO;
-		}
-		if((xpd = xpd_of(xbus, xpd_num)) == NULL) {
-			XBUS_ERR(xbus, "No xpd %d exists\n", xpd_num);
-			return -ENXIO;
-		}
-		update_sync_master(xbus);
-	} else {
-		ERR("%s: cannot parse '%s'\n", __FUNCTION__, buf);
-		count = -EINVAL;
-	}
-	return count;
+	return exec_sync_command(buf, count);
 }
 
 static struct proc_dir_entry	*top;
 
 #endif
+#endif	/* OLD_PROC */
 
 int xbus_pcm_init(struct proc_dir_entry *toplevel)
 {
 	int			ret = 0;
-#ifdef CONFIG_PROC_FS
-	struct proc_dir_entry	*ent;
-#endif
 
 #ifdef	OPTIMIZE_CHANMUTE
 	INFO("FEATURE: with CHANMUTE optimization (%sactivated)\n",
@@ -1197,27 +1188,34 @@ int xbus_pcm_init(struct proc_dir_entry *toplevel)
 #endif
 	xpp_ticker_init(&global_ticks_series);
 	xpp_ticker_init(&dahdi_ticker);
-#ifdef CONFIG_PROC_FS
-	top = toplevel;
-	ent = create_proc_entry(PROC_SYNC, 0644, top);
-	if(!ent) {
-		ret = -EFAULT;
-		goto err;
+#ifdef	OLD_PROC
+#ifdef	CONFIG_PROC_FS
+	{
+		struct proc_dir_entry	*ent;
+
+		top = toplevel;
+		ent = create_proc_entry(PROC_SYNC, 0644, top);
+		if(ent) {
+			ent->read_proc = proc_sync_read;
+			ent->write_proc = proc_sync_write;
+			ent->data = NULL;
+		} else {
+			ret = -EFAULT;
+		}
 	}
-	ent->read_proc = proc_sync_read;
-	ent->write_proc = proc_sync_write;
-	ent->data = NULL;
 #endif
-err:
+#endif	/* OLD_PROC */
 	return ret;
 }
 
 void xbus_pcm_shutdown(void)
 {
+#ifdef	OLD_PROC
 #ifdef CONFIG_PROC_FS
 	DBG(GENERAL, "Removing '%s' from proc\n", PROC_SYNC);
 	remove_proc_entry(PROC_SYNC, top);
 #endif
+#endif	/* OLD_PROC */
 }
 
 
@@ -1227,8 +1225,7 @@ EXPORT_SYMBOL(elect_syncer);
 #ifdef	DAHDI_SYNC_TICK
 EXPORT_SYMBOL(dahdi_sync_tick);
 #endif
-EXPORT_SYMBOL(__pcm_recompute);
-EXPORT_SYMBOL(pcm_recompute);
+EXPORT_SYMBOL(generic_card_pcm_recompute);
 EXPORT_SYMBOL(generic_card_pcm_tospan);
 EXPORT_SYMBOL(generic_card_pcm_fromspan);
 #ifdef	DEBUG_PCMTX

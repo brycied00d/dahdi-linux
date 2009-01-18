@@ -35,13 +35,17 @@ xpd_t *xpd_alloc(xbus_t *xbus, int unit, int subunit, int subtype, int subunits,
 void xpd_free(xpd_t *xpd);
 void xpd_remove(xpd_t *xpd);
 void update_xpd_status(xpd_t *xpd, int alarm_flag);
-void update_line_status(xpd_t *xpd, int pos, bool good);
+void hookstate_changed(xpd_t *xpd, int pos, bool good);
 int xpp_open(struct dahdi_chan *chan);
 int xpp_close(struct dahdi_chan *chan);
 int xpp_ioctl(struct dahdi_chan *chan, unsigned int cmd, unsigned long arg);
 int xpp_maint(struct dahdi_span *span, int cmd);
 void report_bad_ioctl(const char *msg, xpd_t *xpd, int pos, unsigned int cmd);
 int total_registered_spans(void);
+void oht_pcm(xpd_t *xpd, int pos, bool pass);
+void mark_offhook(xpd_t *xpd, int pos, bool to_offhook);
+#define	IS_OFFHOOK(xpd,pos)	IS_SET((xpd)->offhook_state, (pos))
+void notify_rxsig(xpd_t *xpd, int pos, enum dahdi_rxsig rxsig);
 
 #ifdef CONFIG_PROC_FS
 #include <linux/proc_fs.h>

@@ -103,6 +103,7 @@ const char *xbus_statename(enum xbus_state st);
 struct xbus_transport {
 	struct xbus_ops		*ops;
 	void			*priv;
+	struct device		*transport_device;
 	ushort			max_send_size;
 	enum xbus_state		xbus_state;
 	spinlock_t		state_lock;
@@ -297,7 +298,7 @@ xpacket_t *xframe_next_packet(xframe_t *xframe, int len);
 xpd_t	*xpd_of(const xbus_t *xbus, int xpd_num);
 xpd_t	*xpd_byaddr(const xbus_t *xbus, uint unit, uint subunit);
 bool	xbus_setstate(xbus_t *xbus, enum xbus_state newstate);
-xbus_t	*xbus_new(struct xbus_ops *ops, ushort max_send_size, void *priv);
+xbus_t	*xbus_new(struct xbus_ops *ops, ushort max_send_size, struct device *transport_device, void *priv);
 void	xbus_free(xbus_t *xbus);
 int	xbus_connect(xbus_t *xbus);
 int	xbus_activate(xbus_t *xbus);
