@@ -208,7 +208,6 @@ struct BRI_priv_data {
 	bool				reg30_good;
 	uint				reg30_ticks;
 	bool				layer1_up;
-	xpp_line_t			card_pcm_mask;
 
 	/*
 	 * D-Chan: buffers + extra state info.
@@ -460,8 +459,8 @@ static int rx_dchan(xpd_t *xpd, reg_cmd_t *regcmd)
 #ifdef XPP_DEBUGFS
 	xbus_log(xbus, xpd, 0, regcmd, sizeof(reg_cmd_t));		/* 0 = RX */
 #endif
-	dchan = xpd->span.chans[2];
-	if(!IS_SET(xpd->offhook, 2)) {	/* D-chan is used? */
+	dchan = XPD_CHAN(xpd, 2);
+	if(!IS_OFFHOOK(xpd, 2)) {	/* D-chan is used? */
 		static int rate_limit;
 
 		if((rate_limit++ % 1000) == 0)
@@ -525,7 +524,7 @@ out:
 static int tx_dchan(xpd_t *xpd)
 {
 	struct BRI_priv_data	*priv;
-	struct dahdi_chan		*dchan;
+	struct dahdi_chan	*dchan;
 	int			len;
 	int			eoframe;
 	int			ret;
@@ -534,7 +533,7 @@ static int tx_dchan(xpd_t *xpd)
 	BUG_ON(!priv);
 	if(!SPAN_REGISTERED(xpd) || !(xpd->span.flags & DAHDI_FLAG_RUNNING))
 		return 0;
-	dchan = xpd->chans[2];
+	dchan = XPD_CHAN(xpd, 2);
 	len = dchan->bytes2transmit;	/* dchan's hdlc package len */
 	eoframe = dchan->eoftx;		/* dchan's end of frame */
 	dchan->bytes2transmit = 0;
@@ -561,6 +560,7 @@ static int tx_dchan(xpd_t *xpd)
 		priv->txframe_begin = 1;
 	else
 		priv->txframe_begin = 0;
+	XPD_DBG(COMMANDS, xpd, "eoframe=%d len=%d\n", eoframe, len);
 	ret = send_multibyte_request(xpd->xbus, xpd->addr.unit, xpd->addr.subunit,
 			eoframe, priv->dchan_tbuf, len);
 	if(ret < 0)
@@ -657,9 +657,6 @@ static int BRI_card_dahdi_preregistration(xpd_t *xpd, bool on)
 {
 	xbus_t			*xbus;
 	struct BRI_priv_data	*priv;
-	xpp_line_t		tmp_pcm_mask;
-	int			tmp_pcm_len;
-	unsigned long		flags;
 	int			i;
 	
 	BUG_ON(!xpd);
@@ -676,7 +673,7 @@ static int BRI_card_dahdi_preregistration(xpd_t *xpd, bool on)
 	xpd->span.deflaw = DAHDI_LAW_ALAW;
 	BIT_SET(xpd->digital_signalling, 2);	/* D-Channel */
 	for_each_line(xpd, i) {
-		struct dahdi_chan	*cur_chan = xpd->chans[i];
+		struct dahdi_chan	*cur_chan = XPD_CHAN(xpd, i);
 
 		XPD_DBG(GENERAL, xpd, "setting BRI channel %d\n", i);
 		snprintf(cur_chan->name, MAX_CHANNAME, "XPP_%s/%02d/%1d%1d/%d",
@@ -701,35 +698,11 @@ static int BRI_card_dahdi_preregistration(xpd_t *xpd, bool on)
 		} else
 			cur_chan->sigcap = BRI_BCHAN_SIGCAP;
 	}
-	xpd->offhook = BIT(0) | BIT(1);	/* 2*bchan */
-
-	/*
-	 * Compute PCM lentgh and mask
-	 * We know all cards have been initialized until now
-	 */
-	tmp_pcm_mask = 0;
-	if(xpd->addr.subunit == 0) {
-		int	line_count = 0;
-
-		for(i = 0; i < MAX_SUBUNIT; i++) {
-			xpd_t	*sub_xpd = xpd_byaddr(xbus, xpd->addr.unit, i);
-			if(sub_xpd) {
-				tmp_pcm_mask |= PCM_SHIFT(sub_xpd->wanted_pcm_mask, i);
-				line_count += 2;
-			}
-		}
-		tmp_pcm_len = RPACKET_HEADERSIZE + sizeof(xpp_line_t)  +  line_count * DAHDI_CHUNKSIZE;
-	} else
-		tmp_pcm_len = 0;
-	spin_lock_irqsave(&xpd->lock, flags);
-	xpd->pcm_len = tmp_pcm_len;
-	xpd->wanted_pcm_mask = xpd->offhook;
-	priv->card_pcm_mask = tmp_pcm_mask;
+	CALL_XMETHOD(card_pcm_recompute, xbus, xpd, 0);
 	xpd->span.spanconfig = bri_spanconfig;
 	xpd->span.chanconfig = bri_chanconfig;
 	xpd->span.startup = bri_startup;
 	xpd->span.shutdown = bri_shutdown;
-	spin_unlock_irqrestore(&xpd->lock, flags);
 	return 0;
 }
 
@@ -939,15 +912,38 @@ static int BRI_card_ioctl(xpd_t *xpd, int pos, unsigned int cmd, unsigned long a
 	return 0;
 }
 
+static int BRI_card_open(xpd_t *xpd, lineno_t pos)
+{
+	struct BRI_priv_data	*priv;
+
+	BUG_ON(!xpd);
+	priv = xpd->priv;
+	if(pos == 2) {
+		LINE_DBG(SIGNAL, xpd, pos, "OFFHOOK the whole span\n");
+		BIT_SET(xpd->offhook_state, 0);
+		BIT_SET(xpd->offhook_state, 1);
+		BIT_SET(xpd->offhook_state, 2);
+		CALL_XMETHOD(card_pcm_recompute, xpd->xbus, xpd, 0);
+	}
+	return 0;
+}
+
 static int BRI_card_close(xpd_t *xpd, lineno_t pos)
 {
-	struct dahdi_chan	*chan = xpd->span.chans[pos];
+	struct dahdi_chan	*chan = XPD_CHAN(xpd, pos);
 
 	/* Clear D-Channel pending data */
 	chan->bytes2receive = 0;
 	chan->eofrx = 0;
 	chan->bytes2transmit = 0;
 	chan->eoftx = 0;
+	if(pos == 2) {
+		LINE_DBG(SIGNAL, xpd, pos, "ONHOOK the whole span\n");
+		BIT_CLR(xpd->offhook_state, 0);
+		BIT_CLR(xpd->offhook_state, 1);
+		BIT_CLR(xpd->offhook_state, 2);
+		CALL_XMETHOD(card_pcm_recompute, xpd->xbus, xpd, 0);
+	}
 	return 0;
 }
 
@@ -1014,7 +1010,7 @@ static int bri_startup(struct dahdi_span *span)
 {
 	xpd_t			*xpd = span->pvt;
 	struct BRI_priv_data	*priv;
-	struct dahdi_chan		*dchan;
+	struct dahdi_chan	*dchan;
 
 	BUG_ON(!xpd);
 	priv = xpd->priv;
@@ -1027,7 +1023,7 @@ static int bri_startup(struct dahdi_span *span)
 	// Turn on all channels
 	CALL_XMETHOD(XPD_STATE, xpd->xbus, xpd, 1);
 	if(SPAN_REGISTERED(xpd)) {
-		dchan = span->chans[2];
+		dchan = XPD_CHAN(xpd, 2);
 		span->flags |= DAHDI_FLAG_RUNNING;
 		/*
 		 * Dahdi (wrongly) assume that D-Channel need HDLC decoding
@@ -1062,14 +1058,74 @@ static int bri_shutdown(struct dahdi_span *span)
 	return 0;
 }
 
-static void BRI_card_pcm_fromspan(xbus_t *xbus, xpd_t *xpd, xpp_line_t wanted_lines, xpacket_t *pack)
+void BRI_card_pcm_recompute(xbus_t *xbus, xpd_t *xpd, xpp_line_t dont_care)
+{
+	int		i;
+	int		line_count;
+	xpp_line_t	pcm_mask;
+	xpd_t		*main_xpd;
+	unsigned long	flags;
+
+	BUG_ON(!xpd);
+	main_xpd = xpd_byaddr(xbus, xpd->addr.unit, 0);
+	if(!main_xpd) {
+		XPD_DBG(DEVICES, xpd, "Unit 0 is already gone. Ignore request\n");
+		return;
+	}
+	/*
+	 * We calculate all subunits, so use the main lock
+	 * as a mutex for the whole operation.
+	 */
+	spin_lock_irqsave(&main_xpd->lock_recompute_pcm, flags);
+	line_count = 0;
+	pcm_mask = 0;
+	for(i = 0; i < MAX_SUBUNIT; i++) {
+		xpd_t		*sub_xpd = xpd_byaddr(xbus, main_xpd->addr.unit, i);
+
+		if(sub_xpd) {
+			xpp_line_t	lines =
+				sub_xpd->offhook_state & ~sub_xpd->digital_signalling;
+
+			if(lines) {
+				pcm_mask |= PCM_SHIFT(lines, i);
+				line_count += 2;
+			}
+			/* subunits have fake pcm_len and wanted_pcm_mask */
+			if(i > 0) {
+				sub_xpd->pcm_len = 0;
+				sub_xpd->wanted_pcm_mask = lines;
+			}
+		}
+	}
+	/*
+	 * FIXME: Workaround a bug in sync code of the Astribank.
+	 *        Send dummy PCM for sync.
+	 */
+	if(main_xpd->addr.unit == 0 && line_count == 0) {
+		pcm_mask = BIT(0);
+		line_count = 1;
+	}
+	/*
+	 * The main unit account for all subunits (pcm_len and wanted_pcm_mask).
+	 */
+	main_xpd->pcm_len = (line_count)
+		? RPACKET_HEADERSIZE + sizeof(xpp_line_t) + line_count * DAHDI_CHUNKSIZE
+		: 0L;
+	main_xpd->wanted_pcm_mask = pcm_mask;
+	XPD_DBG(SIGNAL, main_xpd, "pcm_len=%d wanted_pcm_mask=0x%X (%s)\n",
+		main_xpd->pcm_len, main_xpd->wanted_pcm_mask,
+		xpd->xpdname);
+	spin_unlock_irqrestore(&main_xpd->lock_recompute_pcm, flags);
+}
+
+static void BRI_card_pcm_fromspan(xbus_t *xbus, xpd_t *xpd, xpacket_t *pack)
 {
 	byte		*pcm;
-	struct dahdi_chan	**chans;
 	unsigned long	flags;
 	int		i;
 	int		subunit;
 	xpp_line_t	pcm_mask = 0;
+	xpp_line_t	wanted_lines;
 
 
 	BUG_ON(!xbus);
@@ -1083,18 +1139,20 @@ static void BRI_card_pcm_fromspan(xbus_t *xbus, xpd_t *xpd, xpp_line_t wanted_li
 		if(!tmp_xpd || !tmp_xpd->card_present)
 			continue;
 		spin_lock_irqsave(&tmp_xpd->lock, flags);
-		chans = tmp_xpd->span.chans;
+		wanted_lines = tmp_xpd->wanted_pcm_mask;
 		for_each_line(tmp_xpd, i) {
+			struct dahdi_chan	*chan = XPD_CHAN(tmp_xpd, i);
+
 			if(IS_SET(wanted_lines, i)) {
 				if(SPAN_REGISTERED(tmp_xpd)) {
 #ifdef	DEBUG_PCMTX
-					int	channo = tmp_xpd->span.chans[i]->channo;
+					int	channo = chan->channo;
 
 					if(pcmtx >= 0 && pcmtx_chan == channo)
 						memset((u_char *)pcm, pcmtx, DAHDI_CHUNKSIZE);
 					else
 #endif
-						memcpy((u_char *)pcm, chans[i]->writechunk, DAHDI_CHUNKSIZE);
+						memcpy((u_char *)pcm, chan->writechunk, DAHDI_CHUNKSIZE);
 				} else
 					memset((u_char *)pcm, 0x7F, DAHDI_CHUNKSIZE);
 				pcm += DAHDI_CHUNKSIZE;
@@ -1138,7 +1196,7 @@ static void BRI_card_pcm_tospan(xbus_t *xbus, xpd_t *xpd, xpacket_t *pack)
 			volatile u_char	*r;
 
 			if(IS_SET(tmp_mask, i)) {
-				r = tmp_xpd->span.chans[i]->readchunk;
+				r = XPD_CHAN(tmp_xpd, i)->readchunk;
 				// memset((u_char *)r, 0x5A, DAHDI_CHUNKSIZE);	// DEBUG
 				memcpy((u_char *)r, pcm, DAHDI_CHUNKSIZE);
 				pcm += DAHDI_CHUNKSIZE;
@@ -1391,9 +1449,11 @@ static xproto_table_t PROTO_TABLE(BRI) = {
 		.card_dahdi_postregistration	= BRI_card_dahdi_postregistration,
 		.card_hooksig	= BRI_card_hooksig,
 		.card_tick	= BRI_card_tick,
+		.card_pcm_recompute	= BRI_card_pcm_recompute,
 		.card_pcm_fromspan	= BRI_card_pcm_fromspan,
 		.card_pcm_tospan	= BRI_card_pcm_tospan,
 		.card_ioctl	= BRI_card_ioctl,
+		.card_open	= BRI_card_open,
 		.card_close	= BRI_card_close,
 		.card_register_reply	= BRI_card_register_reply,
 

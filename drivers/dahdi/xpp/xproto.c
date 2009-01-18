@@ -437,6 +437,7 @@ int xproto_register(const xproto_table_t *proto_table)
 	CHECK_XOP(card_init);
 	CHECK_XOP(card_remove);
 	CHECK_XOP(card_tick);
+	CHECK_XOP(card_pcm_recompute);
 	CHECK_XOP(card_pcm_fromspan);
 	CHECK_XOP(card_pcm_tospan);
 	CHECK_XOP(card_dahdi_preregistration);

@@ -587,7 +587,7 @@ static void set_clocking(xpd_t *xpd)
 	xbus_t			*xbus;
 	xpd_t			*best_xpd = NULL;
 	int			best_subunit = -1;	/* invalid */
-	int			best_subunit_prio = 0;
+	unsigned int		best_subunit_prio = INT_MAX;
 	int			i;
 
 	xbus = xpd->xbus;
@@ -602,7 +602,7 @@ static void set_clocking(xpd_t *xpd)
 		priv = subxpd->priv;
 		if(priv->alarms != 0)
 			continue;
-		if(subxpd->timing_priority > best_subunit_prio) {
+		if(subxpd->timing_priority > 0 && subxpd->timing_priority < best_subunit_prio) {
 			best_xpd = subxpd;
 			best_subunit = i;
 			best_subunit_prio = subxpd->timing_priority;
@@ -1016,7 +1016,7 @@ static int PRI_card_dahdi_preregistration(xpd_t *xpd, bool on)
 	xpd->span.linecompat = pri_linecompat(priv->pri_protocol);
 	xpd->span.deflaw = priv->deflaw;
 	for_each_line(xpd, i) {
-		struct dahdi_chan	*cur_chan = xpd->chans[i];
+		struct dahdi_chan	*cur_chan = XPD_CHAN(xpd, i);
 		bool		is_dchan = i == PRI_DCHAN_IDX(priv);
 
 		XPD_DBG(GENERAL, xpd, "setting PRI channel %d (%s)\n", i,
@@ -1032,7 +1032,7 @@ static int PRI_card_dahdi_preregistration(xpd_t *xpd, bool on)
 		} else
 			cur_chan->sigcap = PRI_BCHAN_SIGCAP;
 	}
-	xpd->offhook = xpd->wanted_pcm_mask;
+	xpd->offhook_state = xpd->wanted_pcm_mask;
 	xpd->span.spanconfig = pri_spanconfig;
 	xpd->span.chanconfig = pri_chanconfig;
 	xpd->span.startup = pri_startup;
@@ -1081,9 +1081,9 @@ static void dchan_state(xpd_t *xpd, bool up)
 		if(SPAN_REGISTERED(xpd) && d >= 0 && d < xpd->channels) {
 			byte	*pcm;
 
-			pcm = (byte *)xpd->span.chans[d]->readchunk;
+			pcm = (byte *)XPD_CHAN(xpd, d)->readchunk;
 			pcm[0] = 0x00;
-			pcm = (byte *)xpd->span.chans[d]->writechunk;
+			pcm = (byte *)XPD_CHAN(xpd, d)->writechunk;
 			pcm[0] = 0x00;
 		}
 		XPD_DBG(SIGNAL, xpd, "STATE CHANGE: D-Channel STOPPED\n");
@@ -1212,7 +1212,7 @@ static int PRI_card_ioctl(xpd_t *xpd, int pos, unsigned int cmd, unsigned long a
 
 static int PRI_card_close(xpd_t *xpd, lineno_t pos)
 {
-	//struct dahdi_chan	*chan = &xpd->span.chans[pos];
+	//struct dahdi_chan	*chan = XPD_CHAN(xpd, pos);
 	dchan_state(xpd, 0);
 	return 0;
 }
@@ -1321,13 +1321,13 @@ static int pri_rbsbits(struct dahdi_chan *chan, int bits)
  * send 31 channels to the device, but they should be called 1-31 rather
  * than 0-30 .
  */
-static void PRI_card_pcm_fromspan(xbus_t *xbus, xpd_t *xpd, xpp_line_t lines, xpacket_t *pack)
+static void PRI_card_pcm_fromspan(xbus_t *xbus, xpd_t *xpd, xpacket_t *pack)
 {
 	struct PRI_priv_data	*priv;
 	byte			*pcm;
-	struct dahdi_chan	**chans;
 	unsigned long		flags;
 	int			i;
+	xpp_line_t		wanted_lines;
 	int			physical_chan;
 	int			physical_mask = 0;
 
@@ -1338,9 +1338,11 @@ static void PRI_card_pcm_fromspan(xbus_t *xbus, xpd_t *xpd, xpp_line_t lines, xp
 	BUG_ON(!priv);
 	pcm = RPACKET_FIELD(pack, GLOBAL, PCM_WRITE, pcm);
 	spin_lock_irqsave(&xpd->lock, flags);
-	chans = xpd->span.chans;
+	wanted_lines = xpd->wanted_pcm_mask;
 	physical_chan = 0;
 	for_each_line(xpd, i) {
+		struct dahdi_chan	*chan = XPD_CHAN(xpd, i);
+
 		if(priv->pri_protocol == PRI_PROTO_E1) {
 			/* In E1 - Only 0'th channel is unused */
 			if(i == 0) {
@@ -1352,28 +1354,28 @@ static void PRI_card_pcm_fromspan(xbus_t *xbus, xpd_t *xpd, xpp_line_t lines, xp
 				physical_chan++;
 			}
 		}
-		if(IS_SET(lines, i)) {
+		if(IS_SET(wanted_lines, i)) {
 			physical_mask |= BIT(physical_chan);
 			if(SPAN_REGISTERED(xpd)) {
 #ifdef	DEBUG_PCMTX
-				int	channo = xpd->span.chans[i]->channo;
+				int	channo = XPD_CHAN(xpd, i)->channo;
 
 				if(pcmtx >= 0 && pcmtx_chan == channo)
 					memset((u_char *)pcm, pcmtx, DAHDI_CHUNKSIZE);
 				else
 #endif
-					memcpy((u_char *)pcm, chans[i]->writechunk, DAHDI_CHUNKSIZE);
+					memcpy((u_char *)pcm, chan->writechunk, DAHDI_CHUNKSIZE);
 				if(i == PRI_DCHAN_IDX(priv)) {
-					if(priv->dchan_tx_sample != chans[i]->writechunk[0]) {
-						priv->dchan_tx_sample = chans[i]->writechunk[0];
+					if(priv->dchan_tx_sample != chan->writechunk[0]) {
+						priv->dchan_tx_sample = chan->writechunk[0];
 						priv->dchan_tx_counter++;
-					} else if(chans[i]->writechunk[0] == 0xFF)
+					} else if(chan->writechunk[0] == 0xFF)
 						dchan_state(xpd, 0);
 					else
-						chans[i]->writechunk[0] = 0xFF;	/* Clobber for next tick */
+						chan->writechunk[0] = 0xFF;	/* Clobber for next tick */
 				}
 			} else
-				memset((u_char *)pcm, DAHDI_XLAW(0, chans[i]), DAHDI_CHUNKSIZE);
+				memset((u_char *)pcm, DAHDI_XLAW(0, chan), DAHDI_CHUNKSIZE);
 			pcm += DAHDI_CHUNKSIZE;
 		}
 		physical_chan++;
@@ -1397,7 +1399,6 @@ static void PRI_card_pcm_tospan(xbus_t *xbus, xpd_t *xpd, xpacket_t *pack)
 {
 	struct PRI_priv_data	*priv;
 	byte			*pcm;
-	struct dahdi_chan	**chans;
 	xpp_line_t		physical_mask;
 	unsigned long		flags;
 	int			i;
@@ -1410,7 +1411,6 @@ static void PRI_card_pcm_tospan(xbus_t *xbus, xpd_t *xpd, xpacket_t *pack)
 	pcm = RPACKET_FIELD(pack, GLOBAL, PCM_READ, pcm);
 	physical_mask = RPACKET_FIELD(pack, GLOBAL, PCM_WRITE, lines);
 	spin_lock_irqsave(&xpd->lock, flags);
-	chans = xpd->span.chans;
 	logical_chan = 0;
 	for (i = 0; i < CHANNELS_PERXPD; i++) {
 		volatile u_char	*r;
@@ -1437,7 +1437,7 @@ static void PRI_card_pcm_tospan(xbus_t *xbus, xpd_t *xpd, xpacket_t *pack)
 				dchan_state(xpd, 0);
 		}
 		if(IS_SET(physical_mask, i)) {
-			r = chans[logical_chan]->readchunk;
+			r = XPD_CHAN(xpd, logical_chan)->readchunk;
 			// memset((u_char *)r, 0x5A, DAHDI_CHUNKSIZE);	// DEBUG
 			memcpy((u_char *)r, pcm, DAHDI_CHUNKSIZE);
 			pcm += DAHDI_CHUNKSIZE;
@@ -1554,9 +1554,9 @@ static void process_cas_dchan(xpd_t *xpd, byte regnum, byte data_low)
 			rsnum, chan1+1, chan2+1, priv->cas_rs_e[pos], data_low);
 		if(SPAN_REGISTERED(xpd)) {
 			if(old1 != new1)
-				dahdi_rbsbits(xpd->span.chans[chan1], new1);
+				dahdi_rbsbits(XPD_CHAN(xpd, chan1), new1);
 			if(old2 != new2)
-				dahdi_rbsbits(xpd->span.chans[chan2], new2);
+				dahdi_rbsbits(XPD_CHAN(xpd, chan2), new2);
 		}
 		priv->dchan_rx_counter++;
 		priv->cas_rs_e[pos] = data_low;
@@ -1635,6 +1635,7 @@ static xproto_table_t PROTO_TABLE(PRI) = {
 		.card_dahdi_postregistration	= PRI_card_dahdi_postregistration,
 		.card_hooksig	= PRI_card_hooksig,
 		.card_tick	= PRI_card_tick,
+		.card_pcm_recompute	= generic_card_pcm_recompute,
 		.card_pcm_fromspan	= PRI_card_pcm_fromspan,
 		.card_pcm_tospan	= PRI_card_pcm_tospan,
 		.card_ioctl	= PRI_card_ioctl,

@@ -174,6 +174,21 @@ static int do_chan_power(xbus_t *xbus, xpd_t *xpd, lineno_t chan, bool on)
 	return SLIC_DIRECT_REQUEST(xbus, xpd, chan, SLIC_WRITE, REG_BATTERY, value);
 }
 
+static void vmwi_search(xpd_t *xpd, lineno_t pos, bool on)
+{
+	struct FXS_priv_data	*priv;
+
+	priv = xpd->priv;
+	BUG_ON(!xpd);
+	if(vmwineon && on) {
+		LINE_DBG(SIGNAL, xpd, pos, "START\n");
+		BIT_SET(priv->search_fsk_pattern, pos);
+	} else {
+		LINE_DBG(SIGNAL, xpd, pos, "STOP\n");
+		BIT_CLR(priv->search_fsk_pattern, pos);
+	}
+}
+
 /*
  * LED and RELAY control is done via SLIC register 0x06:
  *         7     6     5     4     3     2     1     0
@@ -286,7 +301,7 @@ static void restore_leds(xpd_t *xpd)
 
 	priv = xpd->priv;
 	for_each_line(xpd, i) {
-		if(IS_SET(xpd->offhook, i))
+		if(IS_OFFHOOK(xpd, i))
 			MARK_ON(priv, i, LED_GREEN);
 		else
 			MARK_OFF(priv, i, LED_GREEN);
@@ -436,7 +451,7 @@ static int FXS_card_init(xbus_t *xbus, xpd_t *xpd)
 		msleep(50);
 	}
 	restore_leds(xpd);
-	pcm_recompute(xpd, 0);
+	CALL_XMETHOD(card_pcm_recompute, xbus, xpd, 0);
 	/*
 	 * We should query our offhook state long enough time after we
 	 * set the linefeed_control()
@@ -479,7 +494,7 @@ static int FXS_card_dahdi_preregistration(xpd_t *xpd, bool on)
 	XPD_DBG(GENERAL, xpd, "%s\n", (on)?"on":"off");
 	xpd->span.spantype = "FXS";
 	for_each_line(xpd, i) {
-		struct dahdi_chan	*cur_chan = xpd->chans[i];
+		struct dahdi_chan	*cur_chan = XPD_CHAN(xpd, i);
 
 		XPD_DBG(GENERAL, xpd, "setting FXS channel %d\n", i);
 		if(IS_SET(xpd->digital_outputs, i)) {
@@ -536,19 +551,18 @@ static void __do_mute_dtmf(xpd_t *xpd, int pos, bool muteit)
 		BIT_SET(xpd->mute_dtmf, pos);
 	else
 		BIT_CLR(xpd->mute_dtmf, pos);
+	CALL_XMETHOD(card_pcm_recompute, xpd->xbus, xpd, 0);	/* already spinlocked */
 }
 
-static int set_vm_led_mode(xbus_t *xbus, xpd_t *xpd, int pos, int on)
+static int set_vm_led_mode(xbus_t *xbus, xpd_t *xpd, int pos, bool msg_waiting)
 {
 	int	ret = 0;
 	BUG_ON(!xbus);
 	BUG_ON(!xpd);
 
-	LINE_DBG(SIGNAL, xpd, pos, "%s%s\n", (on)?"ON":"OFF", (vmwineon)?"":" (Ignored)");
-	if (!vmwineon)
-		return 0;
-	if (on) {
+	if (vmwineon && msg_waiting) {
 		/* A write to register 0x40 will now turn on/off the VM led */
+		LINE_DBG(SIGNAL, xpd, pos, "NEON\n");
 		ret += SLIC_INDIRECT_REQUEST(xbus, xpd, pos, SLIC_WRITE, 0x16, 0xE8, 0x03);
 		ret += SLIC_INDIRECT_REQUEST(xbus, xpd, pos, SLIC_WRITE, 0x15, 0xEF, 0x7B);
 		ret += SLIC_INDIRECT_REQUEST(xbus, xpd, pos, SLIC_WRITE, 0x14, 0x9F, 0x00);
@@ -561,6 +575,7 @@ static int set_vm_led_mode(xbus_t *xbus, xpd_t *xpd, int pos, int on)
 		ret += SLIC_INDIRECT_REQUEST(xbus, xpd, pos, SLIC_WRITE, 0x1D, 0x00, 0x46);
 	} else {
 		/* A write to register 0x40 will now turn on/off the ringer */
+		LINE_DBG(SIGNAL, xpd, pos, "RINGER\n");
 		ret += SLIC_INDIRECT_REQUEST(xbus, xpd, pos, SLIC_WRITE, 0x16, 0x00, 0x00);
 		ret += SLIC_INDIRECT_REQUEST(xbus, xpd, pos, SLIC_WRITE, 0x15, 0x60, 0x01);
 		ret += SLIC_INDIRECT_REQUEST(xbus, xpd, pos, SLIC_WRITE, 0x14, 0xF0, 0x7E);
@@ -572,7 +587,6 @@ static int set_vm_led_mode(xbus_t *xbus, xpd_t *xpd, int pos, int on)
 		ret += SLIC_DIRECT_REQUEST(xbus, xpd, pos, SLIC_WRITE, 0x33, 0x00);
 		ret += SLIC_INDIRECT_REQUEST(xbus, xpd, pos, SLIC_WRITE, 0x1D, 0x00, 0x36);
 	}
-
 	return (ret ? -EPROTO : 0);
 }
 
@@ -582,7 +596,7 @@ static void start_stop_vm_led(xbus_t *xbus, xpd_t *xpd, lineno_t pos)
 	bool		on;
 
 	BUG_ON(!xpd);
-	if (!vmwineon || IS_SET(xpd->digital_outputs | xpd->digital_inputs, pos))
+	if (IS_SET(xpd->digital_outputs | xpd->digital_inputs, pos))
 		return;
 	priv = xpd->priv;
 	on = IS_SET(xpd->msg_waiting, pos);
@@ -651,17 +665,16 @@ static int FXS_card_hooksig(xbus_t *xbus, xpd_t *xpd, int pos, enum dahdi_txsig 
 		return 0;
 	}
 	if(SPAN_REGISTERED(xpd))
-		chan = xpd->span.chans[pos];
+		chan = XPD_CHAN(xpd, pos);
 	switch(txsig) {
 		case DAHDI_TXSIG_ONHOOK:
 			spin_lock_irqsave(&xpd->lock, flags);
 			xpd->ringing[pos] = 0;
-			BIT_CLR(xpd->cid_on, pos);
-			BIT_CLR(priv->search_fsk_pattern, pos);
+			oht_pcm(xpd, pos, 0);
+			vmwi_search(xpd, pos, 0);
 			BIT_CLR(priv->want_dtmf_events, pos);
 			BIT_CLR(priv->want_dtmf_mute, pos);
 			__do_mute_dtmf(xpd, pos, 0);
-			__pcm_recompute(xpd, 0);	/* already spinlocked */
 			spin_unlock_irqrestore(&xpd->lock, flags);
 			if(IS_SET(xpd->digital_outputs, pos)) {
 				LINE_DBG(SIGNAL, xpd, pos, "%s -> digital output OFF\n", txsig2str(txsig));
@@ -674,11 +687,11 @@ static int FXS_card_hooksig(xbus_t *xbus, xpd_t *xpd, int pos, enum dahdi_txsig 
 				 */
 				LINE_DBG(SIGNAL, xpd, pos, "KEWL STOP\n");
 				linefeed_control(xbus, xpd, pos, FXS_LINE_POL_ACTIVE);
-				if(IS_SET(xpd->offhook, pos))
+				if(IS_OFFHOOK(xpd, pos))
 					MARK_ON(priv, pos, LED_GREEN);
 			}
 			ret = send_ring(xpd, pos, 0);			// RING off
-			if (!IS_SET(xpd->offhook, pos))
+			if (!IS_OFFHOOK(xpd, pos))
 				start_stop_vm_led(xbus, xpd, pos);
 			txhook = priv->lasttxhook[pos];
 			if(chan) {
@@ -702,8 +715,7 @@ static int FXS_card_hooksig(xbus_t *xbus, xpd_t *xpd, int pos, enum dahdi_txsig 
 			}
 			txhook = priv->lasttxhook[pos];
 			if(xpd->ringing[pos]) {
-				BIT_SET(xpd->cid_on, pos);
-				pcm_recompute(xpd, 0);
+				oht_pcm(xpd, pos, 1);
 				txhook = FXS_LINE_OHTRANS;
 			}
 			xpd->ringing[pos] = 0;
@@ -721,9 +733,8 @@ static int FXS_card_hooksig(xbus_t *xbus, xpd_t *xpd, int pos, enum dahdi_txsig 
 			break;
 		case DAHDI_TXSIG_START:
 			xpd->ringing[pos] = 1;
-			BIT_CLR(xpd->cid_on, pos);
-			BIT_CLR(priv->search_fsk_pattern, pos);
-			pcm_recompute(xpd, 0);
+			oht_pcm(xpd, pos, 0);
+			vmwi_search(xpd, pos, 0);
 			if(IS_SET(xpd->digital_outputs, pos)) {
 				LINE_DBG(SIGNAL, xpd, pos, "%s -> digital output ON\n", txsig2str(txsig));
 				ret = relay_out(xpd, pos, 1);
@@ -778,14 +789,15 @@ static int FXS_card_ioctl(xpd_t *xpd, int pos, unsigned int cmd, unsigned long a
 			LINE_DBG(SIGNAL, xpd, pos, "DAHDI_ONHOOKTRANSFER (%d millis)\n", val);
 			if (IS_SET(xpd->digital_inputs | xpd->digital_outputs, pos))
 				return 0;	/* Nothing to do */
-			BIT_CLR(xpd->cid_on, pos);
+			oht_pcm(xpd, pos, 1);	/* Get ready of VMWI FSK tones */
 			if(priv->lasttxhook[pos] == FXS_LINE_POL_ACTIVE) {
-				priv->ohttimer[pos] = OHT_TIMER;
+				priv->ohttimer[pos] = val;
 				priv->idletxhookstate[pos] = FXS_LINE_POL_OHTRANS;
-				BIT_SET(priv->search_fsk_pattern, pos);
-				pcm_recompute(xpd, priv->search_fsk_pattern);
+				vmwi_search(xpd, pos, 1);
+				CALL_XMETHOD(card_pcm_recompute, xbus, xpd, priv->search_fsk_pattern);
+				LINE_DBG(SIGNAL, xpd, pos, "Start OHT_TIMER. wanted_pcm_mask=0x%X\n", xpd->wanted_pcm_mask);
 			}
-			if(!IS_SET(xpd->offhook, pos))
+			if(vmwineon && !IS_OFFHOOK(xpd, pos))
 				start_stop_vm_led(xbus, xpd, pos);
 			return 0;
 		case DAHDI_TONEDETECT:
@@ -804,7 +816,6 @@ static int FXS_card_ioctl(xpd_t *xpd, int pos, unsigned int cmd, unsigned long a
 				BIT_CLR(priv->want_dtmf_events, pos);
 				BIT_CLR(priv->want_dtmf_mute, pos);
 				__do_mute_dtmf(xpd, pos, 0);
-				__pcm_recompute(xpd, 0);	/* already spinlocked */
 				spin_unlock_irqrestore(&xpd->lock, flags);
 				return -ENOTTY;
 			}
@@ -836,7 +847,6 @@ static int FXS_card_ioctl(xpd_t *xpd, int pos, unsigned int cmd, unsigned long a
 			} else {
 				BIT_CLR(priv->want_dtmf_mute, pos);
 				__do_mute_dtmf(xpd, pos, 0);
-				__pcm_recompute(xpd, 0);
 			}
 			spin_unlock_irqrestore(&xpd->lock, flags);
 			return 0;
@@ -882,12 +892,10 @@ static int FXS_card_ioctl(xpd_t *xpd, int pos, unsigned int cmd, unsigned long a
 static int FXS_card_open(xpd_t *xpd, lineno_t chan)
 {
 	struct FXS_priv_data	*priv;
-	bool			is_offhook;
 
 	BUG_ON(!xpd);
 	priv = xpd->priv;
-	is_offhook = IS_SET(xpd->offhook, chan);
-	if(is_offhook)
+	if(IS_OFFHOOK(xpd, chan))
 		LINE_NOTICE(xpd, chan, "Already offhook during open. OK.\n");
 	else
 		LINE_DBG(SIGNAL, xpd, chan, "is onhook\n");
@@ -953,10 +961,10 @@ static void handle_linefeed(xpd_t *xpd)
 			if (priv->ohttimer[i]) {
 				priv->ohttimer[i]--;
 				if (!priv->ohttimer[i]) {
+					LINE_DBG(SIGNAL, xpd, i, "ohttimer expired\n");
 					priv->idletxhookstate[i] = FXS_LINE_POL_ACTIVE;
-					BIT_CLR(xpd->cid_on, i);
-					BIT_CLR(priv->search_fsk_pattern, i);
-					pcm_recompute(xpd, 0);
+					oht_pcm(xpd, i, 0);
+					vmwi_search(xpd, i, 0);
 					if (priv->lasttxhook[i] == FXS_LINE_POL_OHTRANS) {
 						/* Apply the change if appropriate */
 						linefeed_control(xpd->xbus, xpd, i, FXS_LINE_POL_ACTIVE);
@@ -992,16 +1000,23 @@ static void detect_vmwi(xpd_t *xpd)
 	static const byte	FSK_ON_PATTERN[] = { 0xA2, 0x2C, 0x1F, 0x2C, 0xBB, 0xA1, 0xA5, 0xFF };
 	static const byte	FSK_OFF_PATTERN[] = { 0xA2, 0x2C, 0x28, 0xA5, 0xB1, 0x21, 0x49, 0x9F };
 	int			i;
+	xpp_line_t		ignore_mask;
 
 	BUG_ON(!xpd);
 	xbus = xpd->xbus;
 	priv = xpd->priv;
 	BUG_ON(!priv);
+	ignore_mask =
+		xpd->offhook_state |
+		~xpd->oht_pcm_pass |
+		~priv->search_fsk_pattern |
+		xpd->digital_inputs |
+		xpd->digital_outputs;
 	for_each_line(xpd, i) {
-		struct dahdi_chan	*chan = xpd->span.chans[i];
+		struct dahdi_chan	*chan = XPD_CHAN(xpd, i);
 		byte		*writechunk = chan->writechunk;
 
-		if(IS_SET(xpd->offhook | xpd->cid_on | xpd->digital_inputs | xpd->digital_outputs, i))
+		if(IS_SET(ignore_mask, i))
 			continue;
 #if 0
 		if(writechunk[0] != 0x7F && writechunk[0] != 0) {
@@ -1016,10 +1031,12 @@ static void detect_vmwi(xpd_t *xpd)
 				printk("\n");
 		}
 #endif
-		if(unlikely(mem_equal(writechunk, FSK_COMMON_PATTERN, DAHDI_CHUNKSIZE)))
+		if(unlikely(mem_equal(writechunk, FSK_COMMON_PATTERN, DAHDI_CHUNKSIZE))) {
+			LINE_DBG(SIGNAL, xpd, i, "Found common FSK pattern. Start looking for ON/OFF patterns.\n");
 			BIT_SET(priv->found_fsk_pattern, i);
-		else if(unlikely(IS_SET(priv->found_fsk_pattern, i))) {
+		} else if(unlikely(IS_SET(priv->found_fsk_pattern, i))) {
 			BIT_CLR(priv->found_fsk_pattern, i);
+			oht_pcm(xpd, i, 0);
 			if(unlikely(mem_equal(writechunk, FSK_ON_PATTERN, DAHDI_CHUNKSIZE))) {
 				LINE_DBG(SIGNAL, xpd, i, "MSG WAITING ON\n");
 				BIT_SET(xpd->msg_waiting, i);
@@ -1056,25 +1073,27 @@ static int FXS_card_tick(xbus_t *xbus, xpd_t *xpd)
 #endif
 	handle_fxs_leds(xpd);
 	handle_linefeed(xpd);
-	if(priv->update_offhook_state) {	/* set in FXS_card_open() */
-		int	i;
+	/*
+	 * Hack alert (FIXME):
+	 *   Asterisk did FXS_card_open() and we wanted to report
+	 *   offhook state. However, the channel is spinlocked by dahdi
+	 *   so we marked it in the priv->update_offhook_state mask and
+	 *   now we take care of notification to dahdi and Asterisk
+	 */
+	if(priv->update_offhook_state) {
+		enum dahdi_rxsig	rxsig;
+		int		i;
 
 		for_each_line(xpd, i) {
 			if(!IS_SET(priv->update_offhook_state, i))
 				continue;
-			/*
-			 * Update dahdi with current state of line.
-			 */
-			if(IS_SET(xpd->offhook, i)) {
-				update_line_status(xpd, i, 1);
-			} else {
-				update_line_status(xpd, i, 0);
-			}
+			rxsig = IS_OFFHOOK(xpd, i) ? DAHDI_RXSIG_OFFHOOK : DAHDI_RXSIG_ONHOOK;
+			notify_rxsig(xpd, i, rxsig);	/* Notify after open() */
 			BIT_CLR(priv->update_offhook_state, i);
 		}
 	}
 	if(SPAN_REGISTERED(xpd)) {
-		if(vmwineon && !vmwi_ioctl)
+		if(vmwineon && !vmwi_ioctl && priv->search_fsk_pattern)
 			detect_vmwi(xpd);	/* Detect via FSK modulation */
 	}
 	return 0;
@@ -1123,11 +1142,11 @@ static void process_hookstate(xpd_t *xpd, xpp_line_t offhook, xpp_line_t change_
 			if(IS_SET(offhook, i)) {
 				LINE_DBG(SIGNAL, xpd, i, "OFFHOOK\n");
 				MARK_ON(priv, i, LED_GREEN);
-				update_line_status(xpd, i, 1);
+				hookstate_changed(xpd, i, 1);
 			} else {
 				LINE_DBG(SIGNAL, xpd, i, "ONHOOK\n");
 				MARK_OFF(priv, i, LED_GREEN);
-				update_line_status(xpd, i, 0);
+				hookstate_changed(xpd, i, 0);
 			}
 			/*
 			 * Must switch to low power. In high power, an ONHOOK
@@ -1136,7 +1155,6 @@ static void process_hookstate(xpd_t *xpd, xpp_line_t offhook, xpp_line_t change_
 			do_chan_power(xbus, xpd, i, 0);
 		}
 	}
-	__pcm_recompute(xpd, 0);	/* in a spinlock */
 }
 
 HANDLER_DEF(FXS, SIG_CHANGED)
@@ -1178,12 +1196,12 @@ static void process_digital_inputs(xpd_t *xpd, const reg_cmd_t *info)
 			BIT_CLR(lines, channo);
 			BIT_SET(lines, newchanno);
 			xpd->ringing[newchanno] = 0;			// Stop ringing. No leds for digital inputs.
-			if(offhook && !IS_SET(xpd->offhook, newchanno)) {		// OFFHOOK
+			if(offhook && !IS_OFFHOOK(xpd, newchanno)) {		// OFFHOOK
 				LINE_DBG(SIGNAL, xpd, newchanno, "OFFHOOK\n");
-				update_line_status(xpd, newchanno, 1);
-			} else if(!offhook && IS_SET(xpd->offhook, newchanno)) {	// ONHOOK
+				hookstate_changed(xpd, newchanno, 1);
+			} else if(!offhook && IS_OFFHOOK(xpd, newchanno)) {	// ONHOOK
 				LINE_DBG(SIGNAL, xpd, newchanno, "ONHOOK\n");
-				update_line_status(xpd, newchanno, 0);
+				hookstate_changed(xpd, newchanno, 0);
 			}
 		}
 	}
@@ -1249,11 +1267,10 @@ static void process_dtmf(xpd_t *xpd, uint portnum, byte val)
 		__do_mute_dtmf(xpd, portnum, 1);
 	else
 		__do_mute_dtmf(xpd, portnum, 0);
-	__pcm_recompute(xpd, 0);	/* XPD is locked */
 	if(want_event)  {
 		int	event = (key_down) ? DAHDI_EVENT_DTMFDOWN : DAHDI_EVENT_DTMFUP;
 
-		dahdi_qevent_lock(xpd->chans[portnum], event | digit);
+		dahdi_qevent_lock(XPD_CHAN(xpd, portnum), event | digit);
 	}
 }
 
@@ -1330,6 +1347,7 @@ static xproto_table_t PROTO_TABLE(FXS) = {
 		.card_dahdi_postregistration	= FXS_card_dahdi_postregistration,
 		.card_hooksig	= FXS_card_hooksig,
 		.card_tick	= FXS_card_tick,
+		.card_pcm_recompute	= generic_card_pcm_recompute,
 		.card_pcm_fromspan	= generic_card_pcm_fromspan,
 		.card_pcm_tospan	= generic_card_pcm_tospan,
 		.card_open	= FXS_card_open,

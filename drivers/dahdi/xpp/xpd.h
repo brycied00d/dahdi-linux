@@ -156,6 +156,8 @@ struct xpd {
 	char xpdname[XPD_NAMELEN];
 	struct dahdi_span	span;
 	struct dahdi_chan	*chans[32];
+#define	XPD_CHAN(xpd,chan)	((xpd)->chans[(chan)])
+
 	int		channels;
 	xpd_type_t	type;
 	const char	*type_name;
@@ -163,8 +165,8 @@ struct xpd {
 	xpd_direction_t	direction;		/* TO_PHONE, TO_PSTN */
 	int		subunits;		/* all siblings */
 	xpp_line_t	no_pcm;			/* Temporary: disable PCM (for USB-1) */
-	xpp_line_t	offhook;		/* Actual chip state: 0 - ONHOOK, 1 - OFHOOK */
-	xpp_line_t	cid_on;
+	xpp_line_t	offhook_state;		/* Actual chip state: 0 - ONHOOK, 1 - OFHOOK */
+	xpp_line_t	oht_pcm_pass;		/* Transfer on-hook PCM */
 	xpp_line_t	msg_waiting;		/* Voice Mail Waiting Indication */
 	xpp_line_t	digital_outputs;	/* 0 - no, 1 - yes */
 	xpp_line_t	digital_inputs;		/* 0 - no, 1 - yes */
@@ -175,6 +177,8 @@ struct xpd {
 	struct device	xpd_dev;
 #define	dev_to_xpd(dev)	container_of(dev, struct xpd, xpd_dev)
 
+	/* Assure atomicity of changes to pcm_len and wanted_pcm_mask */
+	spinlock_t	lock_recompute_pcm;
 	/* maintained by card drivers */
 	uint		pcm_len;		/* allocation length of PCM packet (dynamic) */
 	xpp_line_t	wanted_pcm_mask;
@@ -187,7 +191,7 @@ struct xpd {
 
 	spinlock_t	lock;
 	atomic_t	dahdi_registered;	/* Am I fully registered with dahdi */
-	atomic_t	open_counter;		/* open channels */
+	atomic_t	open_counter;	/* Number of open channels */
 
 	int		flags;
 	unsigned long	blink_mode;	/* bitmask of blinking ports */

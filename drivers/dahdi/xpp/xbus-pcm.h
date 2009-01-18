@@ -100,9 +100,9 @@ int		xbus_pcm_init(struct proc_dir_entry *top);
 void		xbus_pcm_shutdown(void);
 int		send_pcm_frame(xbus_t *xbus, xframe_t *xframe);
 void		pcm_recompute(xpd_t *xpd, xpp_line_t tmp_pcm_mask);
-void		__pcm_recompute(xpd_t *xpd, xpp_line_t tmp_pcm_mask); /* non locking */
 void		xframe_receive_pcm(xbus_t *xbus, xframe_t *xframe);
-void		generic_card_pcm_fromspan(xbus_t *xbus, xpd_t *xpd, xpp_line_t lines, xpacket_t *pack);
+void		generic_card_pcm_recompute(xbus_t *xbus, xpd_t *xpd, xpp_line_t pcm_mask);
+void		generic_card_pcm_fromspan(xbus_t *xbus, xpd_t *xpd, xpacket_t *pack);
 void		generic_card_pcm_tospan(xbus_t *xbus, xpd_t *xpd, xpacket_t *pack);
 void		fill_beep(u_char *buf, int num, int duration);
 const char	*sync_mode_name(enum sync_mode mode);
@@ -112,6 +112,8 @@ void		got_new_syncer(xbus_t *xbus, enum sync_mode mode, int drift);
 int		xbus_command_queue_tick(xbus_t *xbus);
 void		xbus_reset_counters(xbus_t *xbus);
 void		elect_syncer(const char *msg);
+int		exec_sync_command(const char *buf, size_t count);
+int		fill_sync_string(char *buf, size_t count);
 #ifdef	DAHDI_SYNC_TICK
 int		dahdi_sync_tick(struct dahdi_span *span, int is_master);
 #endif
