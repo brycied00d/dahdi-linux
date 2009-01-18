@@ -63,6 +63,7 @@ static ssize_t sync_store(struct device_driver *driver, const char *buf, size_t 
 
 static struct driver_attribute xpp_attrs[] = {
 	__ATTR(sync, S_IRUGO | S_IWUSR, sync_show, sync_store),
+	__ATTR_NULL,
 };
 
 /*--------- Sysfs Bus handling ----*/
