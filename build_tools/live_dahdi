@@ -3,6 +3,7 @@
 set -e
 
 LINUX_DIR=${LINUX_DIR:=.}
+LINUX_DIR_FULL=`(cd $LINUX_DIR; pwd)`
 TOOLS_DIR=${TOOLS_DIR:=`(cd ../dahdi-tools; pwd)`}
 DESTDIR=$PWD/live
 KVERS=${KVERS:-`uname -r`}
@@ -98,7 +99,7 @@ xpp_startup() {
 # returns: the result from 
 unload_module() {
 	module="$1"
-	line=`lsmod 2>/dev/null | grep "^$1 "`
+	line=`lsmod 2>/dev/null | grep "^$1 " || :`
 	if [ "$line" = '' ]; then return; fi # module was not loaded
 
 	set -- $line
@@ -139,7 +140,7 @@ usage() {
 case "$1" in
 configure)
 	shift
-	cd "$TOOLS_DIR"; ./configure --with-dahdi="$LINUX_DIR" "$@"
+	cd "$TOOLS_DIR"; ./configure --with-dahdi="$LINUX_DIR_FULL" "$@"
 	;;
 install)
 	shift
@@ -161,7 +162,8 @@ rsync)
 	rsync -ai "$0" $DESTDIR "$2:/tmp/"
 	;;
 unload)
-	$AST_SCRIPT stop
+	# OK for Asterisk not to be running. TODO: a better test?
+	$AST_SCRIPT stop || :
 	for mod in $REMOVE_MODULES; do
 		unload_module $mod
 	done
