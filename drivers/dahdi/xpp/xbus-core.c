@@ -68,7 +68,7 @@ static int xbus_read_proc(char *page, char **start, off_t off, int count, int *e
 #ifdef	OLD_PROC
 static int xbus_read_waitfor_xpds(char *page, char **start, off_t off, int count, int *eof, void *data);
 #endif
-static void transport_init(xbus_t *xbus, struct xbus_ops *ops, ushort max_send_size, void *priv);
+static void transport_init(xbus_t *xbus, struct xbus_ops *ops, ushort max_send_size, struct device *transport_device, void *priv);
 static void transport_destroy(xbus_t *xbus);
 
 /* Data structures */
@@ -813,7 +813,11 @@ static int xbus_initialize(xbus_t *xbus)
 	int	unit;
 	int	subunit;
 	xpd_t	*xpd;
+	struct timeval	time_start;
+	struct timeval	time_end;
+	unsigned long	timediff;
 
+	do_gettimeofday(&time_start);
 	XBUS_DBG(DEVICES, xbus, "refcount_xbus=%d\n",
 			refcount_xbus(xbus));
 	for(unit = 0; unit < MAX_UNIT; unit++) {
@@ -843,8 +847,13 @@ static int xbus_initialize(xbus_t *xbus)
 				goto err;
 		}
 	}
+	do_gettimeofday(&time_end);
+	timediff = usec_diff(&time_end, &time_start);
+	timediff /= 1000*100;
+	XBUS_INFO(xbus, "Initialized in %ld.%1ld sec\n", timediff/10, timediff%10);
 	return 0;
 err:
+	xbus_setstate(xbus, XBUS_STATE_FAIL);
 	return -EINVAL;
 }
 
@@ -909,7 +918,7 @@ void xbus_populate(void *data)
 	 * all others will reach the device before it.
 	 */
 	xbus_request_sync(xbus, SYNC_MODE_PLL);
-	elect_syncer("xbus_poll(end)");	/* FIXME: try to do it later */
+	elect_syncer("xbus_populate(end)");	/* FIXME: try to do it later */
 out:
 	XBUS_DBG(DEVICES, xbus, "Leaving\n");
 	wake_up(&worker->wait_for_xpd_initialization);
@@ -917,6 +926,7 @@ out:
 	up(&xbus->in_worker);
 	return;
 failed:
+	xbus_setstate(xbus, XBUS_STATE_FAIL);
 	goto out;
 }
 
@@ -1193,7 +1203,6 @@ void xbus_deactivate(xbus_t *xbus, bool is_disconnected)
 			xpd_unreg_request(xpd);
 		}
 	}
-	elect_syncer("deactivate");
 	XBUS_DBG(DEVICES, xbus, "[%s] Waiting for queues\n", xbus->label);
 	xbus_command_queue_clean(xbus);
 	xbus_command_queue_waitempty(xbus);
@@ -1202,6 +1211,7 @@ void xbus_deactivate(xbus_t *xbus, bool is_disconnected)
 	xbus_release_xpds(xbus);
 	if(!is_disconnected)
 		xbus_setstate(xbus, XBUS_STATE_IDLE);
+	elect_syncer("deactivate");
 }
 
 void xbus_disconnect(xbus_t *xbus)
@@ -1305,7 +1315,7 @@ void xbus_free(xbus_t *xbus)
 	KZFREE(xbus);
 }
 
-xbus_t *xbus_new(struct xbus_ops *ops, ushort max_send_size, void *priv)
+xbus_t *xbus_new(struct xbus_ops *ops, ushort max_send_size, struct device *transport_device, void *priv)
 {
 	int			err;
 	xbus_t			*xbus = NULL;
@@ -1319,7 +1329,7 @@ xbus_t *xbus_new(struct xbus_ops *ops, ushort max_send_size, void *priv)
 	}
 	snprintf(xbus->busname, XBUS_NAMELEN, "XBUS-%02d", xbus->num);
 	XBUS_DBG(DEVICES, xbus, "\n");
-	transport_init(xbus, ops, max_send_size, priv);
+	transport_init(xbus, ops, max_send_size, transport_device, priv);
 	spin_lock_init(&xbus->lock);
 	init_waitqueue_head(&xbus->command_queue_empty);
 	init_timer(&xbus->command_timer);
@@ -1378,9 +1388,9 @@ xbus_t *xbus_new(struct xbus_ops *ops, ushort max_send_size, void *priv)
 		goto nobus;
 	}
 #endif
-	xframe_queue_init(&xbus->command_queue, 10, 500, "command_queue", xbus);
+	xframe_queue_init(&xbus->command_queue, 10, 200, "command_queue", xbus);
 	xframe_queue_init(&xbus->receive_queue, 10, 50, "receive_queue", xbus);
-	xframe_queue_init(&xbus->send_pool, 10, 200, "send_pool", xbus);
+	xframe_queue_init(&xbus->send_pool, 10, 100, "send_pool", xbus);
 	xframe_queue_init(&xbus->receive_pool, 10, 50, "receive_pool", xbus);
 	xframe_queue_init(&xbus->pcm_tospan, 5, 10, "pcm_tospan", xbus);
 	tasklet_init(&xbus->receive_tasklet, receive_tasklet_func, (unsigned long)xbus);
@@ -1505,6 +1515,21 @@ out:
 
 }
 
+static bool xpds_done(xbus_t *xbus)
+{
+	struct xbus_workqueue	*worker;
+
+	if(XBUS_IS(xbus, FAIL))
+		return 1;	/* Nothing to wait for */
+	if(!XBUS_IS(xbus, RECVD_DESC))
+		return 1;	/* We are not in the initialization phase */
+	worker = xbus->worker;
+	if(worker->xpds_init_done)
+		return 1;	/* All good */
+	/* Keep waiting */
+	return 0;
+}
+
 int waitfor_xpds(xbus_t *xbus, char *buf)
 {
 	struct xbus_workqueue	*worker;
@@ -1525,19 +1550,9 @@ int waitfor_xpds(xbus_t *xbus, char *buf)
 		"Waiting for card initialization of %d XPD's max %d seconds\n",
 		worker->num_units,
 		INITIALIZATION_TIMEOUT/HZ);
-	/*
-	 * when polling is finished xbus_poll():
-	 *   - Unset worker->is_polling
-	 *   - Sets worker->count_xpds_to_initialize.
-	 * So we wait until polling is finished (is_polling == 0) and:
-	 *   - No poll answers from Astribank (e.g: defective firmware).
-	 *   - Or no units to initialize (e.g: mini-AB with only main card).
-	 *   - Or we finished initializing all existing units.
-	 *   - Or A timeout passed.
-	 */
 	ret = wait_event_interruptible_timeout(
 		worker->wait_for_xpd_initialization,
-		!XBUS_IS(xbus, RECVD_DESC) || worker->xpds_init_done,
+		xpds_done(xbus),
 		INITIALIZATION_TIMEOUT);
 	if(ret == 0) {
 		XBUS_ERR(xbus, "Card Initialization Timeout\n");
@@ -1552,11 +1567,15 @@ int waitfor_xpds(xbus_t *xbus, char *buf)
 			"Finished initialization of %d XPD's in %d seconds.\n",
 			worker->num_units_initialized,
 			(INITIALIZATION_TIMEOUT - ret)/HZ);
-	spin_lock_irqsave(&xbus->lock, flags);
-	len += sprintf(buf, "XPDS_READY: %s: %d/%d\n",
+	if(XBUS_IS(xbus, FAIL)) {
+		len += sprintf(buf, "FAILED: %s\n", xbus->busname);
+	} else {
+		spin_lock_irqsave(&xbus->lock, flags);
+		len += sprintf(buf, "XPDS_READY: %s: %d/%d\n",
 			xbus->busname,
 			worker->num_units_initialized, worker->num_units);
-	spin_unlock_irqrestore(&xbus->lock, flags);
+		spin_unlock_irqrestore(&xbus->lock, flags);
+	}
 out:
 	put_xbus(__FUNCTION__, xbus);	/* from start of waitfor_xpds_show() */
 	return len;
@@ -1566,10 +1585,7 @@ out:
 static int xbus_read_waitfor_xpds(char *page, char **start, off_t off, int count, int *eof, void *data)
 {
 	int			len = 0;
-	unsigned long		flags;
 	xbus_t			*xbus = data;
-	struct xbus_workqueue	*worker;
-	int			ret;
 
 	if(!xbus)
 		goto out;
@@ -1709,7 +1725,7 @@ static int read_proc_xbuses(char *page, char **start, off_t off, int count, int 
 }
 #endif
 
-static void transport_init(xbus_t *xbus, struct xbus_ops *ops, ushort max_send_size, void *priv)
+static void transport_init(xbus_t *xbus, struct xbus_ops *ops, ushort max_send_size, struct device *transport_device, void *priv)
 {
 	BUG_ON(!xbus);
 	BUG_ON(!ops);
@@ -1719,6 +1735,7 @@ static void transport_init(xbus_t *xbus, struct xbus_ops *ops, ushort max_send_s
 	BUG_ON(!ops->free_xframe);
 	xbus->transport.ops = ops;
 	xbus->transport.max_send_size = max_send_size;
+	xbus->transport.transport_device = transport_device;
 	xbus->transport.priv = priv;
 	xbus->transport.xbus_state = XBUS_STATE_START;
 	spin_lock_init(&xbus->transport.state_lock);

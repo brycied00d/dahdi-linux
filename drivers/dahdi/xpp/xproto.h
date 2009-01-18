@@ -221,7 +221,8 @@ struct xops {
 	int (*card_init)(xbus_t *xbus, xpd_t *xpd);
 	int (*card_remove)(xbus_t *xbus, xpd_t *xpd);
 	int (*card_tick)(xbus_t *xbus, xpd_t *xpd);
-	void (*card_pcm_fromspan)(xbus_t *xbus, xpd_t *xpd, xpp_line_t lines, xpacket_t *pack);
+	void (*card_pcm_recompute)(xbus_t *xbus, xpd_t *xpd, xpp_line_t pcm_mask);
+	void (*card_pcm_fromspan)(xbus_t *xbus, xpd_t *xpd, xpacket_t *pack);
 	void (*card_pcm_tospan)(xbus_t *xbus, xpd_t *xpd, xpacket_t *pack);
 	int (*card_dahdi_preregistration)(xpd_t *xpd, bool on);
 	int (*card_dahdi_postregistration)(xpd_t *xpd, bool on);

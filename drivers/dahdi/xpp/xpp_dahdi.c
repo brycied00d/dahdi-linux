@@ -338,11 +338,11 @@ static int xpd_read_proc(char *page, char **start, off_t off, int count, int *eo
 	}
 	len += sprintf(page + len, "\n\t%-17s: ", "offhook");
 	for_each_line(xpd, i) {
-		len += sprintf(page + len, "%d ", IS_SET(xpd->offhook, i));
+		len += sprintf(page + len, "%d ", IS_OFFHOOK(xpd, i));
 	}
-	len += sprintf(page + len, "\n\t%-17s: ", "cid_on");
+	len += sprintf(page + len, "\n\t%-17s: ", "oht_pcm_pass");
 	for_each_line(xpd, i) {
-		len += sprintf(page + len, "%d ", IS_SET(xpd->cid_on, i));
+		len += sprintf(page + len, "%d ", IS_SET(xpd->oht_pcm_pass, i));
 	}
 	len += sprintf(page + len, "\n\t%-17s: ", "msg_waiting");
 	for_each_line(xpd, i) {
@@ -360,7 +360,7 @@ static int xpd_read_proc(char *page, char **start, off_t off, int count, int *eo
 	if(SPAN_REGISTERED(xpd)) {
 		len += sprintf(page + len, "\nPCM:\n            |         [readchunk]       |         [writechunk]      | W D");
 		for_each_line(xpd, i) {
-			struct dahdi_chan	*chan = xpd->span.chans[i];
+			struct dahdi_chan	*chan = XPD_CHAN(xpd, i);
 			byte	rchunk[DAHDI_CHUNKSIZE];
 			byte	wchunk[DAHDI_CHUNKSIZE];
 			byte	*rp;
@@ -396,7 +396,7 @@ static int xpd_read_proc(char *page, char **start, off_t off, int count, int *eo
 	if(SPAN_REGISTERED(xpd)) {
 		len += sprintf(page + len, "\nSignalling:\n");
 		for_each_line(xpd, i) {
-			struct dahdi_chan *chan = &xpd->span.chans[i];
+			struct dahdi_chan *chan = XPD_CHAN(xpd, i);
 			len += sprintf(page + len, "\t%2d> sigcap=0x%04X sig=0x%04X\n", i, chan->sigcap, chan->sig);
 		}
 	}
@@ -508,9 +508,10 @@ __must_check xpd_t *xpd_alloc(xbus_t *xbus,
 	}
 	xpd->priv = (byte *)xpd + sizeof(xpd_t);
 	spin_lock_init(&xpd->lock);
+	spin_lock_init(&xpd->lock_recompute_pcm);
 	xpd->channels = channels;
 	xpd->card_present = 0;
-	xpd->offhook = 0x0;	/* ONHOOK */
+	xpd->offhook_state = 0x0;	/* ONHOOK */
 	xpd->type = proto_table->type;
 	xpd->xproto = proto_table;
 	xpd->xops = &proto_table->xops;
@@ -574,7 +575,7 @@ void xpd_unreg_request(xpd_t *xpd)
 		/* TODO: Should this be done before releasing the spinlock? */
 		XPD_DBG(DEVICES, xpd, "Queuing DAHDI_EVENT_REMOVED on all channels to ask user to close them\n");
 		for (i=0; i<xpd->span.channels; i++) {
-			dahdi_qevent_lock(xpd->chans[i],DAHDI_EVENT_REMOVED);
+			dahdi_qevent_lock(XPD_CHAN(xpd, i),DAHDI_EVENT_REMOVED);
 		}
 	}
 	spin_unlock_irqrestore(&xpd->lock, flags);
@@ -619,18 +620,64 @@ void update_xpd_status(xpd_t *xpd, int alarm_flag)
 	XPD_DBG(GENERAL, xpd, "Update XPD alarms: %s -> %02X\n", xpd->span.name, alarm_flag);
 }
 
-void update_line_status(xpd_t *xpd, int pos, bool to_offhook)
+/*
+ * Used to block/pass PCM during onhook-transfers. E.g:
+ *  - Playing FSK after FXS ONHOOK for MWI (non-neon style)
+ *  - Playing DTFM/FSK for FXO Caller-ID detection.
+ */
+void oht_pcm(xpd_t *xpd, int pos, bool pass)
 {
-	enum dahdi_rxsig	rxsig;
-
-	BUG_ON(!xpd);
-	if(to_offhook) {
-		BIT_SET(xpd->offhook, pos);
-		rxsig = DAHDI_RXSIG_OFFHOOK;
+	if(pass) {
+		LINE_DBG(SIGNAL, xpd, pos, "OHT PCM: pass\n");
+		BIT_SET(xpd->oht_pcm_pass, pos);
 	} else {
-		BIT_CLR(xpd->offhook, pos);
-		BIT_CLR(xpd->cid_on, pos);
-		rxsig = DAHDI_RXSIG_ONHOOK;
+		LINE_DBG(SIGNAL, xpd, pos, "OHT PCM: block\n");
+		BIT_CLR(xpd->oht_pcm_pass, pos);
+	}
+	CALL_XMETHOD(card_pcm_recompute, xpd->xbus, xpd, 0);
+}
+
+/*
+ * Update our hookstate -- for PCM block/pass
+ */
+void mark_offhook(xpd_t *xpd, int pos, bool to_offhook)
+{
+	if(to_offhook) {
+		LINE_DBG(SIGNAL, xpd, pos, "OFFHOOK\n");
+		BIT_SET(xpd->offhook_state, pos);
+	} else {
+		LINE_DBG(SIGNAL, xpd, pos, "ONHOOK\n");
+		BIT_CLR(xpd->offhook_state, pos);
+	}
+	CALL_XMETHOD(card_pcm_recompute, xpd->xbus, xpd, 0);
+}
+
+/*
+ * Send a signalling notification to Asterisk
+ */
+void notify_rxsig(xpd_t *xpd, int pos, enum dahdi_rxsig rxsig)
+{
+	/*
+	 * We should not spinlock before calling dahdi_hooksig() as
+	 * it may call back into our xpp_hooksig() and cause
+	 * a nested spinlock scenario
+	 */
+	LINE_DBG(SIGNAL, xpd, pos, "rxsig=%s\n", rxsig2str(rxsig));
+	if(SPAN_REGISTERED(xpd))
+		dahdi_hooksig(XPD_CHAN(xpd, pos), rxsig);
+}
+
+/*
+ * Called when hardware state changed:
+ *  - FXS -- the phone was picked up or hanged-up.
+ *  - FXO -- we answered the phone or handed-up.
+ */
+void hookstate_changed(xpd_t *xpd, int pos, bool to_offhook)
+{
+	BUG_ON(!xpd);
+	mark_offhook(xpd, pos, to_offhook);
+	if(!to_offhook) {
+		oht_pcm(xpd, pos, 0);
 		/*
 		 * To prevent latest PCM to stay in buffers
 		 * indefinitely, mark this channel for a
@@ -640,14 +687,7 @@ void update_line_status(xpd_t *xpd, int pos, bool to_offhook)
 		 */
 		BIT_SET(xpd->silence_pcm, pos);
 	}
-	/*
-	 * We should not spinlock before calling dahdi_hooksig() as
-	 * it may call back into our xpp_hooksig() and cause
-	 * a nested spinlock scenario
-	 */
-	LINE_DBG(SIGNAL, xpd, pos, "rxsig=%s\n", (rxsig == DAHDI_RXSIG_ONHOOK) ? "ONHOOK" : "OFFHOOK");
-	if(SPAN_REGISTERED(xpd))
-		dahdi_hooksig(xpd->chans[pos], rxsig);
+	notify_rxsig(xpd, pos, (to_offhook) ? DAHDI_RXSIG_OFFHOOK : DAHDI_RXSIG_ONHOOK);
 }
 
 #ifdef CONFIG_PROC_FS
@@ -805,8 +845,6 @@ int xpp_open(struct dahdi_chan *chan)
 	LINE_DBG(DEVICES, xpd, pos, "%s[%d]: open_counter=%d\n",
 		current->comm, current->pid,
 		atomic_read(&xpd->open_counter));
-	if(IS_SET(xpd->digital_signalling, pos))	/* D-chan offhook */
-		BIT_SET(xpd->offhook, pos);
 	spin_unlock_irqrestore(&xbus->lock, flags);
 	if(xpd->xops->card_open)
 		xpd->xops->card_open(xpd, pos);
@@ -821,8 +859,6 @@ int xpp_close(struct dahdi_chan *chan)
 	unsigned long	flags;
 
 	spin_lock_irqsave(&xbus->lock, flags);
-	if(IS_SET(xpd->digital_signalling, pos))	/* D-chan onhook */
-		BIT_CLR(xpd->offhook, pos);
 	spin_unlock_irqrestore(&xbus->lock, flags);
 	if(xpd->xops->card_close)
 		xpd->xops->card_close(xpd, pos);
@@ -1008,7 +1044,7 @@ int dahdi_register_xpd(xpd_t *xpd)
 	XPD_DBG(DEVICES, xpd, "Initializing span: %d channels.\n", cn);
 	memset(&xpd->span, 0, sizeof(struct dahdi_span));
 	for(i = 0; i < cn; i++) {
-		memset(xpd->chans[i], 0, sizeof(struct dahdi_chan));
+		memset(XPD_CHAN(xpd, i), 0, sizeof(struct dahdi_chan));
 	}
 
 	span = &xpd->span;
@@ -1076,26 +1112,18 @@ int dahdi_register_xpd(xpd_t *xpd)
 	atomic_inc(&xpd->dahdi_registered);
 	xpd->xops->card_dahdi_postregistration(xpd, 1);
 	/*
-	 * Update dahdi about our state
-	 */
-#if 0
-	/*
-	 * FIXME: since asterisk didn't open the channel yet, the report
-	 * is discarded anyway. OTOH, we cannot report in xpp_open or
-	 * xpp_chanconfig since dahdi call them with a spinlock on the channel
-	 * and dahdi_hooksig tries to acquire the same spinlock, resulting in
-	 * double spinlock deadlock (we are lucky that RH/Fedora kernel are
-	 * compiled with spinlock debugging).... tough.
+	 * Update dahdi about our state:
+	 *   - Since asterisk didn't open the channel yet,
+	 *     the report is discarded anyway.
+	 *   - Our FXS driver have another notification mechanism that
+	 *     is triggered (indirectly) by the open() of the channe.
+	 *   - The real fix should be in Asterisk (to get the correct state
+	 *     after open).
 	 */
 	for_each_line(xpd, cn) {
-		struct dahdi_chan	*chans = xpd->span.chans;
-
-		if(IS_SET(xpd->offhook, cn)) {
-			LINE_NOTICE(xpd, cn, "Report OFFHOOK to dahdi\n");
-			dahdi_hooksig(&chans[cn], DAHDI_RXSIG_OFFHOOK);
-		}
+		if(IS_OFFHOOK(xpd, cn))
+			notify_rxsig(xpd, cn, DAHDI_RXSIG_OFFHOOK);
 	}
-#endif
 	return 0;
 }
 
@@ -1163,7 +1191,10 @@ EXPORT_SYMBOL(xpd_alloc);
 EXPORT_SYMBOL(xpd_free);
 EXPORT_SYMBOL(xpd_unreg_request);
 EXPORT_SYMBOL(update_xpd_status);
-EXPORT_SYMBOL(update_line_status);
+EXPORT_SYMBOL(oht_pcm);
+EXPORT_SYMBOL(mark_offhook);
+EXPORT_SYMBOL(notify_rxsig);
+EXPORT_SYMBOL(hookstate_changed);
 EXPORT_SYMBOL(xpp_open);
 EXPORT_SYMBOL(xpp_close);
 EXPORT_SYMBOL(xpp_ioctl);

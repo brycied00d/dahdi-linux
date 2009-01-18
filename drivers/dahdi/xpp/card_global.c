@@ -374,7 +374,9 @@ static int proc_xpd_register_write(struct file *file, const char __user *buffer,
 			XPD_NOTICE(xpd, "Failed writing command: '%s'\n", buf);
 			return ret;
 		}
-		msleep(1);	/* don't overflow command queue */
+		/* Don't flood command_queue */
+		if(xframe_queue_count(&xpd->xbus->command_queue) > 5)
+			msleep(6);
 	}
 	return count;
 }

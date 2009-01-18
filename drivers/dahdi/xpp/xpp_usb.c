@@ -721,7 +721,7 @@ static int xusb_probe(struct usb_interface *interface, const struct usb_device_i
 
 	/* let the user know what node this device is now attached to */
 	DBG(DEVICES, "USB XPP device now attached to minor %d\n", xusb->minor);
-	xbus = xbus_new(&xusb_ops, min(xusb->endpoints[XUSB_SEND].max_size, xusb->endpoints[XUSB_RECV].max_size), xusb);
+	xbus = xbus_new(&xusb_ops, min(xusb->endpoints[XUSB_SEND].max_size, xusb->endpoints[XUSB_RECV].max_size), &udev->dev, xusb);
 	if(!xbus) {
 		retval = -ENOMEM;
 		goto probe_failed;
