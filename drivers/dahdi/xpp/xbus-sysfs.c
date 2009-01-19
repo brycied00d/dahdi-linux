@@ -207,6 +207,34 @@ static DEVICE_ATTR_READER(waitfor_xpds_show, dev, buf)
 	return len;
 }
 
+static DEVICE_ATTR_READER(driftinfo_show, dev, buf)
+{
+	xbus_t			*xbus;
+	struct xpp_drift	*di;
+	struct xpp_ticker	*ticker;
+	int			len = 0;
+
+	xbus = dev_to_xbus(dev);
+	di = &xbus->drift;
+	ticker = &xbus->ticker;
+#define	SHOW(ptr,item)	len += snprintf(buf + len, PAGE_SIZE - len, "%-15s: %d\n", #item, (ptr)->item)
+	SHOW(xbus, sync_adjustment);
+	SHOW(di, wanted_offset);
+	SHOW(di, delta_tick);
+	SHOW(di, lost_ticks);
+	SHOW(di, kicks_up);
+	SHOW(di, kicks_down);
+	SHOW(di, delta_min);
+	SHOW(di, delta_max);
+	SHOW(di, median);
+	SHOW(di, jitter);
+	SHOW(di, calc_drift);
+	SHOW(ticker, cycle);
+	SHOW(ticker, tick_period);
+#undef	SHOW
+	return len;
+}
+
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,14)
 #define xbus_attr(field, format_string)                                    \
 static ssize_t                                                             \
@@ -238,6 +266,7 @@ static struct device_attribute xbus_dev_attrs[] = {
 	__ATTR_RO(status),
 	__ATTR_RO(timing),
 	__ATTR_RO(waitfor_xpds),
+	__ATTR_RO(driftinfo),
 	__ATTR(cls,		S_IWUSR, NULL, cls_store),
 	__ATTR(xbus_state,	S_IRUGO | S_IWUSR, xbus_state_show, xbus_state_store),
 #ifdef	SAMPLE_TICKS
