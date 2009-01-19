@@ -445,6 +445,72 @@ added. That definition is for the old version and thus it might appear
 slightly confusing in the code, but it is useful for writing code that works
 with all versions of DAHDI. 
 
+
+Alarm Types
+~~~~~~~~~~~
+An alarm indicates that a port is not available for some reason. Thus it
+is probably not a good idea to try to call out through it.
+
+Red Alarm
+^^^^^^^^^
+Your T1/E1 port will go into red alarm when it maintain synchronization
+with the remote switch.  A red alarm typically indicates either a
+physical wiring problem, loss of connectivity, or a framing and/or
+line-coding mismatch with the remote switch.  When your T1/E1 port loses
+sync, it will transmit a yellow alarm to the remote switch to indicate
+that it's having a problem receiving signal from the remore switch.
+
+The easy way to remember this is that the R in red stands for "right
+here" and "receive"... indicating that we're having a problem right here
+receiving the signal from the remote switch.
+
+
+Yellow Alarm 
+^^^^^^^^^^^^
+(RAI -- Remote Alarm Indication)
+
+Your T1/E1 port will go into yellow alarm when it receives a signal from
+the remote switch that the port on that remote switch is in red alarm.
+This essentially means that the remote switch is not able to maintain
+sync with you, or is not receiving your transmission.  
+
+The easy way to remember this is that the Y in yellow stands for 
+"yonder"... indicating that the remote switch (over yonder) isn't able 
+to see what you're sending.
+
+
+Blue Alarm
+^^^^^^^^^^
+(AIS -- Alarm Indication Signal)
+
+Your T1/E1 port will go into blue alarm when it receives all unframed 1s
+on all timeslots from the remote switch.  This is a special signal to
+indicate that the remote switch is having problems with it's upstream
+connection.  As far as I know, dahdi_tool/zttool and Asterisk don't
+correctly indicate a blue alarm (at least I've never seen them indicate
+one).  The easy way to remember this is that streams are blue, so a blue
+alarm indicates a problem upstream from the switch you're connected to.
+
+
+Recovering from Alarm
+^^^^^^^^^^^^^^^^^^^^^
+TODO: explain.
+
+
+Loopback
+^^^^^^^^
+Not really an alarm. Indicates that a span is not available, as the port 
+is in either a local or remote loopback mode.
+
+
+Not Open
+^^^^^^^^
+Something is not connected. Used by e.g. the drivers of the Astribank to
+indicate a span that belongs to a device that has been disconnected 
+but is still being used by userspace programs and thus can't e
+destroyed.
+
+
 License
 -------
 This package is distributed under the terms of the GNU General Public License
