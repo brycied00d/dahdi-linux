@@ -80,6 +80,8 @@ struct xpp_drift {
 	int			median;			/* (max + min) / 2	*/
 	int			jitter;			/* max - min		*/
 	int			calc_drift;
+	int			kicks_up;
+	int			kicks_down;
 	spinlock_t		lock;
 };
 
