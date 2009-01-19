@@ -972,6 +972,7 @@ struct dahdi_hwgain {
  */
 #define DAHDI_VMWI			_IOWR(DAHDI_CODE, 94, int)
 
+#define DAHDI_VMWI_NUMBER_MASK (0xffff)	/* Number of messages pending for VMWI */
 #define DAHDI_VMWI_FSK 	(1 << 16)	/* default FSK, no Ring Pulse Alert Signal*/
 #define DAHDI_VMWI_RPAS	(1 << 17)	/* Ring Pulse Alert Signal then FSK */
 #define DAHDI_VMWI_LREV	(1 << 18)	/* Line Reversal */
