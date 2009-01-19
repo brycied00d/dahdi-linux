@@ -2453,8 +2453,8 @@ static int wctdm_ioctl(struct dahdi_chan *chan, unsigned int cmd, unsigned long 
 		if (wc->modtype[chan->chanpos - 1] != MOD_TYPE_FXS)
 			return -EINVAL;
 
-		wc->mods[chan->chanpos - 1].fxs.vmwimessages = (x & 255);
-		wc->mods[chan->chanpos - 1].fxs.mwisendtype = (x & ~255);
+		wc->mods[chan->chanpos - 1].fxs.vmwimessages = (x & DAHDI_VMWI_NUMBER_MASK);
+		wc->mods[chan->chanpos - 1].fxs.mwisendtype = (x & ~DAHDI_VMWI_NUMBER_MASK);
 		if (wc->mods[chan->chanpos - 1].fxs.vmwimessages){
 			x = wc->mods[chan->chanpos - 1].fxs.mwisendtype;
 			wc->mods[chan->chanpos - 1].fxs.vmwilinereverse= (x & DAHDI_VMWI_LREV)?1:0;
