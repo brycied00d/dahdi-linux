@@ -967,10 +967,16 @@ struct dahdi_hwgain {
 #define DAHDI_TC_GETINFO		_IOWR(DAHDI_TC_CODE, 2, struct dahdi_transcoder_info)
 
 /*
- * VoiceMail Waiting Indication (WMWI) -- implemented by low-level driver.
+ * VoiceMail Waiting Indication (VMWI) -- implemented by low-level driver.
  * Value: number of waiting messages (hence 0: switch messages off).
  */
 #define DAHDI_VMWI			_IOWR(DAHDI_CODE, 94, int)
+
+#define DAHDI_VMWI_FSK	(1 << 8)	/* default FSK, no Ring Pulse Alert Signal*/
+#define DAHDI_VMWI_RPAS	(1 << 9)	/* Ring Pulse Alert Signal then FSK */
+#define DAHDI_VMWI_LREV	(1 << 10)	/* Line Reversal */
+#define DAHDI_VMWI_HVDC	(1 << 11)	/* HV 90VDC */
+#define DAHDI_VMWI_HVAC	(1 << 12)	/* HV 90VAC Neon lamp */
 
 /* 
  * Startup or Shutdown a span
