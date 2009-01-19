@@ -55,6 +55,7 @@
   0x07 : 41mA
 */
 static int loopcurrent = 20;
+#define POLARITY_XOR(card) ((reversepolarity!=0) ^ (wc->mod[(card)].fxs.reversepolarity!=0) ^ (wc->mod[(card)].fxs.vmwi_lrev!=0))
 
 static int reversepolarity = 0;
 
@@ -236,6 +237,12 @@ struct wctdm {
 			int idletxhookstate;		/* IDLE changing hook state */
 			int lasttxhook;
 			int palarms;
+			int reversepolarity;		/* Reverse Line */
+			int mwisendtype;
+			int vmwimessages;		/* 0=none 1-255=number of messages */
+			int vmwi_lrev:1;		/* MWI Line Reversal*/
+			int vmwi_hvdc:1;		/* MWI High Voltage DC Idle line */
+			int vmwi_hvac:1;		/* MWI Neon High Voltage AC Idle line */
 			struct calregs calregs;
 		} fxs;
 	} mod[NUM_CARDS];
@@ -1040,24 +1047,21 @@ DAHDI_IRQ_HANDLER(wctdm_interrupt)
 			if (wc->mod[x].fxs.lasttxhook == 0x4) {
 				/* RINGing, prepare for OHT */
 				wc->mod[x].fxs.ohttimer = OHT_TIMER << 3;
-				if (reversepolarity)
-					wc->mod[x].fxs.idletxhookstate = 0x6;	/* OHT mode when idle */
-				else
-					wc->mod[x].fxs.idletxhookstate = 0x2; 
+
+				/* logical XOR 3 variables
+				    module parameter 'reversepolarity', global reverse all FXS lines. 
+				    ioctl channel variable fxs 'reversepolarity', Line Reversal Alert Signal if required.
+				    ioctl channel variable fxs 'vmwi_lrev', VMWI pending.
+				 */
+				wc->mod[x].fxs.idletxhookstate = POLARITY_XOR(x) ? 0x6 : 0x2;/* OHT mode when idle */
 			} else {
 				if (wc->mod[x].fxs.ohttimer) {
 					wc->mod[x].fxs.ohttimer-= DAHDI_CHUNKSIZE;
 					if (!wc->mod[x].fxs.ohttimer) {
-						if (reversepolarity)
-							wc->mod[x].fxs.idletxhookstate = 0x5;	/* Switch to active */
-						else
-							wc->mod[x].fxs.idletxhookstate = 0x1;
+						wc->mod[x].fxs.idletxhookstate = POLARITY_XOR(x) ? 0x5 : 0x1; /* Switch to Active : Reverse Forward */
 						if ((wc->mod[x].fxs.lasttxhook == 0x2) || (wc->mod[x].fxs.lasttxhook == 0x6)) {
 							/* Apply the change if appropriate */
-							if (reversepolarity) 
-								wc->mod[x].fxs.lasttxhook = 0x5;
-							else
-								wc->mod[x].fxs.lasttxhook = 0x1;
+							wc->mod[x].fxs.lasttxhook = POLARITY_XOR(x) ? 0x5 : 0x1;
 							wctdm_setreg(wc, x, 64, wc->mod[x].fxs.lasttxhook);
 						}
 					}
@@ -1093,9 +1097,10 @@ DAHDI_IRQ_HANDLER(wctdm_interrupt)
 				/* Perform processing */
 				if (wc->modtype[x] == MOD_TYPE_FXS) {
 					wctdm_proslic_check_hook(wc, x);
-					if (!(wc->intcount & 0xf0))
+					if (!(wc->intcount & 0xf0)) {
 						wctdm_proslic_recheck_sanity(wc, x);
-					} else if (wc->modtype[x] == MOD_TYPE_FXO) {
+					}
+				} else if (wc->modtype[x] == MOD_TYPE_FXO) {
 					wctdm_voicedaa_check_hook(wc, x);
 				}
 				break;
@@ -1314,31 +1319,31 @@ static int wctdm_proslic_manual_calibrate(struct wctdm *wc, int card){
 	// Delay 10ms
 	origjiffies=jiffies; 
 	while((jiffies-origjiffies)<1);
-	wctdm_proslic_setreg_indirect(wc, card, 88,0);
-	wctdm_proslic_setreg_indirect(wc,card,89,0);
-	wctdm_proslic_setreg_indirect(wc,card,90,0);
-	wctdm_proslic_setreg_indirect(wc,card,91,0);
-	wctdm_proslic_setreg_indirect(wc,card,92,0);
-	wctdm_proslic_setreg_indirect(wc,card,93,0);
+	wctdm_proslic_setreg_indirect(wc, card, 88, 0);
+	wctdm_proslic_setreg_indirect(wc, card, 89, 0);
+	wctdm_proslic_setreg_indirect(wc, card, 90, 0);
+	wctdm_proslic_setreg_indirect(wc, card, 91, 0);
+	wctdm_proslic_setreg_indirect(wc, card, 92, 0);
+	wctdm_proslic_setreg_indirect(wc, card, 93, 0);
 
-	wctdm_setreg(wc, card, 98,0x10); // This is necessary if the calibration occurs other than at reset time
-	wctdm_setreg(wc, card, 99,0x10);
+	wctdm_setreg(wc, card, 98, 0x10); // This is necessary if the calibration occurs other than at reset time
+	wctdm_setreg(wc, card, 99, 0x10);
 
 	for ( i=0x1f; i>0; i--)
 	{
-		wctdm_setreg(wc, card, 98,i);
+		wctdm_setreg(wc, card, 98, i);
 		origjiffies=jiffies; 
 		while((jiffies-origjiffies)<4);
-		if((wctdm_getreg(wc,card,88)) == 0)
+		if((wctdm_getreg(wc, card, 88)) == 0)
 			break;
 	} // for
 
 	for ( i=0x1f; i>0; i--)
 	{
-		wctdm_setreg(wc, card, 99,i);
+		wctdm_setreg(wc, card, 99, i);
 		origjiffies=jiffies; 
 		while((jiffies-origjiffies)<4);
-		if((wctdm_getreg(wc,card,89)) == 0)
+		if((wctdm_getreg(wc, card, 89)) == 0)
 			break;
 	}//for
 
@@ -1350,9 +1355,9 @@ static int wctdm_proslic_manual_calibrate(struct wctdm *wc, int card){
 	wctdm_setreg(wc, card, 64, 0);
 	wctdm_setreg(wc, card, 23, 0x4);  // enable interrupt for the balance Cal
 	wctdm_setreg(wc, card, 97, 0x1); // this is a singular calibration bit for longitudinal calibration
-	wctdm_setreg(wc, card, 96,0x40);
+	wctdm_setreg(wc, card, 96, 0x40);
 
-	wctdm_getreg(wc,card,96); /* Read Reg 96 just cause */
+	wctdm_getreg(wc, card, 96); /* Read Reg 96 just cause */
 
 	wctdm_setreg(wc, card, 21, 0xFF);
 	wctdm_setreg(wc, card, 22, 0xFF);
@@ -1462,10 +1467,11 @@ static int wctdm_init_voicedaa(struct wctdm *wc, int card, int fast, int manual,
 	wait_just_a_bit(HZ/10);
 
 	/* Enable PCM, ulaw */
-	if (alawoverride)
+	if (alawoverride){
 		wctdm_setreg(wc, card, 33, 0x20);
-	else
+	} else {
 		wctdm_setreg(wc, card, 33, 0x28);
+	}
 
 	/* Set On-hook speed, Ringer impedence, and ringer threshold */
 	reg16 |= (fxo_modes[_opermode].ohs << 6);
@@ -1560,9 +1566,16 @@ static int wctdm_init_proslic(struct wctdm *wc, int card, int fast, int manual, 
 	/* Sanity check the ProSLIC */
 	if (!sane && wctdm_proslic_insane(wc, card))
 		return -2;
+	
+	/* default messages to none and method to FSK */
+	wc->mod[card].fxs.mwisendtype=DAHDI_VMWI_FSK;
+	wc->mod[card].fxs.vmwimessages=0;
+	wc->mod[card].fxs.vmwi_lrev=0;
+	wc->mod[card].fxs.vmwi_hvdc=0;
+	wc->mod[card].fxs.vmwi_hvac=0;
 		
 	/* By default, don't send on hook */
-	if (reversepolarity)
+	if (!reversepolarity != !wc->mod[card].fxs.reversepolarity)
 		wc->mod[card].fxs.idletxhookstate = 5;
 	else
 		wc->mod[card].fxs.idletxhookstate = 1;
@@ -1781,7 +1794,8 @@ static int wctdm_init_proslic(struct wctdm *wc, int card, int fast, int manual, 
 	if(debug)
 			printk(KERN_DEBUG "DEBUG: fxstxgain:%s fxsrxgain:%s\n",((wctdm_getreg(wc, card, 9)/8) == 1)?"3.5":(((wctdm_getreg(wc,card,9)/4) == 1)?"-3.5":"0.0"),((wctdm_getreg(wc, card, 9)/2) == 1)?"3.5":((wctdm_getreg(wc,card,9)%2)?"-3.5":"0.0"));
 
-	wctdm_setreg(wc, card, 64, 0x01);
+	wc->mod[card].fxs.lasttxhook = wc->mod[card].fxs.idletxhookstate;
+	wctdm_setreg(wc, card, 64, wc->mod[card].fxs.lasttxhook);
 	return 0;
 }
 
@@ -1802,17 +1816,11 @@ static int wctdm_ioctl(struct dahdi_chan *chan, unsigned int cmd, unsigned long 
 		if (get_user(x, (__user int *) data))
 			return -EFAULT;
 		wc->mod[chan->chanpos - 1].fxs.ohttimer = x << 3;
-		if (reversepolarity)
-			wc->mod[chan->chanpos - 1].fxs.idletxhookstate = 0x6;	/* OHT mode when idle */
-		else
-			wc->mod[chan->chanpos - 1].fxs.idletxhookstate = 0x2;
+		wc->mod[chan->chanpos - 1].fxs.idletxhookstate = POLARITY_XOR(chan->chanpos - 1) ? 0x6 : 0x2;	/* OHT mode when idle */
 		if (wc->mod[chan->chanpos - 1].fxs.lasttxhook == 0x1 || wc->mod[chan->chanpos - 1].fxs.lasttxhook == 0x5) {
-				/* Apply the change if appropriate */
-				if (reversepolarity)
-					wc->mod[chan->chanpos - 1].fxs.lasttxhook = 0x6;
-				else
-					wc->mod[chan->chanpos - 1].fxs.lasttxhook = 0x2;
-				wctdm_setreg(wc, chan->chanpos - 1, 64, wc->mod[chan->chanpos - 1].fxs.lasttxhook);
+			/* Apply the change if appropriate */
+			wc->mod[chan->chanpos - 1].fxs.lasttxhook = POLARITY_XOR(chan->chanpos - 1) ? 0x6 : 0x2;
+			wctdm_setreg(wc, chan->chanpos - 1, 64, wc->mod[chan->chanpos - 1].fxs.lasttxhook);
 		}
 		break;
 	case DAHDI_SETPOLARITY:
@@ -1824,12 +1832,62 @@ static int wctdm_ioctl(struct dahdi_chan *chan, unsigned int cmd, unsigned long 
 		if ((wc->mod[chan->chanpos -1 ].fxs.lasttxhook == 0x04) ||
 		    (wc->mod[chan->chanpos -1 ].fxs.lasttxhook == 0x00))
 			return -EINVAL;
-
-		if ((x && !reversepolarity) || (!x && reversepolarity))
+		
+		wc->mod[chan->chanpos - 1].fxs.reversepolarity = x;
+		if ( POLARITY_XOR(chan->chanpos - 1) )
 			wc->mod[chan->chanpos - 1].fxs.lasttxhook |= 0x04;
 		else
 			wc->mod[chan->chanpos - 1].fxs.lasttxhook &= ~0x04;
 		wctdm_setreg(wc, chan->chanpos - 1, 64, wc->mod[chan->chanpos - 1].fxs.lasttxhook);
+		break;
+	case DAHDI_VMWI:
+		/* value:	bits 15-8 VMWI TYPE */
+		/* 		bits 7-0 VMWI number of messages */
+		if (get_user(x, (__user int *) data))
+			return -EFAULT;
+		if (wc->modtype[chan->chanpos - 1] != MOD_TYPE_FXS)
+			return -EINVAL;
+
+		wc->mod[chan->chanpos - 1].fxs.vmwimessages = (x & 255);
+		wc->mod[chan->chanpos - 1].fxs.mwisendtype = (x & ~255);
+		if (wc->mod[chan->chanpos - 1].fxs.vmwimessages){
+			x = wc->mod[chan->chanpos - 1].fxs.mwisendtype;
+			wc->mod[chan->chanpos - 1].fxs.vmwi_lrev = (x & DAHDI_VMWI_LREV)?1:0;
+			wc->mod[chan->chanpos - 1].fxs.vmwi_hvdc = (x & DAHDI_VMWI_HVDC)?1:0;
+			wc->mod[chan->chanpos - 1].fxs.vmwi_hvac = (x & DAHDI_VMWI_HVAC)?1:0;
+		} else {
+			wc->mod[chan->chanpos - 1].fxs.vmwi_lrev = 0;
+			wc->mod[chan->chanpos - 1].fxs.vmwi_hvdc = 0;
+			wc->mod[chan->chanpos - 1].fxs.vmwi_hvac = 0;
+		}
+
+		if (debug) {
+			printk(KERN_DEBUG "Setting VMWI on channel %d, type=0x%X, messages=%d, lrev=%d, hvdc=%d, hvac=%d\n",
+				chan->chanpos-1,
+				wc->mod[chan->chanpos - 1].fxs.mwisendtype,
+				wc->mod[chan->chanpos - 1].fxs.vmwimessages,
+				wc->mod[chan->chanpos - 1].fxs.vmwi_lrev,
+				wc->mod[chan->chanpos - 1].fxs.vmwi_hvdc,
+				wc->mod[chan->chanpos - 1].fxs.vmwi_hvac
+			);
+		}
+		if (POLARITY_XOR(chan->chanpos -1)) {
+			wc->mod[chan->chanpos -1 ].fxs.idletxhookstate |= 0x4;
+			/* Do not set while currently ringing or open */
+			if (wc->mod[chan->chanpos -1 ].fxs.lasttxhook != 0x04 &&
+						   wc->mod[chan->chanpos -1 ].fxs.lasttxhook != 0x00) {
+				wc->mod[chan->chanpos -1 ].fxs.lasttxhook |= 0x4;
+				wctdm_setreg(wc, chan->chanpos - 1, 64, wc->mod[chan->chanpos - 1].fxs.lasttxhook);
+			}
+		} else {
+			wc->mod[chan->chanpos -1 ].fxs.idletxhookstate &= ~0x04;
+			/* Do not set while currently ringing or open */
+			if (wc->mod[chan->chanpos -1 ].fxs.lasttxhook != 0x04 &&
+						   wc->mod[chan->chanpos -1 ].fxs.lasttxhook != 0x00) {
+				wc->mod[chan->chanpos -1 ].fxs.lasttxhook &= ~0x04;
+				wctdm_setreg(wc, chan->chanpos - 1, 64, wc->mod[chan->chanpos - 1].fxs.lasttxhook);
+			}
+		}
 		break;
 	case WCTDM_GET_STATS:
 		if (wc->modtype[chan->chanpos - 1] == MOD_TYPE_FXS) {
@@ -1942,10 +2000,7 @@ static int wctdm_close(struct dahdi_chan *chan)
 	wc->usecount--;
 	module_put(THIS_MODULE);
 	if (wc->modtype[chan->chanpos - 1] == MOD_TYPE_FXS) {
-		if (reversepolarity)
-			wc->mod[chan->chanpos - 1].fxs.idletxhookstate = 5;
-		else
-			wc->mod[chan->chanpos - 1].fxs.idletxhookstate = 1;
+		wc->mod[chan->chanpos - 1].fxs.idletxhookstate = POLARITY_XOR(chan->chanpos - 1) ? 0x5 : 0x1;
 	}
 	/* If we're dead, release us now */
 	if (!wc->usecount && wc->dead) 
@@ -1956,7 +2011,7 @@ static int wctdm_close(struct dahdi_chan *chan)
 static int wctdm_hooksig(struct dahdi_chan *chan, enum dahdi_txsig txsig)
 {
 	struct wctdm *wc = chan->pvt;
-	int reg=0;
+
 	if (wc->modtype[chan->chanpos - 1] == MOD_TYPE_FXO) {
 		/* XXX Enable hooksig for FXO XXX */
 		switch(txsig) {
@@ -1976,9 +2031,11 @@ static int wctdm_hooksig(struct dahdi_chan *chan, enum dahdi_txsig txsig)
 		switch(txsig) {
 		case DAHDI_TXSIG_ONHOOK:
 			switch(chan->sig) {
-			case DAHDI_SIG_EM:
 			case DAHDI_SIG_FXOKS:
 			case DAHDI_SIG_FXOLS:
+				wc->mod[chan->chanpos-1].fxs.lasttxhook = (wc->mod[chan->chanpos-1].fxs.vmwi_hvac ? 4 : wc->mod[chan->chanpos-1].fxs.idletxhookstate);
+				break;
+			case DAHDI_SIG_EM:
 				wc->mod[chan->chanpos-1].fxs.lasttxhook = wc->mod[chan->chanpos-1].fxs.idletxhookstate;
 				break;
 			case DAHDI_SIG_FXOGS:
@@ -2006,7 +2063,7 @@ static int wctdm_hooksig(struct dahdi_chan *chan, enum dahdi_txsig txsig)
 			printk(KERN_NOTICE "wctdm: Can't set tx state to %d\n", txsig);
 		}
 		if (debug)
-			printk(KERN_DEBUG "Setting FXS hook state to %d (%02x)\n", txsig, reg);
+			printk(KERN_DEBUG "Setting FXS hook state to %d (%02x)\n", txsig, wc->mod[chan->chanpos-1].fxs.lasttxhook);
 
 #if 1
 		wctdm_setreg(wc, chan->chanpos - 1, 64, wc->mod[chan->chanpos-1].fxs.lasttxhook);
@@ -2029,8 +2086,9 @@ static int wctdm_initialize(struct wctdm *wc)
 	if (alawoverride) {
 		printk(KERN_INFO "ALAW override parameter detected.  Device will be operating in ALAW\n");
 		wc->span.deflaw = DAHDI_LAW_ALAW;
-	} else
+	} else {
 		wc->span.deflaw = DAHDI_LAW_MULAW;
+	}
 	for (x = 0; x < NUM_CARDS; x++) {
 		sprintf(wc->chans[x]->name, "WCTDM/%d/%d", wc->pos, x);
 		wc->chans[x]->sigcap = DAHDI_SIG_FXOKS | DAHDI_SIG_FXOLS | DAHDI_SIG_FXOGS | DAHDI_SIG_SF | DAHDI_SIG_EM | DAHDI_SIG_CLEAR;

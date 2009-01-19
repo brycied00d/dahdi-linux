@@ -245,9 +245,13 @@ struct wctdm {
 			int lastrxhook;
 			int debounce;
 			int ohttimer;
-			int idletxhookstate;		/* IDLE changing hook state */
-			int lasttxhook;
+			int idletxhookstate;	/* IDLE changing hook state */
+			int lasttxhook;		/* Bits 0-3 are written to proslic reg 64, Bit 4 indicates if the last write is pending */
 			int palarms;
+			int mwisendtype;
+			int vmwimessages;	/* 0=none 1-255=number of messages */
+			int vmwilinereverse;	/* MWI Line Reversal*/
+			int reversepolarity;	/* polarity reversal */
 			struct calregs calregs;
 		} fxs;
 	} mods[NUM_CARDS];
