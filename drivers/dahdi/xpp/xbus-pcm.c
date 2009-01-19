@@ -80,13 +80,26 @@ static unsigned int		dahdi_tick_count = 0;
 
 static void send_drift(xbus_t *xbus, int drift);
 
+static void ticker_set_cycle(struct xpp_ticker *ticker, int cycle)
+{
+	unsigned long	flags;
+
+	spin_lock_irqsave(&ticker->lock, flags);
+	if(cycle < SYNC_ADJ_QUICK)
+		cycle = SYNC_ADJ_QUICK;
+	if(cycle > SYNC_ADJ_SLOW)
+		cycle = SYNC_ADJ_SLOW;
+	ticker->cycle = cycle;
+	spin_unlock_irqrestore(&ticker->lock, flags);
+}
+
 static void xpp_ticker_init(struct xpp_ticker *ticker)
 {
 	memset(ticker, 0, sizeof(*ticker));
+	spin_lock_init(&ticker->lock);
 	do_gettimeofday(&ticker->last_sample.tv);
 	ticker->first_sample = ticker->last_sample;
-	ticker->cycle = SYNC_ADJ_QUICK;
-	spin_lock_init(&ticker->lock);
+	ticker_set_cycle(ticker, SYNC_ADJ_QUICK);
 }
 
 static int xpp_ticker_step(struct xpp_ticker *ticker, const struct timeval *t)
@@ -127,7 +140,7 @@ static inline void xbus_drift_clear(xbus_t *xbus)
 
 	driftinfo_recalc(driftinfo);
 	driftinfo->calc_drift = 0;
-	xbus->ticker.cycle = SYNC_ADJ_QUICK;
+	ticker_set_cycle(&xbus->ticker, SYNC_ADJ_QUICK);
 }
 
 void xpp_drift_init(xbus_t *xbus)
@@ -180,7 +193,7 @@ static void xpp_drift_step(xbus_t *xbus, const struct timeval *tv)
 					lost_ticks,
 					(abs(lost_ticks) > 1) ? "s": "");
 			}
-			ticker->cycle = SYNC_ADJ_QUICK;
+			ticker_set_cycle(ticker, SYNC_ADJ_QUICK);
 			if(abs(lost_ticks) > 100)
 				ticker->count = ref_ticker->count;
 		} else {
@@ -199,13 +212,15 @@ static void xpp_drift_step(xbus_t *xbus, const struct timeval *tv)
 				 */
 				if(usec_delta > 0 && xbus->sync_adjustment > -SYNC_ADJ_MAX) {
 					XBUS_DBG(SYNC, xbus, "Pullback usec_delta=%ld\n", usec_delta);
+					driftinfo->kicks_down++;
 					send_drift(xbus, -SYNC_ADJ_MAX);	/* emergency push */
 				}
 				if(usec_delta < 0 && xbus->sync_adjustment < SYNC_ADJ_MAX) {
 					XBUS_DBG(SYNC, xbus, "Pushback usec_delta=%ld\n", usec_delta);
+					driftinfo->kicks_up++;
 					send_drift(xbus, SYNC_ADJ_MAX);		/* emergency push */
 				}
-				ticker->cycle = SYNC_ADJ_QUICK;
+				ticker_set_cycle(ticker, SYNC_ADJ_QUICK);
 				nofix = 1;
 			} else {
 				/* good data, use it */
@@ -229,15 +244,13 @@ static void xpp_drift_step(xbus_t *xbus, const struct timeval *tv)
 						offset = driftinfo->calc_drift + factor;
 					/* for large median, push some more */
 					if(abs(driftinfo->median) >= 300) {	/* more than 2 usb uframes */
-						ticker->cycle = SYNC_ADJ_QUICK;
+						ticker_set_cycle(ticker, SYNC_ADJ_QUICK);
 						XBUS_NOTICE(xbus,
 								"Back to quick: median=%d\n",
 								driftinfo->median);
 					}
 				} else {
-					ticker->cycle += 500;
-					if(ticker->cycle >= SYNC_ADJ_SLOW)
-						ticker->cycle = SYNC_ADJ_SLOW;
+					//ticker_set_cycle(ticker, ticker->cycle + 500);
 				}
 				driftinfo->calc_drift = offset;
 				XBUS_DBG(SYNC, xbus,
@@ -276,16 +289,30 @@ const char *sync_mode_name(enum sync_mode mode)
 
 static void xpp_set_syncer(xbus_t *xbus, bool on)
 {
+	unsigned long	flags;
+
+	spin_lock_irqsave(&ref_ticker_lock, flags);
+	if(!xbus) {	/* Special case, no more syncers */
+		DBG(SYNC, "No more syncers\n");
+		syncer = NULL;
+		if(ref_ticker != &dahdi_ticker)
+			ref_ticker = NULL;
+		goto out;
+	}
 	if(syncer != xbus && on) {
 		XBUS_DBG(SYNC, xbus, "New syncer\n");
 		syncer = xbus;
 	} else if(syncer == xbus && !on) {
 		XBUS_DBG(SYNC, xbus, "Lost syncer\n");
 		syncer = NULL;
+		if(ref_ticker != &dahdi_ticker)
+			ref_ticker = NULL;
 	} else
 		XBUS_DBG(SYNC, xbus, "ignore %s (current syncer: %s)\n",
 			(on)?"ON":"OFF",
 			(syncer) ? syncer->busname : "NO-SYNC");
+out:
+	spin_unlock_irqrestore(&ref_ticker_lock, flags);
 }
 
 static void xbus_command_timer(unsigned long param)
@@ -324,14 +351,14 @@ void got_new_syncer(xbus_t *xbus, enum sync_mode mode, int drift)
 {
 	unsigned long	flags;
 
-	XBUS_DBG(SYNC, xbus, "Mode %s (%d), drift=%d (pcm_rx_counter=%d)\n",
-		sync_mode_name(mode), mode, drift, atomic_read(&xbus->pcm_rx_counter));
 	spin_lock_irqsave(&xbus->lock, flags);
 	xbus->sync_adjustment = (signed char)drift;
 	if(xbus->sync_mode == mode) {
-		XBUS_DBG(SYNC, xbus, "Already in mode '%s'. Ignored\n", sync_mode_name(mode));
+		/* XBUS_DBG(SYNC, xbus, "Already in mode '%s'. Ignored\n", sync_mode_name(mode)); */
 		goto out;
 	}
+	XBUS_DBG(SYNC, xbus, "Mode %s (%d), drift=%d (pcm_rx_counter=%d)\n",
+		sync_mode_name(mode), mode, drift, atomic_read(&xbus->pcm_rx_counter));
 	switch(mode) {
 	case SYNC_MODE_AB:
 		xbus->sync_mode = mode;
@@ -565,8 +592,10 @@ void elect_syncer(const char *msg)
 		XPD_DBG(SYNC, best_xpd, "%s: elected with priority %d\n", msg, timing_priority);
 	} else if(the_xbus) {
 		XBUS_DBG(SYNC, the_xbus, "%s: elected\n", msg);
-	} else
+	} else {
 		DBG(SYNC, "%s: No more syncers\n", msg);
+		xpp_set_syncer(NULL, 0);
+	}
 	if(the_xbus != syncer)
 		update_sync_master(the_xbus, force_dahdi_sync);
 }
@@ -1071,16 +1100,16 @@ int exec_sync_command(const char *buf, size_t count)
 	xbus_t	*xbus;
 
 	if(strncmp("DAHDI", buf, 6) == 0) {	/* Ignore the newline */
-		DBG(SYNC, "DAHDI\n");
+		DBG(SYNC, "DAHDI");
 		update_sync_master(NULL, 1);
-	} else if(sscanf(buf, "SYNC=%d\n", &xbusno) == 1) {
+	} else if(sscanf(buf, "SYNC=%d", &xbusno) == 1) {
 		DBG(SYNC, "SYNC=%d\n", xbusno);
 		if((xbus = xbus_num(xbusno)) == NULL) {
 			ERR("No bus %d exists\n", xbusno);
 			return -ENXIO;
 		}
 		update_sync_master(xbus, 0);
-	} else if(sscanf(buf, "QUERY=%d\n", &xbusno) == 1) {
+	} else if(sscanf(buf, "QUERY=%d", &xbusno) == 1) {
 		DBG(SYNC, "QUERY=%d\n", xbusno);
 		if((xbus = xbus_num(xbusno)) == NULL) {
 			ERR("No bus %d exists\n", xbusno);
