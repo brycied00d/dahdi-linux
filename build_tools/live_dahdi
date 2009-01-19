@@ -49,11 +49,13 @@ dahdi_drivers() {
 		'
 }
 
-# Detect the modules used in the system:
-# This may an annoying warning when live_dahdi is run before
-# installation. Ignore it for now.
-for mod in `dahdi_drivers`; do
-	case "$mod" in
+# Add modules for existing hardware on the system for the list of 
+# modules to load.
+#
+# As module loading is manual with insmod, some manual fixes are needed.
+set_modules_to_load() {
+	for mod in `dahdi_drivers`; do
+		case "$mod" in
 		xpp_usb) 
 			MODULES_LOAD="$MODULES_LOAD xpp/xpp xpp/xpd_fxs"
 			MODULES_LOAD="$MODULES_LOAD xpp/xpd_fxo xpp/xpd_pri" 
@@ -64,15 +66,16 @@ for mod in `dahdi_drivers`; do
 			;;
 		wctdm24xxp | wct4xxp | wcte12xp | wctc4xp)
 			MODULES_LOAD="$MODULES_LOAD $mod/$mod"
-			;;
+				;;
 		wanpipe)
 			: # requires different handling
 			;;
 		*)
 			MODULES_LOAD="$MODULES_LOAD $mod"
 			;;
-	esac
-done
+		esac
+	done
+}
 
 # Initialize the Xorcom Astribank (xpp/) using perl utiliites:
 # intended to replace all the the three functions below if user has 
@@ -171,6 +174,7 @@ unload)
 load)
 	# TODO: Find a way to use modprobe.
 	# Or implement a way to pass arguments to modules here (yuck)
+	set_modules_to_load
 	for module in $MODULES_LOAD; do
 		eval module_args="\$`basename ${module}`_ARGS"
 		insmod $MODULES_DIR/$module.ko $module_args
