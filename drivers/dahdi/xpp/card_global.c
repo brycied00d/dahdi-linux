@@ -758,7 +758,7 @@ static void global_packet_dump(const char *msg, xpacket_t *pack)
 }
 
 #define	MAX_ENV_STR	40
-#define	MAX_PATH_STR	60
+#define	MAX_PATH_STR	128
 
 int run_initialize_registers(xpd_t *xpd)
 {
