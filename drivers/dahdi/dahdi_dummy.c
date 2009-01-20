@@ -89,8 +89,10 @@
 #define USB2420
 #endif
 
-#if defined(USE_HIGHRESTIMER) && ( LINUX_VERSION_CODE < KERNEL_VERSION(2,6,28) )
-/* compatibility with new hrtimer interface */
+#if defined(USE_HIGHRESTIMER) && \
+	(LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 27)) || \
+	(!defined(HAVE_HRTIMER_ACCESSORS))
+/* Compatibility with new hrtimer interface */
 static inline ktime_t hrtimer_get_expires(const struct hrtimer *timer)
 {
 	return timer->expires;

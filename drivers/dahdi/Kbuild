@@ -56,6 +56,10 @@ ifneq (,$(filter $(KVERS),$(BAD_KERNELS)))
 EXTRA_CFLAGS+=-Drw_lock_t=rwlock_t
 endif
 
+ifeq (1,$(shell fgrep -q ' hrtimer_set_expires' include/linux/hrtimer.h 2>/dev/null && echo 1))
+EXTRA_CFLAGS+=-DHAVE_HRTIMER_ACCESSORS=1
+endif
+
 dahdi-objs := dahdi-base.o
 
 dahdi_echocan_hpec-objs := hpec/dahdi_echocan_hpec.o
