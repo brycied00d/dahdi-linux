@@ -239,7 +239,7 @@ struct wctdm {
 			int palarms;
 			int reversepolarity;		/* Reverse Line */
 			int mwisendtype;
-			int vmwimessages;		/* 0=none 1-255=number of messages */
+			struct dahdi_vmwi_info vmwisetting; 
 			int vmwi_lrev:1;		/* MWI Line Reversal*/
 			int vmwi_hvdc:1;		/* MWI High Voltage DC Idle line */
 			int vmwi_hvac:1;		/* MWI Neon High Voltage AC Idle line */
@@ -1568,12 +1568,12 @@ static int wctdm_init_proslic(struct wctdm *wc, int card, int fast, int manual, 
 		return -2;
 	
 	/* default messages to none and method to FSK */
-	wc->mod[card].fxs.mwisendtype=DAHDI_VMWI_FSK;
-	wc->mod[card].fxs.vmwimessages=0;
-	wc->mod[card].fxs.vmwi_lrev=0;
-	wc->mod[card].fxs.vmwi_hvdc=0;
-	wc->mod[card].fxs.vmwi_hvac=0;
-		
+	memset(&wc->mod[card].fxs.vmwisetting, 0, sizeof(wc->mod[card].fxs.vmwisetting));
+	wc->mod[card].fxs.vmwi_lrev = 0;
+	wc->mod[card].fxs.vmwi_hvdc = 0;
+	wc->mod[card].fxs.vmwi_hvac = 0;
+	
+				
 	/* By default, don't send on hook */
 	if (!reversepolarity != !wc->mod[card].fxs.reversepolarity)
 		wc->mod[card].fxs.idletxhookstate = 5;
@@ -1841,20 +1841,15 @@ static int wctdm_ioctl(struct dahdi_chan *chan, unsigned int cmd, unsigned long 
 		wctdm_setreg(wc, chan->chanpos - 1, 64, wc->mod[chan->chanpos - 1].fxs.lasttxhook);
 		break;
 	case DAHDI_VMWI:
-		/* value:	bits 15-8 VMWI TYPE */
-		/* 		bits 7-0 VMWI number of messages */
-		if (get_user(x, (__user int *) data))
-			return -EFAULT;
 		if (wc->modtype[chan->chanpos - 1] != MOD_TYPE_FXS)
 			return -EINVAL;
+		if (copy_from_user(&(wc->mod[chan->chanpos - 1].fxs.vmwisetting), (__user void *) data, sizeof(wc->mod[chan->chanpos - 1].fxs.vmwisetting)))
+			return -EFAULT;
 
-		wc->mod[chan->chanpos - 1].fxs.vmwimessages = (x &  DAHDI_VMWI_NUMBER_MASK);
-		wc->mod[chan->chanpos - 1].fxs.mwisendtype = (x & ~ DAHDI_VMWI_NUMBER_MASK);
-		if (wc->mod[chan->chanpos - 1].fxs.vmwimessages){
-			x = wc->mod[chan->chanpos - 1].fxs.mwisendtype;
-			wc->mod[chan->chanpos - 1].fxs.vmwi_lrev = (x & DAHDI_VMWI_LREV)?1:0;
-			wc->mod[chan->chanpos - 1].fxs.vmwi_hvdc = (x & DAHDI_VMWI_HVDC)?1:0;
-			wc->mod[chan->chanpos - 1].fxs.vmwi_hvac = (x & DAHDI_VMWI_HVAC)?1:0;
+		if (wc->mod[chan->chanpos - 1].fxs.vmwisetting.messages){
+			wc->mod[chan->chanpos - 1].fxs.vmwi_lrev = (wc->mod[chan->chanpos - 1].fxs.vmwisetting.linereverse)?1:0;
+			wc->mod[chan->chanpos - 1].fxs.vmwi_hvdc = (wc->mod[chan->chanpos - 1].fxs.vmwisetting.hvdc)?1:0;
+			wc->mod[chan->chanpos - 1].fxs.vmwi_hvac = (wc->mod[chan->chanpos - 1].fxs.vmwisetting.hvac)?1:0;
 		} else {
 			wc->mod[chan->chanpos - 1].fxs.vmwi_lrev = 0;
 			wc->mod[chan->chanpos - 1].fxs.vmwi_hvdc = 0;
@@ -1862,10 +1857,9 @@ static int wctdm_ioctl(struct dahdi_chan *chan, unsigned int cmd, unsigned long 
 		}
 
 		if (debug) {
-			printk(KERN_DEBUG "Setting VMWI on channel %d, type=0x%X, messages=%d, lrev=%d, hvdc=%d, hvac=%d\n",
+			printk(KERN_DEBUG "Setting VMWI on channel %d, messages=%d, lrev=%d, hvdc=%d, hvac=%d\n",
 				chan->chanpos-1,
-				wc->mod[chan->chanpos - 1].fxs.mwisendtype,
-				wc->mod[chan->chanpos - 1].fxs.vmwimessages,
+				wc->mod[chan->chanpos - 1].fxs.vmwisetting.messages,
 				wc->mod[chan->chanpos - 1].fxs.vmwi_lrev,
 				wc->mod[chan->chanpos - 1].fxs.vmwi_hvdc,
 				wc->mod[chan->chanpos - 1].fxs.vmwi_hvac
