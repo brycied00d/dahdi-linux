@@ -56,6 +56,8 @@ ifneq (,$(filter $(KVERS),$(BAD_KERNELS)))
 EXTRA_CFLAGS+=-Drw_lock_t=rwlock_t
 endif
 
+# A number of Fedora 10 (9 also?) kernels backported hrtimer to 2.6.27
+# as part of an ALSA backport. TODO: Any better way to detect that?
 ifeq (1,$(shell fgrep -q ' hrtimer_set_expires' include/linux/hrtimer.h 2>/dev/null && echo 1))
 EXTRA_CFLAGS+=-DHAVE_HRTIMER_ACCESSORS=1
 endif
