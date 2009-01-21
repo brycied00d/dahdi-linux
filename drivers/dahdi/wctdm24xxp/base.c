@@ -87,7 +87,7 @@ static int loopcurrent = 20;
  * 	polarity reversal for the port,
  * 	and the state of the line reversal MWI indicator
  */
-#define POLARITY_XOR(card) ( (reversepolarity != 0) ^ (wc->mods[(card)].fxs.reversepolarity != 0) ^ (wc->mods[(card)].fxs.vmwilinereverse != 0) )
+#define POLARITY_XOR(card) ( (reversepolarity != 0) ^ (wc->mods[(card)].fxs.reversepolarity != 0) ^ (wc->mods[(card)].fxs.linereverse_mwi != 0) )
 static int reversepolarity = 0;
 
 static alpha  indirect_regs[] =
@@ -2052,9 +2052,8 @@ static int wctdm_init_proslic(struct wctdm *wc, int card, int fast, int manual, 
 		return -2;
 
 	/* Initialize VMWI settings */
-	wc->mods[card].fxs.mwisendtype  = 0;	
-	wc->mods[card].fxs.vmwimessages = 0;
-	wc->mods[card].fxs.vmwilinereverse    = 0;
+	memset(&(wc->mods[card].fxs.vmwisetting), 0, sizeof(wc->mods[card].fxs.vmwisetting));
+	wc->mods[card].fxs.linereverse_mwi = 0;
 
 	/* By default, don't send on hook */
 	if (!reversepolarity != !wc->mods[card].fxs.reversepolarity) {
@@ -2446,20 +2445,15 @@ static int wctdm_ioctl(struct dahdi_chan *chan, unsigned int cmd, unsigned long 
 		}
 		break;
 	case DAHDI_VMWI:
-		/* value:	bits 15-8 VMWI TYPE */
-		/* 		bits 7-0 VMWI number of messages */
-		if (get_user(x, (__user int *) data))
-			return -EFAULT;
 		if (wc->modtype[chan->chanpos - 1] != MOD_TYPE_FXS)
 			return -EINVAL;
-
-		wc->mods[chan->chanpos - 1].fxs.vmwimessages = (x & DAHDI_VMWI_NUMBER_MASK);
-		wc->mods[chan->chanpos - 1].fxs.mwisendtype = (x & ~DAHDI_VMWI_NUMBER_MASK);
-		if (wc->mods[chan->chanpos - 1].fxs.vmwimessages){
-			x = wc->mods[chan->chanpos - 1].fxs.mwisendtype;
-			wc->mods[chan->chanpos - 1].fxs.vmwilinereverse= (x & DAHDI_VMWI_LREV)?1:0;
+		if (copy_from_user(&(wc->mods[chan->chanpos - 1].fxs.vmwisetting), (__user void *) data, sizeof(wc->mods[chan->chanpos - 1].fxs.vmwisetting)))
+			return -EFAULT;
+		
+		if (wc->mods[chan->chanpos - 1].fxs.vmwisetting.messages && wc->mods[chan->chanpos - 1].fxs.vmwisetting.linereverse){
+			wc->mods[chan->chanpos - 1].fxs.linereverse_mwi = 1; 
 		} else {
-			wc->mods[chan->chanpos - 1].fxs.vmwilinereverse= 0;
+			wc->mods[chan->chanpos - 1].fxs.linereverse_mwi = 0; 
 		}
 		/* Set line polarity for new VMWI state */
 		if (POLARITY_XOR(chan->chanpos -1)) {
@@ -2484,11 +2478,10 @@ static int wctdm_ioctl(struct dahdi_chan *chan, unsigned int cmd, unsigned long 
 		}
 
 		if (debug) {
-			printk(KERN_DEBUG "Setting VMWI on channel %d, type=0x%X, messages=%d, lrev=%d\n",
+			printk(KERN_DEBUG "Setting VMWI on channel %d, messages=%d, lrev=%d\n",
 				chan->chanpos-1,
-				wc->mods[chan->chanpos - 1].fxs.mwisendtype,
-				wc->mods[chan->chanpos - 1].fxs.vmwimessages,
-				wc->mods[chan->chanpos - 1].fxs.vmwilinereverse
+				wc->mods[chan->chanpos - 1].fxs.vmwisetting.messages,
+				wc->mods[chan->chanpos - 1].fxs.linereverse_mwi
 			);
 		}
 		break;
