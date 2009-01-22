@@ -2450,7 +2450,7 @@ static int wctdm_ioctl(struct dahdi_chan *chan, unsigned int cmd, unsigned long 
 		if (copy_from_user(&(wc->mods[chan->chanpos - 1].fxs.vmwisetting), (__user void *) data, sizeof(wc->mods[chan->chanpos - 1].fxs.vmwisetting)))
 			return -EFAULT;
 		
-		if (wc->mods[chan->chanpos - 1].fxs.vmwisetting.messages && wc->mods[chan->chanpos - 1].fxs.vmwisetting.linereverse){
+		if (wc->mods[chan->chanpos - 1].fxs.vmwisetting.messages && wc->mods[chan->chanpos - 1].fxs.vmwisetting.vmwi_type & DAHDI_VMWI_LREV){
 			wc->mods[chan->chanpos - 1].fxs.linereverse_mwi = 1; 
 		} else {
 			wc->mods[chan->chanpos - 1].fxs.linereverse_mwi = 0; 
