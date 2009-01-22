@@ -971,12 +971,12 @@ struct dahdi_hwgain {
  */
 struct dahdi_vmwi_info {
 	unsigned int messages;	/* Number of messages pending */
-	unsigned char fsk;	/* default FSK, */
-	unsigned char rpas;	/* Ring Pulse Alert Signal precedes the FSK spill */
-	unsigned char linereverse;	/* Line reversal message indicator */
-	unsigned char hvdc;	/* Line reversal message indicator */
-	unsigned char hvac;	/* Line reversal message indicator */
+	unsigned int vmwi_type; 
 };
+
+#define DAHDI_VMWI_LREV	(1 << 0)	/* Line Reversal */
+#define DAHDI_VMWI_HVDC	(1 << 1)	/* HV 90VDC */
+#define DAHDI_VMWI_HVAC	(1 << 2)	/* HV 90VAC Neon lamp */
 
 /*
  * VoiceMail Waiting Indication (VMWI) -- implemented by low-level driver.

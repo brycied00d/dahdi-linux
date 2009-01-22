@@ -1847,9 +1847,9 @@ static int wctdm_ioctl(struct dahdi_chan *chan, unsigned int cmd, unsigned long 
 			return -EFAULT;
 
 		if (wc->mod[chan->chanpos - 1].fxs.vmwisetting.messages){
-			wc->mod[chan->chanpos - 1].fxs.vmwi_lrev = (wc->mod[chan->chanpos - 1].fxs.vmwisetting.linereverse)?1:0;
-			wc->mod[chan->chanpos - 1].fxs.vmwi_hvdc = (wc->mod[chan->chanpos - 1].fxs.vmwisetting.hvdc)?1:0;
-			wc->mod[chan->chanpos - 1].fxs.vmwi_hvac = (wc->mod[chan->chanpos - 1].fxs.vmwisetting.hvac)?1:0;
+			wc->mod[chan->chanpos - 1].fxs.vmwi_lrev = (wc->mod[chan->chanpos - 1].fxs.vmwisetting.vmwi_type & DAHDI_VMWI_LREV)?1:0;
+			wc->mod[chan->chanpos - 1].fxs.vmwi_hvdc = (wc->mod[chan->chanpos - 1].fxs.vmwisetting.vmwi_type & DAHDI_VMWI_HVDC)?1:0;
+			wc->mod[chan->chanpos - 1].fxs.vmwi_hvac = (wc->mod[chan->chanpos - 1].fxs.vmwisetting.vmwi_type & DAHDI_VMWI_HVAC)?1:0;
 		} else {
 			wc->mod[chan->chanpos - 1].fxs.vmwi_lrev = 0;
 			wc->mod[chan->chanpos - 1].fxs.vmwi_hvdc = 0;
