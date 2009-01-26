@@ -1167,7 +1167,7 @@ static void release_echocan(const struct dahdi_echocan *ec)
  *
  * This function might be called before the channel is placed on the global
  * array of channels, (chans), and therefore, neither this function nor it's
- * children should depend on the dahdi_chan.chano member which is not set yet.
+ * children should depend on the dahdi_chan.channo member which is not set yet.
  */
 static void close_channel(struct dahdi_chan *chan)
 {
@@ -1512,7 +1512,7 @@ static int dahdi_chan_reg(struct dahdi_chan *chan)
 		write_unlock_irqrestore(&chan_lock, flags);
 		/* set this AFTER running close_channel() so that
 		   HDLC channels wont cause hangage */
-		chan->flags |= DAHDI_FLAG_REGISTERED;
+		set_bit(DAHDI_FLAGBIT_REGISTERED, &chan->flags);
 		break;
 	}
 
@@ -1885,9 +1885,9 @@ static void dahdi_chan_unreg(struct dahdi_chan *chan)
 	}
 #endif
 	write_lock_irqsave(&chan_lock, flags);
-	if (chan->flags & DAHDI_FLAG_REGISTERED) {
+	if (test_bit(DAHDI_FLAGBIT_REGISTERED, &chan->flags)) {
 		chans[chan->channo] = NULL;
-		chan->flags &= ~DAHDI_FLAG_REGISTERED;
+		clear_bit(DAHDI_FLAGBIT_REGISTERED, &chan->flags);
 	}
 #ifdef CONFIG_DAHDI_PPP
 	if (chan->ppp) {
@@ -2414,7 +2414,7 @@ static int dahdi_hangup(struct dahdi_chan *chan)
 	}
 
 	/* if not registered yet, just return here */
-	if (!(chan->flags & DAHDI_FLAG_REGISTERED))
+	if (!test_bit(DAHDI_FLAGBIT_REGISTERED, &chan->flags))
 		return res;
 
 	/* Mark all buffers as empty */
@@ -5412,7 +5412,7 @@ int dahdi_register(struct dahdi_span *span, int prefmaster)
 	if (!span)
 		return -EINVAL;
 
-	if (span->flags & DAHDI_FLAG_REGISTERED) {
+	if (test_bit(DAHDI_FLAGBIT_REGISTERED, &span->flags)) {
 		module_printk(KERN_ERR, "Span %s already appears to be registered\n", span->name);
 		return -EBUSY;
 	}
@@ -5438,7 +5438,7 @@ int dahdi_register(struct dahdi_span *span, int prefmaster)
 		return -EBUSY;
 	}
 
-	span->flags |= DAHDI_FLAG_REGISTERED;
+	set_bit(DAHDI_FLAGBIT_REGISTERED, &span->flags);
 	span->spanno = x;
 
 	spin_lock_init(&span->lock);
@@ -5506,7 +5506,7 @@ int dahdi_unregister(struct dahdi_span *span)
 	char tempfile[17];
 #endif /* CONFIG_PROC_FS */
 
-	if (!(span->flags & DAHDI_FLAG_REGISTERED)) {
+	if (!test_bit(DAHDI_FLAGBIT_REGISTERED, &span->flags)) {
 		module_printk(KERN_ERR, "Span %s does not appear to be registered\n", span->name);
 		return -1;
 	}
@@ -5533,7 +5533,7 @@ int dahdi_unregister(struct dahdi_span *span)
 
 	spans[span->spanno] = NULL;
 	span->spanno = 0;
-	span->flags &= ~DAHDI_FLAG_REGISTERED;
+	clear_bit(DAHDI_FLAGBIT_REGISTERED, &span->flags);
 	for (x=0;x<span->channels;x++)
 		dahdi_chan_unreg(span->chans[x]);
 	new_maxspans = 0;

@@ -3441,7 +3441,7 @@ static int __devinit t4_launch(struct t4 *wc)
 {
 	int x;
 	unsigned long flags;
-	if (wc->tspans[0]->span.flags & DAHDI_FLAG_REGISTERED)
+	if (test_bit(DAHDI_FLAGBIT_REGISTERED, &wc->tspans[0]->span.flags))
 		return 0;
 	printk(KERN_INFO "TE%dXXP: Launching card: %d\n", wc->numspans, wc->order);
 
@@ -3726,6 +3726,8 @@ static int t4_hardware_stop(struct t4 *wc)
 static void __devexit t4_remove_one(struct pci_dev *pdev)
 {
 	struct t4 *wc = pci_get_drvdata(pdev);
+	struct dahdi_span *span;
+	int i;
 
 	if (!wc) {
 		return;
@@ -3739,15 +3741,11 @@ static void __devexit t4_remove_one(struct pci_dev *pdev)
 		release_vpm450m(wc->vpm450m);
 	wc->vpm450m = NULL;
 	/* Unregister spans */
-	if (wc->tspans[0]->span.flags & DAHDI_FLAG_REGISTERED)
-		dahdi_unregister(&wc->tspans[0]->span);
-	if (wc->tspans[1]->span.flags & DAHDI_FLAG_REGISTERED)
-		dahdi_unregister(&wc->tspans[1]->span);
-	if (wc->numspans == 4) {
-		if (wc->tspans[2]->span.flags & DAHDI_FLAG_REGISTERED)
-			dahdi_unregister(&wc->tspans[2]->span);
-		if (wc->tspans[3]->span.flags & DAHDI_FLAG_REGISTERED)
-			dahdi_unregister(&wc->tspans[3]->span);
+
+	for (i = 0; i < wc->numspans; ++i) {
+		span = &wc->tspans[i]->span;
+		if (test_bit(DAHDI_FLAGBIT_REGISTERED, &span->flags))
+			dahdi_unregister(span);
 	}
 #ifdef ENABLE_WORKQUEUES
 	if (wc->workq) {

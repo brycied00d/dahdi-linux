@@ -898,7 +898,7 @@ static int t1xxp_startup(struct dahdi_span *span)
 
 	/* Reset framer with proper parameters and start */
 	t1xxp_framer_start(wc, span);
-	printk(KERN_INFO "Calling startup (flags is %d)\n", span->flags);
+	printk(KERN_INFO "Calling startup (flags is %lu)\n", span->flags);
 
 	if (!alreadyrunning) {
 		/* Only if we're not already going */

@@ -697,7 +697,7 @@ static int t1xxp_startup(struct dahdi_span *span)
 
 	/* Reset framer with proper parameters and start */
 	t1xxp_framer_start(wc, span);
-	debug_printk(1, "Calling startup (flags is %d)\n", span->flags);
+	debug_printk(1, "Calling startup (flags is %lu)\n", span->flags);
 
 	return 0;
 }
