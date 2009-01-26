@@ -4323,7 +4323,7 @@ static int dahdi_chanandpseudo_ioctl(struct inode *inode, struct file *file, uns
 		struct dahdi_confinfo conf;
 		struct dahdi_ring_cadence cad;
 	} stack;
-	unsigned long flags, flagso;
+	unsigned long flags;
 	int i, j, k, rv;
 	int ret, c;
 
@@ -4573,14 +4573,14 @@ static int dahdi_chanandpseudo_ioctl(struct inode *inode, struct file *file, uns
 		  /* likewise if 0 mode must have no conf */
 		if ((!stack.conf.confmode) && stack.conf.confno) return (-EINVAL);
 		stack.conf.chan = i;  /* return with real channel # */
-		spin_lock_irqsave(&bigzaplock, flagso);
-		spin_lock_irqsave(&chan->lock, flags);
+		spin_lock_irqsave(&bigzaplock, flags);
+		spin_lock(&chan->lock);
 		if (stack.conf.confno == -1)
 			stack.conf.confno = dahdi_first_empty_conference();
 		if ((stack.conf.confno < 1) && (stack.conf.confmode)) {
 			/* No more empty conferences */
-			spin_unlock_irqrestore(&chan->lock, flags);
-			spin_unlock_irqrestore(&bigzaplock, flagso);
+			spin_unlock(&chan->lock);
+			spin_unlock_irqrestore(&bigzaplock, flags);
 			return -EBUSY;
 		}
 		  /* if changing confs, clear last added info */
@@ -4632,8 +4632,8 @@ static int dahdi_chanandpseudo_ioctl(struct inode *inode, struct file *file, uns
 			}
 		}
 
-		spin_unlock_irqrestore(&chan->lock, flags);
-		spin_unlock_irqrestore(&bigzaplock, flagso);
+		spin_unlock(&chan->lock);
+		spin_unlock_irqrestore(&bigzaplock, flags);
 		if (copy_to_user((struct dahdi_confinfo *) data,&stack.conf,sizeof(stack.conf)))
 			return -EFAULT;
 		break;
@@ -4646,16 +4646,16 @@ static int dahdi_chanandpseudo_ioctl(struct inode *inode, struct file *file, uns
 		if ((stack.conf.confno < 0) || (stack.conf.confno > DAHDI_MAX_CONF)) return(-EINVAL);
 		  /* cant listen to self!! */
 		if (stack.conf.chan && (stack.conf.chan == stack.conf.confno)) return(-EINVAL);
-		spin_lock_irqsave(&bigzaplock, flagso);
-		spin_lock_irqsave(&chan->lock, flags);
+		spin_lock_irqsave(&bigzaplock, flags);
+		spin_lock(&chan->lock);
 		  /* if to clear all links */
 		if ((!stack.conf.chan) && (!stack.conf.confno))
 		   {
 			   /* clear all the links */
 			memset(conf_links,0,sizeof(conf_links));
 			recalc_maxlinks();
-			spin_unlock_irqrestore(&chan->lock, flags);
-			spin_unlock_irqrestore(&bigzaplock, flagso);
+			spin_unlock(&chan->lock);
+			spin_unlock_irqrestore(&bigzaplock, flags);
 			break;
 		   }
 		rv = 0;  /* clear return value */
@@ -4705,8 +4705,8 @@ static int dahdi_chanandpseudo_ioctl(struct inode *inode, struct file *file, uns
 			   }
 		   }
 		recalc_maxlinks();
-		spin_unlock_irqrestore(&chan->lock, flags);
-		spin_unlock_irqrestore(&bigzaplock, flagso);
+		spin_unlock(&chan->lock);
+		spin_unlock_irqrestore(&bigzaplock, flags);
 		return(rv);
 	case DAHDI_CONFDIAG:  /* output diagnostic info to console */
 		if (!(chan->flags & DAHDI_FLAG_AUDIO)) return (-EINVAL);
