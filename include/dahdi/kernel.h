@@ -523,7 +523,7 @@ struct dahdi_span {
 	char location[40];		/*!< span device's location in system */
 	int deflaw;			/*!< Default law (DAHDI_MULAW or DAHDI_ALAW) */
 	int alarms;			/*!< Pending alarms on span */
-	int flags;
+	unsigned long flags;
 	int irq;			/*!< IRQ for this span's hardware */
 	int lbo;			/*!< Span Line-Buildout */
 	int lineconfig;			/*!< Span line configuration */

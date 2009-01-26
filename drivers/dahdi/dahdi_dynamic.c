@@ -414,7 +414,7 @@ static void dynamic_destroy(struct dahdi_dynamic *z)
 	unsigned int x;
 
 	/* Unregister span if appropriate */
-	if (z->span.flags & DAHDI_FLAG_REGISTERED)
+	if (test_bit(DAHDI_FLAGBIT_REGISTERED, &z->span.flags))
 		dahdi_unregister(&z->span);
 
 	/* Destroy the pvt stuff if there */
