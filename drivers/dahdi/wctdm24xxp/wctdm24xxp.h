@@ -249,7 +249,8 @@ struct wctdm {
 			int lasttxhook;		/* Bits 0-3 are written to proslic reg 64, Bit 4 indicates if the last write is pending */
 			int palarms;
 			struct dahdi_vmwi_info vmwisetting;
-			int linereverse_mwi;
+			int vmwi_active_messages;
+			int vmwi_linereverse;
 			int reversepolarity;	/* polarity reversal */
 			struct calregs calregs;
 		} fxs;

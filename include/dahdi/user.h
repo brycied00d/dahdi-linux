@@ -970,8 +970,7 @@ struct dahdi_hwgain {
  * VMWI Specification 
  */
 struct dahdi_vmwi_info {
-	unsigned int messages;	/* Number of messages pending */
-	unsigned int vmwi_type; 
+	unsigned int vmwi_type;
 };
 
 #define DAHDI_VMWI_LREV	(1 << 0)	/* Line Reversal */
@@ -982,7 +981,8 @@ struct dahdi_vmwi_info {
  * VoiceMail Waiting Indication (VMWI) -- implemented by low-level driver.
  * Value: number of waiting messages (hence 0: switch messages off).
  */
-#define DAHDI_VMWI			_IOWR(DAHDI_CODE, 94, struct dahdi_vmwi_info)
+#define DAHDI_VMWI			_IOWR(DAHDI_CODE, 94, int)
+#define DAHDI_VMWI_CONFIG  	_IOW(DAHDI_CODE, 95, struct dahdi_vmwi_info)
 
 /*
  * Startup or Shutdown a span

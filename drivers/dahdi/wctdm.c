@@ -239,7 +239,8 @@ struct wctdm {
 			int palarms;
 			int reversepolarity;		/* Reverse Line */
 			int mwisendtype;
-			struct dahdi_vmwi_info vmwisetting; 
+			struct dahdi_vmwi_info vmwisetting;
+			int vmwi_active_messages;
 			int vmwi_lrev:1;		/* MWI Line Reversal*/
 			int vmwi_hvdc:1;		/* MWI High Voltage DC Idle line */
 			int vmwi_hvac:1;		/* MWI Neon High Voltage AC Idle line */
@@ -1450,6 +1451,47 @@ static int wctdm_set_hwgain(struct wctdm *wc, int card, __s32 gain, __u32 tx)
 	return 0;
 }
 
+static int set_vmwi(struct wctdm * wc, int chan_idx)
+{
+	if (wc->mod[chan_idx].fxs.vmwi_active_messages){
+		wc->mod[chan_idx].fxs.vmwi_lrev = (wc->mod[chan_idx].fxs.vmwisetting.vmwi_type & DAHDI_VMWI_LREV)?1:0;
+		wc->mod[chan_idx].fxs.vmwi_hvdc = (wc->mod[chan_idx].fxs.vmwisetting.vmwi_type & DAHDI_VMWI_HVDC)?1:0;
+		wc->mod[chan_idx].fxs.vmwi_hvac = (wc->mod[chan_idx].fxs.vmwisetting.vmwi_type & DAHDI_VMWI_HVAC)?1:0;
+	} else {
+		wc->mod[chan_idx].fxs.vmwi_lrev = 0;
+		wc->mod[chan_idx].fxs.vmwi_hvdc = 0;
+		wc->mod[chan_idx].fxs.vmwi_hvac = 0;
+	}
+
+	if (debug) {
+		printk(KERN_DEBUG "Setting VMWI on channel %d, messages=%d, lrev=%d, hvdc=%d, hvac=%d\n",
+			   chan_idx,
+	  wc->mod[chan_idx].fxs.vmwi_active_messages,
+   wc->mod[chan_idx].fxs.vmwi_lrev,
+   wc->mod[chan_idx].fxs.vmwi_hvdc,
+   wc->mod[chan_idx].fxs.vmwi_hvac
+			  );
+	}
+	if (POLARITY_XOR(chan_idx)) {
+		wc->mod[chan_idx].fxs.idletxhookstate |= 0x4;
+		/* Do not set while currently ringing or open */
+		if (wc->mod[chan_idx].fxs.lasttxhook != 0x04 &&
+				  wc->mod[chan_idx ].fxs.lasttxhook != 0x00) {
+			wc->mod[chan_idx ].fxs.lasttxhook |= 0x4;
+			wctdm_setreg(wc, chan_idx, 64, wc->mod[chan_idx].fxs.lasttxhook);
+				  }
+	} else {
+		wc->mod[chan_idx].fxs.idletxhookstate &= ~0x04;
+		/* Do not set while currently ringing or open */
+		if (wc->mod[chan_idx].fxs.lasttxhook != 0x04 &&
+				  wc->mod[chan_idx].fxs.lasttxhook != 0x00) {
+			wc->mod[chan_idx].fxs.lasttxhook &= ~0x04;
+			wctdm_setreg(wc, chan_idx, 64, wc->mod[chan_idx].fxs.lasttxhook);
+				  }
+	}
+	return 0;
+}
+
 static int wctdm_init_voicedaa(struct wctdm *wc, int card, int fast, int manual, int sane)
 {
 	unsigned char reg16=0, reg26=0, reg30=0, reg31=0;
@@ -1799,7 +1841,6 @@ static int wctdm_init_proslic(struct wctdm *wc, int card, int fast, int manual, 
 	return 0;
 }
 
-
 static int wctdm_ioctl(struct dahdi_chan *chan, unsigned int cmd, unsigned long data)
 {
 	struct wctdm_stats stats;
@@ -1840,48 +1881,22 @@ static int wctdm_ioctl(struct dahdi_chan *chan, unsigned int cmd, unsigned long 
 			wc->mod[chan->chanpos - 1].fxs.lasttxhook &= ~0x04;
 		wctdm_setreg(wc, chan->chanpos - 1, 64, wc->mod[chan->chanpos - 1].fxs.lasttxhook);
 		break;
-	case DAHDI_VMWI:
+	case DAHDI_VMWI_CONFIG:
 		if (wc->modtype[chan->chanpos - 1] != MOD_TYPE_FXS)
 			return -EINVAL;
 		if (copy_from_user(&(wc->mod[chan->chanpos - 1].fxs.vmwisetting), (__user void *) data, sizeof(wc->mod[chan->chanpos - 1].fxs.vmwisetting)))
 			return -EFAULT;
-
-		if (wc->mod[chan->chanpos - 1].fxs.vmwisetting.messages){
-			wc->mod[chan->chanpos - 1].fxs.vmwi_lrev = (wc->mod[chan->chanpos - 1].fxs.vmwisetting.vmwi_type & DAHDI_VMWI_LREV)?1:0;
-			wc->mod[chan->chanpos - 1].fxs.vmwi_hvdc = (wc->mod[chan->chanpos - 1].fxs.vmwisetting.vmwi_type & DAHDI_VMWI_HVDC)?1:0;
-			wc->mod[chan->chanpos - 1].fxs.vmwi_hvac = (wc->mod[chan->chanpos - 1].fxs.vmwisetting.vmwi_type & DAHDI_VMWI_HVAC)?1:0;
-		} else {
-			wc->mod[chan->chanpos - 1].fxs.vmwi_lrev = 0;
-			wc->mod[chan->chanpos - 1].fxs.vmwi_hvdc = 0;
-			wc->mod[chan->chanpos - 1].fxs.vmwi_hvac = 0;
-		}
-
-		if (debug) {
-			printk(KERN_DEBUG "Setting VMWI on channel %d, messages=%d, lrev=%d, hvdc=%d, hvac=%d\n",
-				chan->chanpos-1,
-				wc->mod[chan->chanpos - 1].fxs.vmwisetting.messages,
-				wc->mod[chan->chanpos - 1].fxs.vmwi_lrev,
-				wc->mod[chan->chanpos - 1].fxs.vmwi_hvdc,
-				wc->mod[chan->chanpos - 1].fxs.vmwi_hvac
-			);
-		}
-		if (POLARITY_XOR(chan->chanpos -1)) {
-			wc->mod[chan->chanpos -1 ].fxs.idletxhookstate |= 0x4;
-			/* Do not set while currently ringing or open */
-			if (wc->mod[chan->chanpos -1 ].fxs.lasttxhook != 0x04 &&
-						   wc->mod[chan->chanpos -1 ].fxs.lasttxhook != 0x00) {
-				wc->mod[chan->chanpos -1 ].fxs.lasttxhook |= 0x4;
-				wctdm_setreg(wc, chan->chanpos - 1, 64, wc->mod[chan->chanpos - 1].fxs.lasttxhook);
-			}
-		} else {
-			wc->mod[chan->chanpos -1 ].fxs.idletxhookstate &= ~0x04;
-			/* Do not set while currently ringing or open */
-			if (wc->mod[chan->chanpos -1 ].fxs.lasttxhook != 0x04 &&
-						   wc->mod[chan->chanpos -1 ].fxs.lasttxhook != 0x00) {
-				wc->mod[chan->chanpos -1 ].fxs.lasttxhook &= ~0x04;
-				wctdm_setreg(wc, chan->chanpos - 1, 64, wc->mod[chan->chanpos - 1].fxs.lasttxhook);
-			}
-		}
+		set_vmwi(wc, chan->chanpos - 1);
+		break;
+	case DAHDI_VMWI:
+		if (wc->modtype[chan->chanpos - 1] != MOD_TYPE_FXS)
+			return -EINVAL;
+		if (get_user(x, (__user int *) data))
+			return -EFAULT;
+		if (0 > x)
+			return -EFAULT;
+		wc->mod[chan->chanpos - 1].fxs.vmwi_active_messages = x;
+		set_vmwi(wc, chan->chanpos - 1);
 		break;
 	case WCTDM_GET_STATS:
 		if (wc->modtype[chan->chanpos - 1] == MOD_TYPE_FXS) {
