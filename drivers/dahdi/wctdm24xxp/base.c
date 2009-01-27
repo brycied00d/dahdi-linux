@@ -87,7 +87,7 @@ static int loopcurrent = 20;
  * 	polarity reversal for the port,
  * 	and the state of the line reversal MWI indicator
  */
-#define POLARITY_XOR(card) ( (reversepolarity != 0) ^ (wc->mods[(card)].fxs.reversepolarity != 0) ^ (wc->mods[(card)].fxs.linereverse_mwi != 0) )
+#define POLARITY_XOR(card) ( (reversepolarity != 0) ^ (wc->mods[(card)].fxs.reversepolarity != 0) ^ (wc->mods[(card)].fxs.vmwi_linereverse != 0) )
 static int reversepolarity = 0;
 
 static alpha  indirect_regs[] =
@@ -1934,6 +1934,46 @@ static int wctdm_set_hwgain(struct wctdm *wc, int card, __s32 gain, __u32 tx)
 	return 0;
 }
 
+static int set_vmwi(struct wctdm *wc, int chan_idx)
+{
+	int x;
+	/* Presently only supports line reversal MWI */
+	if (wc->mods[chan_idx].fxs.vmwi_active_messages && wc->mods[chan_idx].fxs.vmwisetting.vmwi_type & DAHDI_VMWI_LREV){
+		wc->mods[chan_idx].fxs.vmwi_linereverse = 1;
+	} else {
+		wc->mods[chan_idx].fxs.vmwi_linereverse = 0;
+	}
+	/* Set line polarity for new VMWI state */
+	if (POLARITY_XOR(chan_idx)) {
+		wc->mods[chan_idx].fxs.idletxhookstate |= 0x14;
+		/* Do not set while currently ringing or open */
+		if (wc->mods[chan_idx].fxs.lasttxhook != 0x04  &&
+				  wc->mods[chan_idx].fxs.lasttxhook != 0x00) {
+			wc->mods[chan_idx].fxs.lasttxhook |= 0x14;
+			wc->sethook[chan_idx] = CMD_WR(64, wc->mods[chan_idx].fxs.lasttxhook);
+				  }
+	} else {
+		wc->mods[chan_idx].fxs.idletxhookstate &= ~0x04;
+		/* Do not set while currently ringing or open */
+		if (wc->mods[chan_idx].fxs.lasttxhook != 0x04 &&
+				  wc->mods[chan_idx].fxs.lasttxhook != 0x00) {
+			x = wc->mods[chan_idx].fxs.lasttxhook;
+			x &= ~0x04;
+			x |= 0x10;
+			wc->mods[chan_idx].fxs.lasttxhook = x;
+			wc->sethook[chan_idx] = CMD_WR(64, wc->mods[chan_idx].fxs.lasttxhook);
+		}
+	}
+	if (debug) {
+		printk(KERN_DEBUG "Setting VMWI on channel %d, messages=%d, lrev=%d\n",
+				chan_idx,
+	  			wc->mods[chan_idx].fxs.vmwi_active_messages,
+				wc->mods[chan_idx].fxs.vmwi_linereverse
+			  );
+	}
+	return 0;
+}
+
 static int wctdm_init_voicedaa(struct wctdm *wc, int card, int fast, int manual, int sane)
 {
 	unsigned char reg16=0, reg26=0, reg30=0, reg31=0;
@@ -2053,7 +2093,7 @@ static int wctdm_init_proslic(struct wctdm *wc, int card, int fast, int manual, 
 
 	/* Initialize VMWI settings */
 	memset(&(wc->mods[card].fxs.vmwisetting), 0, sizeof(wc->mods[card].fxs.vmwisetting));
-	wc->mods[card].fxs.linereverse_mwi = 0;
+	wc->mods[card].fxs.vmwi_linereverse = 0;
 
 	/* By default, don't send on hook */
 	if (!reversepolarity != !wc->mods[card].fxs.reversepolarity) {
@@ -2444,46 +2484,22 @@ static int wctdm_ioctl(struct dahdi_chan *chan, unsigned int cmd, unsigned long 
 			/* wctdm_setreg(wc, chan->chanpos - 1, 64, wc->mods[chan->chanpos - 1].fxs.lasttxhook); */
 		}
 		break;
-	case DAHDI_VMWI:
+	case DAHDI_VMWI_CONFIG:
 		if (wc->modtype[chan->chanpos - 1] != MOD_TYPE_FXS)
 			return -EINVAL;
 		if (copy_from_user(&(wc->mods[chan->chanpos - 1].fxs.vmwisetting), (__user void *) data, sizeof(wc->mods[chan->chanpos - 1].fxs.vmwisetting)))
 			return -EFAULT;
-		
-		if (wc->mods[chan->chanpos - 1].fxs.vmwisetting.messages && wc->mods[chan->chanpos - 1].fxs.vmwisetting.vmwi_type & DAHDI_VMWI_LREV){
-			wc->mods[chan->chanpos - 1].fxs.linereverse_mwi = 1; 
-		} else {
-			wc->mods[chan->chanpos - 1].fxs.linereverse_mwi = 0; 
-		}
-		/* Set line polarity for new VMWI state */
-		if (POLARITY_XOR(chan->chanpos -1)) {
-			wc->mods[chan->chanpos -1 ].fxs.idletxhookstate |= 0x14;
-			/* Do not set while currently ringing or open */
-			if (wc->mods[chan->chanpos -1 ].fxs.lasttxhook != 0x04  &&
-						  wc->mods[chan->chanpos -1 ].fxs.lasttxhook != 0x00) {
-				wc->mods[chan->chanpos -1 ].fxs.lasttxhook |= 0x14;
-				wc->sethook[chan->chanpos - 1] = CMD_WR(64, wc->mods[chan->chanpos - 1].fxs.lasttxhook);
-			}
-		} else {
-			wc->mods[chan->chanpos -1 ].fxs.idletxhookstate &= ~0x04;
-				/* Do not set while currently ringing or open */
-			if (wc->mods[chan->chanpos -1 ].fxs.lasttxhook != 0x04 &&
-						   wc->mods[chan->chanpos -1 ].fxs.lasttxhook != 0x00) {
-				x = wc->mods[chan->chanpos -1 ].fxs.lasttxhook;
-				x &= ~0x04;
-				x |= 0x10;
-				wc->mods[chan->chanpos -1 ].fxs.lasttxhook = x;
-				wc->sethook[chan->chanpos - 1] = CMD_WR(64, wc->mods[chan->chanpos - 1].fxs.lasttxhook);
-			}
-		}
-
-		if (debug) {
-			printk(KERN_DEBUG "Setting VMWI on channel %d, messages=%d, lrev=%d\n",
-				chan->chanpos-1,
-				wc->mods[chan->chanpos - 1].fxs.vmwisetting.messages,
-				wc->mods[chan->chanpos - 1].fxs.linereverse_mwi
-			);
-		}
+		set_vmwi(wc, chan->chanpos - 1);
+		break;
+	case DAHDI_VMWI:
+		if (wc->modtype[chan->chanpos - 1] != MOD_TYPE_FXS)
+			return -EINVAL;
+		if (get_user(x, (__user int *) data))
+			return -EFAULT;
+		if (0 > x)
+			return -EFAULT;
+		wc->mods[chan->chanpos - 1].fxs.vmwi_active_messages = x;
+		set_vmwi(wc, chan->chanpos - 1);
 		break;
 	case WCTDM_GET_STATS:
 		if (wc->modtype[chan->chanpos - 1] == MOD_TYPE_FXS) {
