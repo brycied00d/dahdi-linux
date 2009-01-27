@@ -459,10 +459,12 @@ struct wcdte {
 	unsigned long flags;
 
 	spinlock_t cmd_list_lock;
+	spinlock_t rx_list_lock;
 	/* This is a device-global list of commands that are waiting to be
 	 * transmited (and did not fit on the transmit descriptor ring) */
 	struct list_head cmd_list;
 	struct list_head waiting_for_response_list;
+	struct list_head rx_list;
 
 	unsigned int seq_num;
 	unsigned char numchannels;
@@ -1008,6 +1010,7 @@ wctc4xxp_submit(struct wctc4xxp_descriptor_ring* dr, struct tcb *c)
 {
 	volatile struct wctc4xxp_descriptor *d;
 	unsigned int len;
+	unsigned long flags;
 
 	WARN_ON(!c);
 	len = (c->data_len < MIN_PACKET_LEN) ? MIN_PACKET_LEN : c->data_len;
@@ -1016,11 +1019,11 @@ wctc4xxp_submit(struct wctc4xxp_descriptor_ring* dr, struct tcb *c)
 		c->data_len = MAX_FRAME_SIZE;
 	}
 
-	spin_lock_bh(&dr->lock);
+	spin_lock_irqsave(&dr->lock, flags);
 	d = wctc4xxp_descriptor(dr, dr->tail); 
 	WARN_ON(!d);
 	if (d->buffer1) {
-		spin_unlock_bh(&dr->lock);
+		spin_unlock_irqrestore(&dr->lock, flags);
 		/* Do not overwrite a buffer that is still in progress. */
 		return -EBUSY;
 	}
@@ -1033,7 +1036,7 @@ wctc4xxp_submit(struct wctc4xxp_descriptor_ring* dr, struct tcb *c)
 	dr->pending[dr->tail] = c;
 	dr->tail = ++dr->tail & DRING_MASK;
 	++dr->count;
-	spin_unlock_bh(&dr->lock);
+	spin_unlock_irqrestore(&dr->lock, flags);
 	return 0;
 }
 
@@ -1043,7 +1046,8 @@ wctc4xxp_retrieve(struct wctc4xxp_descriptor_ring *dr)
 	volatile struct wctc4xxp_descriptor *d;
 	struct tcb *c;
 	unsigned int head = dr->head;
-	spin_lock_bh(&dr->lock);
+	unsigned long flags;
+	spin_lock_irqsave(&dr->lock, flags);
 	d = wctc4xxp_descriptor(dr, head);
 	if (d->buffer1 && !OWNED(d)) {
 		pci_unmap_single(dr->pdev, d->buffer1, 
@@ -1059,16 +1063,17 @@ wctc4xxp_retrieve(struct wctc4xxp_descriptor_ring *dr)
 	} else {
 		c = NULL;
 	}
-	spin_unlock_bh(&dr->lock);
+	spin_unlock_irqrestore(&dr->lock, flags);
 	return c;
 }
 
 static inline int wctc4xxp_getcount(struct wctc4xxp_descriptor_ring *dr) 
 {
 	int count;
-	spin_lock_bh(&dr->lock);
+	unsigned long flags;
+	spin_lock_irqsave(&dr->lock, flags);
 	count = dr->count;
-	spin_unlock_bh(&dr->lock);
+	spin_unlock_irqrestore(&dr->lock, flags);
 	return count;
 }
 
@@ -1259,9 +1264,10 @@ wctc4xxp_cleanup_descriptor_ring(struct wctc4xxp_descriptor_ring *dr)
 {
 	int i; 
 	struct wctc4xxp_descriptor *d;
+	unsigned long flags;
 	
 	/* NOTE: The DTE must be in the stopped state. */
-	spin_lock_bh(&dr->lock);
+	spin_lock_irqsave(&dr->lock, flags);
 	for (i = 0; i < DRING_SIZE; ++i) {
 		d = wctc4xxp_descriptor(dr, i);
 		if (d->buffer1) {
@@ -1279,7 +1285,7 @@ wctc4xxp_cleanup_descriptor_ring(struct wctc4xxp_descriptor_ring *dr)
 	dr->head = 0;
 	dr->tail = 0;
 	dr->count = 0;
-	spin_unlock_bh(&dr->lock);
+	spin_unlock_irqrestore(&dr->lock, flags);
 	pci_free_consistent(dr->pdev, (sizeof(*d)+dr->padding) * DRING_SIZE, 
 	                    dr->desc, dr->desc_dma); 
 }
@@ -1292,9 +1298,10 @@ static void wctc4xxp_cleanup_command_list(struct wcdte *wc)
 	spin_lock_bh(&wc->cmd_list_lock);
 	list_splice_init(&wc->cmd_list, &local_list);
 	list_splice_init(&wc->waiting_for_response_list, &local_list);
+	list_splice_init(&wc->rx_list, &local_list);
 	spin_unlock_bh(&wc->cmd_list_lock);
 
-	while(!list_empty(&local_list)) {
+	while (!list_empty(&local_list)) {
 		cmd = list_entry(local_list.next, struct tcb, node); 
 		list_del_init(&cmd->node);
 		free_cmd(cmd);
@@ -1500,9 +1507,7 @@ do_channel_allocate(struct dahdi_transcoder_channel *dtc)
 	u8 wctc4xxp_dstfmt; /* Digium Transcoder Engine Dest Format */
 	int res;
 
-	if (down_interruptible(&wc->chansem)) {
-		return -EINTR;
-	}
+	down(&wc->chansem);
 
 	/* Check again to see if the channel was built after grabbing the
 	 * channel semaphore, in case the previous holder of the semaphore
@@ -1581,9 +1586,7 @@ wctc4xxp_operation_release(struct dahdi_transcoder_channel *dtc)
 		return -EIO;
 	}
 
-	if (down_interruptible(&wc->chansem)) {
-		return -EINTR;
-	}
+	down(&wc->chansem);
 
 	/* Remove any packets that are waiting on the outbound queue. */
 	wctc4xxp_cleanup_channel_private(wc, dtc);
@@ -2065,28 +2068,21 @@ static inline void service_tx_ring(struct wcdte *wc)
 static inline void service_rx_ring(struct wcdte *wc)
 {
 	struct tcb *cmd;
-	while ((cmd = wctc4xxp_retrieve(wc->rxd))) {
-		struct tcb *newcmd;
+	unsigned long flags;
+	LIST_HEAD(local_list);
+
+	spin_lock_irqsave(&wc->rx_list_lock, flags);
+	list_splice_init(&wc->rx_list, &local_list);
+	spin_unlock_irqrestore(&wc->rx_list_lock, flags);
+
+	/*
+	 * Process the received packets
+	 */
+	while (!list_empty(&local_list)) {
+		cmd = container_of(local_list.next, struct tcb, node);
+		list_del_init(&cmd->node);
 
 		wctc4xxp_net_capture_cmd(wc, cmd);
-
-		if(!(newcmd = __alloc_cmd(ALLOC_FLAGS, 0))) {
-			DTE_PRINTK(ERR, "Out of memory in %s.\n", __FUNCTION__);
-		} else {
-			if (newcmd->data_len < MAX_FRAME_SIZE) {
-				newcmd->data = kmalloc(MAX_FRAME_SIZE, ALLOC_FLAGS);
-				if (!newcmd->data) {
-					DTE_PRINTK(ERR, "out of memory in %s " \
-					    "again.\n", __FUNCTION__);
-				}
-				newcmd->data_len = MAX_FRAME_SIZE;
-			}
-			if (wctc4xxp_submit(wc->rxd, newcmd)) {
-				DTE_PRINTK(ERR, "Failed submit in %s\n", __FUNCTION__);
-				free_cmd(newcmd);
-			}
-			wctc4xxp_receive_demand_poll(wc);
-		}
 		wctc4xxp_receiveprep(wc, cmd);
 	}
 	wctc4xxp_receive_demand_poll(wc);
@@ -2114,6 +2110,7 @@ static void deferred_work_func(struct work_struct *work)
 DAHDI_IRQ_HANDLER(wctc4xxp_interrupt)
 {
 	struct wcdte *wc = dev_id;
+	struct tcb *cmd;
 	u32 ints;
 	u32 reg;
 #define TX_COMPLETE_INTERRUPT 0x00000001
@@ -2130,10 +2127,28 @@ DAHDI_IRQ_HANDLER(wctc4xxp_interrupt)
 
 	if (likely(ints & NORMAL_INTERRUPTS)) {
 		reg = 0;
-		if (ints & TX_COMPLETE_INTERRUPT) {
+		if (ints & TX_COMPLETE_INTERRUPT)
 			reg |= TX_COMPLETE_INTERRUPT;
-		}
+
 		if (ints & RX_COMPLETE_INTERRUPT) {
+			while ((cmd = wctc4xxp_retrieve(wc->rxd))) {
+				spin_lock(&wc->rx_list_lock);
+				list_add_tail(&cmd->node, &wc->rx_list);
+				spin_unlock(&wc->rx_list_lock);
+
+				cmd = __alloc_cmd(GFP_ATOMIC, 0);
+				if (!cmd) {
+					DTE_PRINTK(ERR,
+					  "Out of memory in %s.\n", __func__);
+				} else {
+					if (wctc4xxp_submit(wc->rxd, cmd)) {
+						DTE_PRINTK(ERR,
+						  "Failed submit in %s\n",
+						  __func__);
+						free_cmd(cmd);
+					}
+				}
+			}
 			reg |= RX_COMPLETE_INTERRUPT;
 		}
 #if DEFERRED_PROCESSING == WORKQUEUE
@@ -2244,8 +2259,7 @@ wctc4xxp_setintmask(struct wcdte *wc, unsigned int intmask)
 static void 
 wctc4xxp_enable_interrupts(struct wcdte *wc)
 {
-	wctc4xxp_setintmask(wc, 0x000180c1);
-	// wctc4xxp_setintmask(wc, 0xffffffff);
+	wctc4xxp_setintmask(wc, 0x000180c0);
 }
 
 static void 
@@ -2654,26 +2668,30 @@ wctc4xxp_destroy_channel_pair(struct wcdte *wc, struct channel_pvt *cpvt)
 {
 	struct dahdi_transcoder_channel *dtc1, *dtc2;
 	struct channel_pvt *cpvt1, *cpvt2;
-	int chan1, chan2;
+	int chan1, chan2, timeslot1, timeslot2;
 	int res;
 
 	if (cpvt->encoder) {
 		chan1 = cpvt->chan_in_num;
+		timeslot1 = cpvt->timeslot_in_num;
 		chan2 = cpvt->chan_out_num;
+		timeslot2 = cpvt->timeslot_out_num;
 	} else {
 		chan1 = cpvt->chan_out_num;
+		timeslot1 = cpvt->timeslot_out_num;
 		chan2 = cpvt->chan_in_num;
+		timeslot2 = cpvt->timeslot_in_num;
 	}
 
-	if (chan1/2 >= wc->numchannels || chan2/2 >= wc->numchannels) {
+	if (timeslot1/2 >= wc->numchannels || timeslot2/2 >= wc->numchannels) {
 		DTE_PRINTK(WARNING, 
-		 "Invalid channel numbers in %s. chan1:%d chan2: %d\n", 
-		 __FUNCTION__, chan1/2, chan2/2);
+		 "Invalid channel numbers in %s. chan1:%d chan2: %d\n",
+		 __func__, timeslot1/2, timeslot2/2);
 		return 0;
 	}
 
-	dtc1 = &(wc->uencode->channels[chan1/2]);
-	dtc2 = &(wc->udecode->channels[chan2/2]);
+	dtc1 = &(wc->uencode->channels[timeslot1/2]);
+	dtc2 = &(wc->udecode->channels[timeslot2/2]);
 	cpvt1 = dtc1->pvt;
 	cpvt2 = dtc2->pvt;
 
@@ -2779,10 +2797,8 @@ static int
 wctc4xxp_setup_channels(struct wcdte *wc)
 {
 	int ret;
-	if ((ret=down_interruptible(&wc->chansem))) {
-		WARN_ALWAYS();
-		return ret;
-	}
+
+	down(&wc->chansem);
 	ret = __wctc4xxp_setup_channels(wc);
 	up(&wc->chansem);
 
@@ -3018,8 +3034,10 @@ wctc4xxp_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 	init_MUTEX(&wc->chansem);
 	spin_lock_init(&wc->reglock);
 	spin_lock_init(&wc->cmd_list_lock);
+	spin_lock_init(&wc->rx_list_lock);
 	INIT_LIST_HEAD(&wc->cmd_list);
 	INIT_LIST_HEAD(&wc->waiting_for_response_list);
+	INIT_LIST_HEAD(&wc->rx_list);
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,20)
 	INIT_WORK(&wc->deferred_work, deferred_work_func, wc);
 #else
