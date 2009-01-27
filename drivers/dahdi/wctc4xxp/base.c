@@ -822,7 +822,7 @@ wctc4xxp_net_register(struct wcdte *wc)
 	const char our_mac[] = { 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff};
 
 #	ifdef HAVE_NETDEV_PRIV
-	netdev = alloc_netdev(sizeof(struct wcdte_netdev_priv *),
+	netdev = alloc_netdev(sizeof(struct wcdte_netdev_priv),
 			wc->board_name, ether_setup);
 	if (!netdev)
 		return -ENOMEM;
