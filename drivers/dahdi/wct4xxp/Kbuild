@@ -2,7 +2,7 @@ obj-$(DAHDI_BUILD_ALL)$(CONFIG_DAHDI_WCT4XXP) += wct4xxp.o
 
 FIRM_DIR	:= ../firmware
 
-EXTRA_CFLAGS := -I$(src)/.. $(shell $(src)/../oct612x/octasic-helper cflags $(src)/../oct612x) -Wno-undef
+EXTRA_CFLAGS += -I$(src)/.. $(shell $(src)/../oct612x/octasic-helper cflags $(src)/../oct612x) -Wno-undef
 
 ifeq ($(HOTPLUG_FIRMWARE),yes)
   EXTRA_CFLAGS+=-DHOTPLUG_FIRMWARE
