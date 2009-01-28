@@ -2700,6 +2700,7 @@ module_param(loopback, int, S_IRUGO | S_IWUSR);
 #endif
 module_param(milliwatt, int, S_IRUGO | S_IWUSR);
 module_param(pedanticpci, int, S_IRUGO);
+module_param(teignorered, int, S_IRUGO | S_IWUSR);
 module_param(alarmdebounce, int, S_IRUGO | S_IWUSR);
 module_param(vpmsupport, int, S_IRUGO);
 module_param(timer_1_ms, int, S_IRUGO | S_IWUSR);
