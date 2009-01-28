@@ -735,12 +735,14 @@ struct dahdi_dialoperation {
 
 struct dahdi_echocanparam {
 	char name[16];
-        __s32 value;
+	__s32 value;
 };
 
 struct dahdi_echocanparams {
-	__u32 tap_length;		/* 8 taps per millisecond */
-	__u32 param_count;		/* number of parameters supplied */
+	/* 8 taps per millisecond */
+	__u32 tap_length;
+	/* number of parameters supplied */
+	__u32 param_count;
 	/* immediately follow this structure with dahdi_echocanparam structures */
 	struct dahdi_echocanparam params[0];
 };
