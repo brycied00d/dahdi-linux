@@ -1622,7 +1622,7 @@ static int wctdm_voicedaa_insane(struct wctdm *wc, int card)
 
 static int wctdm_proslic_insane(struct wctdm *wc, int card)
 {
-	int blah,insane_report;
+	int blah, reg1, insane_report;
 	insane_report=0;
 
 	blah = wctdm_getreg(wc, card, 0);
@@ -1639,6 +1639,15 @@ static int wctdm_proslic_insane(struct wctdm *wc, int card)
 		/* SLIC not loaded */
 		return -1;
 	}
+
+	/* let's be really sure this is an FXS before we continue */
+	reg1 = wctdm_getreg(wc, card, 1);
+	if ((0x80 != (blah & 0xf0)) || (0x88 != reg1)) {
+		if (debug & DEBUG_CARD)
+			printk("DEBUG: not FXS b/c reg0=%x or reg1 != 0x88 (%x).\n", blah, reg1);
+		return -1;
+	}
+
 	if ((blah & 0xf) < 2) {
 		printk(KERN_INFO "ProSLIC 3210 version %d is too old\n", blah & 0xf);
 		return -1;
