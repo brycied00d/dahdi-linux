@@ -1209,6 +1209,7 @@ static void hfc_update_st_timers(struct b4xxp *b4)
 		if (s->newalarm != s->span.alarms && time_after_eq(b4->ticks, s->alarmtimer)) {
 			if (!s->te_mode || !teignorered) {
 				s->span.alarms = s->newalarm;
+				dahdi_alarm_notify(&s->span);
 				if (DBG_ALARM)
 					dev_info(b4->dev, "span %d: alarm %d debounced\n", i + 1, s->newalarm);
 				if (!s->te_mode)
