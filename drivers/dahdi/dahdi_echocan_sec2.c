@@ -279,7 +279,7 @@ static inline int16_t sample_update(struct echo_can_state *ec, int16_t tx, int16
 }
 /*- End of function --------------------------------------------------------*/
 
-static void echo_can_update(struct echo_can_state *ec, short *iref, short *isig)
+static void echo_can_update(struct echo_can_state *ec, short *isig, short *iref)
 {
 	unsigned int x;
 	short result;

@@ -724,7 +724,7 @@ static inline short sample_update(struct echo_can_state *ec, short iref, short i
 	return u;
 }
 
-static void echo_can_update(struct echo_can_state *ec, short *iref, short *isig)
+static void echo_can_update(struct echo_can_state *ec, short *isig, short *iref)
 {
 	unsigned int x;
 	short result;

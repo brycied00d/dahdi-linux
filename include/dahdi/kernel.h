@@ -361,7 +361,7 @@ struct dahdi_echocan {
 	struct module *owner;
 	int (*echo_can_create)(struct dahdi_echocanparams *ecp, struct dahdi_echocanparam *p, struct echo_can_state **ec);
 	void (*echo_can_free)(struct echo_can_state *ec);
-	void (*echo_can_array_update)(struct echo_can_state *ec, short *iref, short *isig);
+	void (*echo_can_array_update)(struct echo_can_state *ec, short *isig, short *iref);
 	int (*echo_can_traintap)(struct echo_can_state *ec, int pos, short val);
 };
 

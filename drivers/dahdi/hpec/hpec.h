@@ -40,7 +40,7 @@ struct echo_can_state __attribute__((regparm(0))) *hpec_channel_alloc(unsigned i
 
 void __attribute__((regparm(0))) hpec_channel_free(struct echo_can_state *channel);
 
-void __attribute__((regparm(0))) hpec_channel_update(struct echo_can_state *channel, short *iref, short *isig);
+void __attribute__((regparm(0))) hpec_channel_update(struct echo_can_state *channel, short *isig, short *iref);
 
 #endif /* !defined(_HPEC_H) */
 

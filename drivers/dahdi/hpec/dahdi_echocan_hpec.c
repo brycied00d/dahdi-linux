@@ -72,9 +72,9 @@ static void echo_can_free(struct echo_can_state *ec)
 	hpec_channel_free(ec);
 }
 
-static void echo_can_array_update(struct echo_can_state *ec, short *iref, short *isig)
+static void echo_can_array_update(struct echo_can_state *ec, short *isig, short *iref)
 {
-	hpec_channel_update(ec, iref, isig);
+	hpec_channel_update(ec, isig, iref);
 }
 
 DECLARE_MUTEX(alloc_lock);
