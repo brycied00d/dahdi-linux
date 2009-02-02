@@ -71,7 +71,7 @@ static void echo_can_free(struct echo_can_state *ec)
 	kfree(ec);
 }
 
-static void echo_can_update(struct echo_can_state *ec, short *iref, short *isig)
+static void echo_can_update(struct echo_can_state *ec, short *isig, short *iref)
 {
 	unsigned int x;
 
