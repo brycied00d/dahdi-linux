@@ -93,7 +93,9 @@ const xproto_table_t *xproto_get(xpd_type_t cardtype)
 	}
 	if(xtable) {
 		BUG_ON(!xtable->owner);
+#ifdef CONFIG_MODULE_UNLOAD
 		DBG(GENERAL, "%s refcount was %d\n", xtable->name, module_refcount(xtable->owner));
+#endif
 		if(!try_module_get(xtable->owner)) {
 			ERR("%s: try_module_get for %s failed.\n", __FUNCTION__, xtable->name);
 			return NULL;
@@ -105,8 +107,10 @@ const xproto_table_t *xproto_get(xpd_type_t cardtype)
 void xproto_put(const xproto_table_t *xtable)
 {
 	BUG_ON(!xtable);
+#ifdef CONFIG_MODULE_UNLOAD
 	DBG(GENERAL, "%s refcount was %d\n", xtable->name, module_refcount(xtable->owner));
 	BUG_ON(module_refcount(xtable->owner) <= 0);
+#endif
 	module_put(xtable->owner);
 }
 
