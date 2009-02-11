@@ -1030,6 +1030,7 @@ wctc4xxp_initialize_descriptor_ring(struct pci_dev *pdev, struct wctc4xxp_descri
 	d->des1 |= cpu_to_le32(END_OF_RING);
 	dr->direction = direction;
 	spin_lock_init(&dr->lock);
+	dr->pdev = pdev;
 	return 0;
 }
 
@@ -1305,7 +1306,7 @@ wctc4xxp_cleanup_descriptor_ring(struct wctc4xxp_descriptor_ring *dr)
 	for (i = 0; i < DRING_SIZE; ++i) {
 		d = wctc4xxp_descriptor(dr, i);
 		if (d->buffer1) {
-			dma_unmap_single(&dr->pdev->dev, d->buffer1, 
+			pci_unmap_single(dr->pdev, d->buffer1, 
 			                 SFRAME_SIZE, dr->direction);
 			d->buffer1 = 0;
 			/* Commands will also be sitting on the waiting for
