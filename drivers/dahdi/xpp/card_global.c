@@ -484,6 +484,12 @@ int xpp_register_request(xbus_t *xbus, xpd_t *xpd, xportno_t portno,
 		dump_reg_cmd("REG_REQ", 1, xbus, xpd->addr.unit, reg_cmd->portnum, reg_cmd);
 		dump_packet("REG_REQ", pack, 1);
 	}
+	if(!xframe->usec_towait) {	/* default processing time of SPI */
+		if(subreg)
+			xframe->usec_towait = 2000;
+		else
+			xframe->usec_towait = 1000;
+	}
 	ret = send_cmd_frame(xbus, xframe);
 	return ret;
 }
@@ -693,34 +699,24 @@ HANDLER_DEF(GLOBAL, SYNC_REPLY)
 
 HANDLER_DEF(GLOBAL, ERROR_CODE)
 {
-	byte			errorcode;
 	char			tmp_name[TMP_NAME_LEN];
 	static long		rate_limit;
-	const char		*msg;
-	const static char	*fw_messages[] = {
-					[1] = "Packet too short",
-					[2] = "Len field is too small",
-					[3] = "Premature packet end",
-					[4] = "Invalid op code",
-					[5] = "Invalid packet len",
-					[6] = "SPI fifo full",
-				};
+	byte			category_code;
+	byte			errorbits;
 
 	BUG_ON(!xbus);
 	if((rate_limit++ % 5003) > 200)
 		return 0;
-	errorcode = RPACKET_FIELD(pack, GLOBAL, ERROR_CODE, errorcode);
-	msg = (errorcode < ARRAY_SIZE(fw_messages))
-		? fw_messages[errorcode]
-		: "UNKNOWN CODE";
+	category_code = RPACKET_FIELD(pack, GLOBAL, ERROR_CODE, category_code);
+	errorbits = RPACKET_FIELD(pack, GLOBAL, ERROR_CODE, errorbits);
 	if(!xpd) {
 		snprintf(tmp_name, TMP_NAME_LEN, "%s(%1d%1d)", xbus->busname,
 			XPACKET_ADDR_UNIT(pack), XPACKET_ADDR_SUBUNIT(pack));
 	} else {
 		snprintf(tmp_name, TMP_NAME_LEN, "%s/%s", xbus->busname, xpd->xpdname);
 	}
-	NOTICE("%s: FIRMWARE: %s CODE = 0x%X (%s) (rate_limit=%ld)\n",
-			tmp_name, cmd->name, errorcode, msg, rate_limit);
+	NOTICE("%s: FIRMWARE %s: category=%d errorbits=0x%02X (rate_limit=%ld)\n",
+			tmp_name, cmd->name, category_code, errorbits, rate_limit);
 	dump_packet("FIRMWARE: ", pack, 1);
 	/*
 	 * FIXME: Should implement an error recovery plan

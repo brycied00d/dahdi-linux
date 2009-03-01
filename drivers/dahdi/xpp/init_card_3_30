@@ -398,8 +398,10 @@ sub init_xhfc($) {
 							#            in the last slot of PCM frame
 							#            V_PCM_DR, C4IO  is 16.384MHz(128 time slots) 
 
-	BRI::gen "$portnum	WD	4C	03";	# GPIOGPIO function (not PWM) on GPIO0 and GPIO1 pins
-	BRI::gen "$portnum	WD	4A	03";	# Output enable for GPIO0 and GPIO1 pins
+	BRI::gen "$portnum	WD	4C	07";	# GPIOGPIO function (not PWM) on GPIO0, GPIO1 and GPIO2 pins
+	BRI::gen "$portnum	WD	4A	07";	# Output enable for GPIO0, GPIO1 and GPIO2 pins
+	BRI::gen "$portnum	WD	48	01";	# GPIO output data bits
+
 }
 
 my @port_type = (

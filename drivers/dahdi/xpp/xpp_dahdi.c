@@ -558,28 +558,45 @@ err:
 	return NULL;
 }
 
-void xpd_unreg_request(xpd_t *xpd)
+/*
+ * Try our best to make asterisk close all channels related to
+ * this Astribank:
+ *   - Set span state to DAHDI_ALARM_NOTOPEN in all relevant spans.
+ *   - Notify dahdi afterwards about spans (so it can see all changes at once).
+ *   - Also send DAHDI_EVENT_REMOVED on all channels.
+ */
+void xbus_request_removal(xbus_t *xbus)
 {
 	unsigned long	flags;
+	int		i;
 
-	BUG_ON(!xpd);
-
-	XPD_DBG(DEVICES, xpd, "\n");
-	spin_lock_irqsave(&xpd->lock, flags);
-	xpd->card_present = 0;
-	xpd_setstate(xpd, XPD_STATE_NOHW);
-	if(SPAN_REGISTERED(xpd)) {
-		int i;
-
-		update_xpd_status(xpd, DAHDI_ALARM_NOTOPEN);
-		/* TODO: Should this be done before releasing the spinlock? */
-		XPD_DBG(DEVICES, xpd, "Queuing DAHDI_EVENT_REMOVED on all channels to ask user to close them\n");
-		for (i=0; i<xpd->span.channels; i++) {
-			dahdi_qevent_lock(XPD_CHAN(xpd, i),DAHDI_EVENT_REMOVED);
+	for(i = 0; i < MAX_XPDS; i++) {
+		xpd_t *xpd = xpd_of(xbus, i);
+		if(xpd) {
+			XPD_DBG(DEVICES, xpd, "\n");
+			spin_lock_irqsave(&xpd->lock, flags);
+			xpd->card_present = 0;
+			xpd_setstate(xpd, XPD_STATE_NOHW);
+			xpd->span.alarms = DAHDI_ALARM_NOTOPEN;
+			spin_unlock_irqrestore(&xpd->lock, flags);
 		}
 	}
-	spin_unlock_irqrestore(&xpd->lock, flags);
-	xpd_device_unregister(xpd);
+	/* Now notify dahdi */
+	for(i = 0; i < MAX_XPDS; i++) {
+		xpd_t *xpd = xpd_of(xbus, i);
+		if(xpd) {
+			if(SPAN_REGISTERED(xpd)) {
+				int i;
+
+				dahdi_alarm_notify(&xpd->span);
+				XPD_DBG(DEVICES, xpd, "Queuing DAHDI_EVENT_REMOVED on all channels to ask user to release them\n");
+				for (i=0; i<xpd->span.channels; i++) {
+					dahdi_qevent_lock(XPD_CHAN(xpd, i),DAHDI_EVENT_REMOVED);
+				}
+			}
+			xpd_device_unregister(xpd);
+		}
+	}
 }
 
 /*
@@ -615,9 +632,9 @@ void update_xpd_status(xpd_t *xpd, int alarm_flag)
 	}
 	if(span->alarms == alarm_flag)
 		return;
+	XPD_DBG(GENERAL, xpd, "Update XPD alarms: %s -> %02X\n", xpd->span.name, alarm_flag);
 	span->alarms = alarm_flag;
 	dahdi_alarm_notify(span);
-	XPD_DBG(GENERAL, xpd, "Update XPD alarms: %s -> %02X\n", xpd->span.name, alarm_flag);
 }
 
 /*
@@ -1189,7 +1206,7 @@ EXPORT_SYMBOL(get_xpd);
 EXPORT_SYMBOL(put_xpd);
 EXPORT_SYMBOL(xpd_alloc);
 EXPORT_SYMBOL(xpd_free);
-EXPORT_SYMBOL(xpd_unreg_request);
+EXPORT_SYMBOL(xbus_request_removal);
 EXPORT_SYMBOL(update_xpd_status);
 EXPORT_SYMBOL(oht_pcm);
 EXPORT_SYMBOL(mark_offhook);

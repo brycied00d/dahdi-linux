@@ -171,6 +171,7 @@ struct xbus {
 	struct xpd		*xpds[MAX_XPDS];
 
 	int			command_tick_counter;
+	int			usec_nosend;		/* Firmware flow control */
 	struct xframe_queue	command_queue;
 	wait_queue_head_t	command_queue_empty;
 
@@ -261,6 +262,7 @@ struct xframe {
 	size_t			frame_maxlen;
 	byte			*packets;	/* max XFRAME_DATASIZE */
 	byte			*first_free;
+	int			usec_towait;	/* prevent overflowing AB */
 	void			*priv;
 };
 
