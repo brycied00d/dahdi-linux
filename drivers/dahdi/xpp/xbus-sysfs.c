@@ -612,6 +612,26 @@ static DEVICE_ATTR_READER(type_show, dev, buf)
 	return len;
 }
 
+static DEVICE_ATTR_READER(offhook_show, dev, buf)
+{
+	xpd_t		*xpd;
+	int		len = 0;
+	int		i;
+
+	BUG_ON(!dev);
+	xpd = dev_to_xpd(dev);
+	if(!xpd)
+		return -ENODEV;
+	for_each_line(xpd, i) {
+		len += sprintf(buf + len, "%d ", IS_OFFHOOK(xpd, i));
+	}
+	if(len) {
+		len--;	/* backout last space */
+		len += sprintf(buf + len, "\n");
+	}
+	return len;
+}
+
 static int xpd_match(struct device *dev, struct device_driver *driver)
 {
 	struct xpd_driver	*xpd_driver;
@@ -634,6 +654,7 @@ static struct device_attribute xpd_dev_attrs[] = {
 	__ATTR(blink,		S_IRUGO | S_IWUSR, blink_show, blink_store),
 	__ATTR(span,		S_IRUGO | S_IWUSR, span_show, span_store),
         __ATTR_RO(type),
+        __ATTR_RO(offhook),
         __ATTR_NULL,
 };
 

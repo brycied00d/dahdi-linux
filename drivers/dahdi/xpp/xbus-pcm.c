@@ -177,7 +177,7 @@ static void xpp_drift_step(xbus_t *xbus, const struct timeval *tv)
 
 	spin_lock_irqsave(&driftinfo->lock, flags);
 	cycled = xpp_ticker_step(&xbus->ticker, tv);
-	if(ref_ticker && syncer && xbus->sync_mode == SYNC_MODE_PLL) {
+	if(ref_ticker && ref_ticker != &xbus->ticker && syncer && xbus->sync_mode == SYNC_MODE_PLL) {
 		int	new_delta_tick = ticker->count - ref_ticker->count;
 		int	lost_ticks = new_delta_tick - driftinfo->delta_tick;
 
@@ -342,6 +342,7 @@ void xbus_set_command_timer(xbus_t *xbus, bool on)
 		XBUS_DBG(SYNC, xbus, "del_timer\n");
 		del_timer(&xbus->command_timer);
 	}
+	xbus->self_ticking = ! on;
 }
 
 /*
@@ -363,21 +364,18 @@ void got_new_syncer(xbus_t *xbus, enum sync_mode mode, int drift)
 	case SYNC_MODE_AB:
 		xbus->sync_mode = mode;
 		xbus_set_command_timer(xbus, 0);
-		xbus->self_ticking = 1;
 		xpp_set_syncer(xbus, 1);
 		global_ticker = xbus;
 		break;
 	case SYNC_MODE_PLL:
 		xbus->sync_mode = mode;
 		xbus_set_command_timer(xbus, 0);
-		xbus->self_ticking = 1;
 		xpp_set_syncer(xbus, 0);
 		global_ticker = xbus;
 		break;
 	case SYNC_MODE_NONE:		/* lost sync source */
 		xbus->sync_mode = mode;
 		xbus_set_command_timer(xbus, 1);
-		xbus->self_ticking = 0;
 		xpp_set_syncer(xbus, 0);
 		break;
 	case SYNC_MODE_QUERY:		/* ignore           */
@@ -395,7 +393,6 @@ void xbus_request_sync(xbus_t *xbus, enum sync_mode mode)
 	XBUS_DBG(SYNC, xbus, "sent request (mode=%d)\n", mode);
 	CALL_PROTO(GLOBAL, SYNC_SOURCE, xbus, NULL, mode, 0);
 	if(mode == SYNC_MODE_NONE) {
-		xbus->self_ticking = 0;
 		xbus_set_command_timer(xbus, 1);
 	}
 }
@@ -528,6 +525,12 @@ static void update_sync_master(xbus_t *new_syncer, bool force_dahdi)
 	 * This global locking protects:
 	 *   - The ref_ticker so it won't be used while we change it.
 	 *   - The xbus_drift_clear() from corrupting driftinfo data.
+	 * It's important to set ref_ticker now:
+	 *   - We cannot make the new xbus a syncer yet (until we get
+	 *     a reply from AB). Maybe it's still not self_ticking, so
+	 *     we must keep the timer for the command_queue to function.
+	 *   - However, we must not send drift commands to it, because
+	 *     they'll revert it to PLL instead of AB.
 	 */
 	spin_lock_irqsave(&ref_ticker_lock, flags);
 	if(syncer)
@@ -564,7 +567,7 @@ void elect_syncer(const char *msg)
 {
 	int	i;
 	int	j;
-	uint	timing_priority = 0;
+	uint	timing_priority = INT_MAX;
 	xpd_t	*best_xpd = NULL;
 	xbus_t	*the_xbus = NULL;
 
@@ -580,7 +583,7 @@ void elect_syncer(const char *msg)
 
 				if(!xpd || !xpd->card_present)
 					continue;
-				if(xpd->timing_priority > timing_priority) {
+				if(xpd->timing_priority > 0 && xpd->timing_priority < timing_priority) {
 					timing_priority = xpd->timing_priority;
 					best_xpd = xpd;
 				}
@@ -595,6 +598,7 @@ void elect_syncer(const char *msg)
 	} else {
 		DBG(SYNC, "%s: No more syncers\n", msg);
 		xpp_set_syncer(NULL, 0);
+		the_xbus = NULL;
 	}
 	if(the_xbus != syncer)
 		update_sync_master(the_xbus, force_dahdi_sync);

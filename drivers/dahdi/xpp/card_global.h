@@ -91,7 +91,8 @@ DEF_RPACKET_DATA(GLOBAL, RESET_SYNC_COUNTERS,
 	byte		mask;
 	);
 DEF_RPACKET_DATA(GLOBAL, ERROR_CODE,
-	byte		errorcode;
+	byte		category_code;
+	byte		errorbits;
 	byte		bad_packet[0];
 	);
 

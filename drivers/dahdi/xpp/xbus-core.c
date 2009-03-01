@@ -61,6 +61,7 @@ static int proc_xbus_command_write(struct file *file, const char __user *buffer,
 
 /* Command line parameters */
 extern int debug;
+static DEF_PARM(uint, command_queue_length, 800, 0444, "Maximal command queue length");
 static DEF_PARM(uint, poll_timeout, 1000, 0644, "Timeout (in jiffies) waiting for units to reply");
 static DEF_PARM_BOOL(rx_tasklet, 0, 0644, "Use receive tasklets");
 
@@ -503,11 +504,20 @@ int xbus_command_queue_tick(xbus_t *xbus)
 {
 	xframe_t	*frm;
 	int		ret = 0;
+	int		packno;
 
 	xbus->command_tick_counter++;
-	frm = xframe_dequeue(&xbus->command_queue);
-	if(frm) {
+	xbus->usec_nosend -= 1000;	/* That's our budget */
+	for(packno = 0; packno < 3; packno++) {
+		if(xbus->usec_nosend > 0)
+			break;
+		frm = xframe_dequeue(&xbus->command_queue);
+		if(!frm) {
+			wake_up(&xbus->command_queue_empty);
+			break;
+		}
 		BUG_ON(frm->xframe_magic != XFRAME_MAGIC);
+		xbus->usec_nosend += frm->usec_towait;
 		ret = really_send_cmd_frame(xbus, frm);
 		if(ret < 0) {
 			XBUS_ERR(xbus,
@@ -515,8 +525,9 @@ int xbus_command_queue_tick(xbus_t *xbus)
 				ret);
 			xbus_setstate(xbus, XBUS_STATE_FAIL);
 		}
-	} else
-		wake_up(&xbus->command_queue_empty);
+	}
+	if(xbus->usec_nosend < 0)
+		xbus->usec_nosend = 0;
 	return ret;
 }
 
@@ -1190,19 +1201,12 @@ int xbus_connect(xbus_t *xbus)
 
 void xbus_deactivate(xbus_t *xbus, bool is_disconnected)
 {
-	int	i;
-
 	BUG_ON(!xbus);
 	XBUS_INFO(xbus, "[%s] Deactivating\n", xbus->label);
 	if(!xbus_setstate(xbus, XBUS_STATE_DEACTIVATING))
 		return;
 	xbus_request_sync(xbus, SYNC_MODE_NONE);	/* no more ticks */
-	for(i = 0; i < MAX_XPDS; i++) {
-		xpd_t *xpd = xpd_of(xbus, i);
-		if(xpd) {
-			xpd_unreg_request(xpd);
-		}
-	}
+	xbus_request_removal(xbus);
 	XBUS_DBG(DEVICES, xbus, "[%s] Waiting for queues\n", xbus->label);
 	xbus_command_queue_clean(xbus);
 	xbus_command_queue_waitempty(xbus);
@@ -1388,7 +1392,7 @@ xbus_t *xbus_new(struct xbus_ops *ops, ushort max_send_size, struct device *tran
 		goto nobus;
 	}
 #endif
-	xframe_queue_init(&xbus->command_queue, 10, 200, "command_queue", xbus);
+	xframe_queue_init(&xbus->command_queue, 10, command_queue_length, "command_queue", xbus);
 	xframe_queue_init(&xbus->receive_queue, 10, 50, "receive_queue", xbus);
 	xframe_queue_init(&xbus->send_pool, 10, 100, "send_pool", xbus);
 	xframe_queue_init(&xbus->receive_pool, 10, 50, "receive_pool", xbus);
@@ -1479,6 +1483,7 @@ static int xbus_read_proc(char *page, char **start, off_t off, int count, int *e
 	len += sprintf(page + len, "self_ticking: %d (last_tick at %ld)\n",
 			xbus->self_ticking, xbus->ticker.last_sample.tv.tv_sec);
 	len += sprintf(page + len, "command_tick: %d\n", xbus->command_tick_counter);
+	len += sprintf(page + len, "usec_nosend: %d\n", xbus->usec_nosend);
 	len += sprintf(page + len, "xbus: pcm_rx_counter = %d, frag = %d\n",
 		atomic_read(&xbus->pcm_rx_counter), xbus->xbus_frag_count);
 	len += sprintf(page + len, "max_rx_process = %2ld.%ld ms\n",
