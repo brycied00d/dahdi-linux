@@ -27,7 +27,7 @@
 
 int dahdi_register_xpd(xpd_t *xpd);
 int dahdi_unregister_xpd(xpd_t *xpd);
-void xpd_unreg_request(xpd_t *xpd);
+void xbus_request_removal(xbus_t *xbus);
 int create_xpd(xbus_t *xbus, const xproto_table_t *proto_table,
 		int unit, int subunit, byte type, byte subtype, int subunits, byte port_dir);
 void xpd_post_init(xpd_t *xpd);

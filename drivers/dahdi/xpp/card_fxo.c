@@ -194,6 +194,7 @@ static void reset_battery_readings(xpd_t *xpd, lineno_t pos)
 
 	priv->nobattery_debounce[pos] = 0;
 	priv->power_denial_delay[pos] = 0;
+	power_change(xpd, pos, POWER_UNKNOWN);
 }
 
 static const int	led_register_mask[] = { 	BIT(7),	BIT(6),	BIT(5) };
@@ -357,7 +358,6 @@ static int do_sethook(xpd_t *xpd, int pos, bool to_offhook)
 	if(to_offhook) {
 		priv->power_denial_safezone[pos] = power_denial_safezone;
 	} else {
-		power_change(xpd, pos, POWER_UNKNOWN);
 		priv->power_denial_length[pos] = 0;
 		priv->power_denial_safezone[pos] = 0;
 	}
@@ -664,7 +664,7 @@ static void handle_fxo_power_denial(xpd_t *xpd)
 			continue;
 		}
 		if(priv->power_denial_safezone[i] > 0) {
-			if(--priv->power_denial_safezone[i]) {
+			if(--priv->power_denial_safezone[i] == 0) {
 				/*
 				 * Poll current, previous answers are meaningless
 				 */
@@ -912,8 +912,7 @@ static void update_battery_voltage(xpd_t *xpd, byte data_low, xportno_t portno)
 			if(milliseconds > BAT_DEBOUNCE) {
 				LINE_DBG(SIGNAL, xpd, portno, "BATTERY OFF voltage=%d\n", volts);
 				priv->battery[portno] = BATTERY_OFF;
-				if(SPAN_REGISTERED(xpd))
-					dahdi_report_battery(xpd, portno);
+				dahdi_report_battery(xpd, portno);
 				/* What's the polarity ? */
 				priv->polarity[portno] = POL_UNKNOWN;
 				priv->polarity_debounce[portno] = 0;
@@ -931,8 +930,7 @@ static void update_battery_voltage(xpd_t *xpd, byte data_low, xportno_t portno)
 		if(priv->battery[portno] != BATTERY_ON) {
 			LINE_DBG(SIGNAL, xpd, portno, "BATTERY ON voltage=%d\n", volts);
 			priv->battery[portno] = BATTERY_ON;
-			if(SPAN_REGISTERED(xpd))
-				dahdi_report_battery(xpd, portno);
+			dahdi_report_battery(xpd, portno);
 		}
 	}
 #if 0

@@ -149,13 +149,14 @@ bool valid_xpd_addr(const struct xpd_addr *addr);
 								\
 		if(XBUS_IS(xbus, DISCONNECTED))			\
 			return -ENODEV;				\
-		frm = ALLOC_SEND_XFRAME(xbus);			\
-		if(!frm)					\
+		(frm) = ALLOC_SEND_XFRAME(xbus);			\
+		if(!(frm))					\
 			return -ENOMEM;				\
 		(p) = xframe_next_packet(frm, pack_len);	\
 		if(!(p))					\
 			return -ENOMEM;				\
 		XPACKET_INIT(p, card, op, to, 0, 0);		\
+		(frm)->usec_towait = 0;				\
 	} while(0)
 
 #endif

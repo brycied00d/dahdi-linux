@@ -25,6 +25,26 @@ void xframe_queue_clearstats(struct xframe_queue *q)
 	q->worst_lag_usec = 0L;
 }
 
+static void __xframe_dump_queue(struct xframe_queue *q)
+{
+	xframe_t	*xframe;
+	int		i = 0;
+	char		prefix[30];
+	struct timeval	now;
+
+	do_gettimeofday(&now);
+	printk(KERN_DEBUG "%s: dump queue '%s' (first packet in each frame)\n",
+		THIS_MODULE->name,
+		q->name);
+	list_for_each_entry_reverse(xframe, &q->head, frame_list) {
+		xpacket_t	*pack = (xpacket_t *)&xframe->packets[0];
+		long		usec = usec_diff(&now, &xframe->tv_queued);
+		snprintf(prefix, ARRAY_SIZE(prefix), "  %3d> %5ld.%03ld msec",
+			i++, usec / 1000, usec % 1000);
+		dump_packet(prefix, pack, 1);
+	}
+}
+
 static bool __xframe_enqueue(struct xframe_queue *q, xframe_t *xframe)
 {
 	int			ret = 1;
@@ -44,6 +64,7 @@ static bool __xframe_enqueue(struct xframe_queue *q, xframe_t *xframe)
 				q->overflows,
 				q->worst_lag_usec / 1000,
 				q->worst_lag_usec % 1000);
+		__xframe_dump_queue(q);
 		ret = 0;
 		goto out;
 	}
