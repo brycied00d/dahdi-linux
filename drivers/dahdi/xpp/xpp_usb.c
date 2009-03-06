@@ -975,7 +975,11 @@ static int __init xpp_usb_init(void)
 	INFO("revision %s\n", XPP_VERSION);
 	xusb_cache = kmem_cache_create("xusb_cache",
 			sizeof(xframe_t) + XFRAME_DATASIZE,
+#if LINUX_VERSION_CODE == KERNEL_VERSION(2,6,22)
+			0, SLAB_STORE_USER,
+#else
 			0, 0,
+#endif
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,23)
 			NULL, 
 #endif
