@@ -3375,13 +3375,17 @@ static struct pci_driver wctc4xxp_driver = {
 static int __init wctc4xxp_init(void)
 {
 	int res;
-#	if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,23)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,23)
 	cmd_cache = kmem_cache_create(THIS_MODULE->name, sizeof(struct tcb), 0, 
+#if LINUX_VERSION_CODE == KERNEL_VERSION(2,6,22)
+	                              SLAB_HWCACHE_ALIGN | SLAB_STORE_USER, NULL, NULL);
+#else
 	                              SLAB_HWCACHE_ALIGN, NULL, NULL);
-#	else
+#endif
+#else
 	cmd_cache = kmem_cache_create(THIS_MODULE->name, sizeof(struct tcb), 0, 
 	                              SLAB_HWCACHE_ALIGN, NULL);
-#	endif
+#endif
 	
 	if (!cmd_cache) {
 		return -ENOMEM;
