@@ -39,7 +39,13 @@
 #include <dahdi/kernel.h>
 
 static int debug;
-static LIST_HEAD(trans);
+/* The registration list contains transcoders in the order in which they were
+ * registered. */
+static LIST_HEAD(registration_list);
+/* The active list is sorted by the most recently used transcoder is last. This
+ * is used as a simplistic way to spread the load amongst the different hardware
+ * transcoders in the system. */
+static LIST_HEAD(active_list);
 static spinlock_t translock = SPIN_LOCK_UNLOCKED;
 
 EXPORT_SYMBOL(dahdi_transcoder_register);
@@ -59,7 +65,8 @@ struct dahdi_transcoder *dahdi_transcoder_alloc(int numchans)
 
 	memset(tc, 0, size);
 	strcpy(tc->name, "<unspecified>");
-	INIT_LIST_HEAD(&tc->node);
+	INIT_LIST_HEAD(&tc->registration_list_node);
+	INIT_LIST_HEAD(&tc->active_list_node);
 	tc->numchannels = numchans;
 	for (x=0; x < tc->numchannels; x++) {
 		init_waitqueue_head(&tc->channels[x].ready);
@@ -93,11 +100,10 @@ static int is_on_list(struct list_head *entry, struct list_head *head)
 /* Register a transcoder */
 int dahdi_transcoder_register(struct dahdi_transcoder *tc)
 {
-	static int count = 0;
-	tc->pos = count++;
 	spin_lock(&translock);
-	BUG_ON(is_on_list(&tc->node, &trans));
-	list_add_tail(&tc->node, &trans);
+	BUG_ON(is_on_list(&tc->registration_list_node, &registration_list));
+	list_add_tail(&tc->registration_list_node, &registration_list);
+	list_add_tail(&tc->active_list_node, &active_list);
 	spin_unlock(&translock);
 
 	printk(KERN_INFO "%s: Registered codec translator '%s' " \
@@ -117,13 +123,14 @@ int dahdi_transcoder_unregister(struct dahdi_transcoder *tc)
 	 * that is still in use? */
 
 	spin_lock(&translock);
-	if (!is_on_list(&tc->node, &trans)) {
+	if (!is_on_list(&tc->registration_list_node, &registration_list)) {
 		spin_unlock(&translock);
 		printk(KERN_WARNING "%s: Failed to unregister %s, which is " \
 		       "not currently registerd.\n", THIS_MODULE->name, tc->name);
 		return -EINVAL;
 	}
-	list_del_init(&tc->node);
+	list_del_init(&tc->registration_list_node);
+	list_del_init(&tc->active_list_node);
 	spin_unlock(&translock);
 
 	printk(KERN_INFO "Unregistered codec translator '%s' with %d " \
@@ -223,7 +230,7 @@ __find_free_channel(struct list_head *list, const struct dahdi_transcoder_format
 	struct dahdi_transcoder_channel *chan = NULL;
 	unsigned int match = 0;
 
-	list_for_each_entry(tc, list, node) {
+	list_for_each_entry(tc, list, active_list_node) {
 		if ((tc->dstfmts & fmts->dstfmt) && (tc->srcfmts & fmts->srcfmt)) {
 			/* We found a transcoder that can handle our formats.
 			 * Now look for an available channel. */
@@ -234,7 +241,7 @@ __find_free_channel(struct list_head *list, const struct dahdi_transcoder_format
 				 * transcoders (when there are more than one
 				 * transcoder in the system) we'll move tc 
 				 * to the end of the list. */
-				list_move_tail(&tc->node, list);
+				list_move_tail(&tc->active_list_node, list);
 				return chan;
 			}
 		}
@@ -252,7 +259,7 @@ static long dahdi_tc_allocate(struct file *file, unsigned long data)
 	}
 
 	spin_lock(&translock);
-	chan = __find_free_channel(&trans, &fmts);
+	chan = __find_free_channel(&active_list, &fmts);
 	spin_unlock(&translock);
 
 	if (IS_ERR(chan)) {
@@ -302,14 +309,15 @@ static long dahdi_tc_getinfo(unsigned long data)
 	struct dahdi_transcoder_info info;
 	struct dahdi_transcoder *cur;
 	struct dahdi_transcoder *tc = NULL;
-	
+	unsigned int count = 0;
+
 	if (copy_from_user(&info, (__user const void *) data, sizeof(info))) {
 		return -EFAULT;
 	}
 
 	spin_lock(&translock);
-	list_for_each_entry(cur, &trans, node) {
-		if (cur->pos == info.tcnum) {
+	list_for_each_entry(cur, &registration_list, registration_list_node) {
+		if (info.tcnum == count++) {
 			tc = cur;
 			break;
 		} 
