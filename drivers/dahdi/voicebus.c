@@ -2,10 +2,10 @@
  * VoiceBus(tm) Interface Library.
  *
  * Written by Shaun Ruffell <sruffell@digium.com>
- * and based on previous work by Mark Spencer <markster@digium.com>, 
+ * and based on previous work by Mark Spencer <markster@digium.com>,
  * Matthew Fredrickson <creslin@digium.com>, and
  * Michael Spiceland <mspiceland@digium.com>
- * 
+ *
  * Copyright (C) 2007-2008 Digium, Inc.
  *
  * All rights reserved.
@@ -56,7 +56,7 @@
 #define VOICEBUS_ALLOC_FLAGS GFP_ATOMIC
 #endif
 
-#if VOICEBUS_DEFERRED == TIMER 
+#if VOICEBUS_DEFERRED == TIMER
 #if HZ < 1000
 /* \todo Put an error message here. */
 #endif
@@ -64,7 +64,7 @@
 
 /*! The number of descriptors in both the tx and rx descriptor ring. */
 #define DRING_SIZE (1 << 5)  /* Must be a power of 2 */
-#define DRING_MASK	(DRING_SIZE-1) 
+#define DRING_MASK	(DRING_SIZE-1)
 
 /* Interrupt status' reported in SR_CSR5 */
 #define TX_COMPLETE_INTERRUPT 		0x00000001
@@ -140,7 +140,7 @@ struct voicebus_descriptor_list {
  */
 struct voicebus {
 	/*! Name of this card. */
-	const char *board_name; 
+	const char *board_name;
 	/*! The system pci device for this VoiceBus interface. */
 	struct pci_dev *pdev;
 	/*! Protects access to card registers and this structure. You should
@@ -149,7 +149,7 @@ struct voicebus {
 	spinlock_t lock;
 	/*! The size of the transmit and receive buffers for this card. */
 	u32 framesize;
-	/*! The number of u32s in the host system cache line. */	
+	/*! The number of u32s in the host system cache line. */
 	u8 cache_line_size;
 	/*! Pool to allocate memory for the tx and rx descriptor rings. */
 	struct voicebus_descriptor_list rxd;
@@ -203,15 +203,15 @@ struct voicebus {
  * be locked from the context of the interrupt handler, and therefore we do
  * not need to lock interrupts.
  */
-#define LOCKS_VOICEBUS			
-#define LOCKS_FROM_DEFERRED		
+#define LOCKS_VOICEBUS
+#define LOCKS_FROM_DEFERRED
 #define VBLOCK(_vb_) 			spin_lock(&((_vb_)->lock))
 #define VBUNLOCK(_vb_)			spin_unlock(&((_vb_)->lock))
 #define VBLOCK_FROM_DEFERRED(_vb_) 	spin_lock(&((_vb_)->lock))
 #define VBUNLOCK_FROM_DEFERRED(_vb_)	spin_lock(&((_vb_)->lock))
 #else
 #define LOCKS_VOICEBUS			unsigned long _irqflags
-#define LOCKS_FROM_DEFERRED		
+#define LOCKS_FROM_DEFERRED
 #define VBLOCK(_vb_) 			spin_lock_irqsave(&((_vb_)->lock), _irqflags)
 #define VBUNLOCK(_vb_)			spin_unlock_irqrestore(&((_vb_)->lock), _irqflags)
 #define VBLOCK_FROM_DEFERRED(_vb_) 	spin_lock(&((_vb_)->lock))
@@ -231,10 +231,10 @@ struct voicebus {
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 18)
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 20)
 /*! \brief Make the current task real-time. */
-static void 
+static void
 vb_setup_deferred(void *data)
 #else
-static void 
+static void
 vb_setup_deferred(struct work_struct *work)
 #endif
 {
@@ -257,7 +257,7 @@ vb_set_workqueue_priority(struct voicebus *vb)
 #endif
 
 #ifdef DBG
-static inline int 
+static inline int
 assert_in_vb_deferred(struct voicebus *vb)
 {
 	assert(test_bit(IN_DEFERRED_PROCESSING, &vb->flags));
@@ -284,16 +284,16 @@ static inline struct voicebus_descriptor *
 vb_descriptor(struct voicebus_descriptor_list *dl, int index)
 {
 	struct voicebus_descriptor *d;
-	d = (struct voicebus_descriptor *)((u8*)dl->desc + 
+	d = (struct voicebus_descriptor *)((u8*)dl->desc +
 		((sizeof(*d) + dl->padding) * index));
 	return d;
 }
 
 static int
-vb_initialize_descriptors(struct voicebus *vb, struct voicebus_descriptor_list *dl, 
+vb_initialize_descriptors(struct voicebus *vb, struct voicebus_descriptor_list *dl,
 	u32 des1, unsigned int direction)
 {
-	int i; 
+	int i;
 	struct voicebus_descriptor *d;
 	const u32 END_OF_RING = 0x02000000;
 
@@ -301,19 +301,19 @@ vb_initialize_descriptors(struct voicebus *vb, struct voicebus_descriptor_list *
 
 	/*
 	 * Add some padding to each descriptor to ensure that they are
-	 * aligned on host system cache-line boundaries, but only for the 
+	 * aligned on host system cache-line boundaries, but only for the
 	 * cache-line sizes that we support.
 	 *
 	 */
 	if ((0x08 == vb->cache_line_size) || (0x10 == vb->cache_line_size) ||
-	    (0x20 == vb->cache_line_size)) 
+	    (0x20 == vb->cache_line_size))
 	{
 		dl->padding = (vb->cache_line_size*sizeof(u32)) - sizeof(*d);
 	} else {
 		dl->padding = 0;
 	}
-	
-	dl->desc = pci_alloc_consistent(vb->pdev, 
+
+	dl->desc = pci_alloc_consistent(vb->pdev,
 		(sizeof(*d) + dl->padding) * DRING_SIZE, &dl->desc_dma);
 	if (!dl->desc) {
 		return -ENOMEM;
@@ -345,9 +345,9 @@ vb_initialize_rx_descriptors(struct voicebus *vb)
 }
 
 /*! \brief  Use to set the minimum number of buffers queued to the hardware
- * before enabling interrupts. 
+ * before enabling interrupts.
  */
-int 
+int
 voicebus_set_minlatency(struct voicebus *vb, unsigned int ms)
 {
 	LOCKS_VOICEBUS;
@@ -372,7 +372,7 @@ voicebus_set_minlatency(struct voicebus *vb, unsigned int ms)
 }
 
 /*! \brief Returns the number of buffers currently on the transmit queue. */
-int 
+int
 voicebus_current_latency(struct voicebus *vb)
 {
 	LOCKS_VOICEBUS;
@@ -383,19 +383,19 @@ voicebus_current_latency(struct voicebus *vb)
 	return latency;
 }
 
-/*! 
+/*!
  * \brief Read one of the hardware control registers without acquiring locks.
  */
-static inline u32 
+static inline u32
 __vb_getctl(struct voicebus *vb, u32 addr)
 {
 	return le32_to_cpu(inl(vb->iobase + addr));
 }
 
-/*! 
+/*!
  * \brief Read one of the hardware control registers with locks held.
  */
-static inline u32 
+static inline u32
 vb_getctl(struct voicebus *vb, u32 addr)
 {
 	LOCKS_VOICEBUS;
@@ -407,9 +407,9 @@ vb_getctl(struct voicebus *vb, u32 addr)
 }
 
 /*!
- * \brief Returns whether or not the interface is running. 
+ * \brief Returns whether or not the interface is running.
  *
- * NOTE:  Running in this case means whether or not the hardware reports the 
+ * NOTE:  Running in this case means whether or not the hardware reports the
  *        transmit processor in any state but stopped.
  *
  * \return 1 of the process is stopped, 0 if running.
@@ -423,7 +423,7 @@ vb_is_stopped(struct voicebus *vb)
 	return (0 == reg) ? 1 : 0;
 }
 
-static void 
+static void
 vb_cleanup_descriptors(struct voicebus *vb, struct voicebus_descriptor_list *dl)
 {
 	unsigned int i;
@@ -455,15 +455,15 @@ vb_free_descriptors(struct voicebus *vb, struct voicebus_descriptor_list *dl)
 	}
 	vb_cleanup_descriptors(vb, dl);
 	pci_free_consistent(
-		vb->pdev, 
+		vb->pdev,
 		(sizeof(struct voicebus_descriptor)+dl->padding)*DRING_SIZE,
 		dl->desc, dl->desc_dma);
 }
 
-/*! 
+/*!
  * \brief Write one of the hardware control registers without acquiring locks.
  */
-static inline void 
+static inline void
 __vb_setctl(struct voicebus *vb, u32 addr, u32 val)
 {
 	wmb();
@@ -473,7 +473,7 @@ __vb_setctl(struct voicebus *vb, u32 addr, u32 val)
 /*!
  * \brief Write one of the hardware control registers with locks held.
  */
-static inline void 
+static inline void
 vb_setctl(struct voicebus *vb, u32 addr, u32 val)
 {
 	LOCKS_VOICEBUS;
@@ -482,7 +482,7 @@ vb_setctl(struct voicebus *vb, u32 addr, u32 val)
 	VBUNLOCK(vb);
 }
 
-static int 
+static int
 __vb_sdi_clk(struct voicebus* vb)
 {
 	unsigned int ret;
@@ -494,7 +494,7 @@ __vb_sdi_clk(struct voicebus* vb)
 	return (ret & CSR9_MDI) ? 1: 0;
 }
 
-static void 
+static void
 __vb_sdi_sendbits(struct voicebus *vb, u32 bits, int count)
 {
 	vb->sdi &= ~CSR9_MMC;
@@ -510,7 +510,7 @@ __vb_sdi_sendbits(struct voicebus *vb, u32 bits, int count)
 }
 
 #if 0  /* this function might be useful in the future for debugging. */
-static unsigned int 
+static unsigned int
 __vb_sdi_recvbits(struct voicebus *vb, int count)
 {
 	unsigned int bits=0;
@@ -527,7 +527,7 @@ __vb_sdi_recvbits(struct voicebus *vb, int count)
 }
 #endif
 
-static void 
+static void
 vb_setsdi(struct voicebus *vb, int addr, u16 val)
 {
 	LOCKS_VOICEBUS;
@@ -542,7 +542,7 @@ vb_setsdi(struct voicebus *vb, int addr, u16 val)
 	VBUNLOCK(vb);
 }
 
-static void 
+static void
 vb_enable_io_access(struct voicebus *vb)
 {
 	LOCKS_VOICEBUS;
@@ -572,14 +572,14 @@ voicebus_setdebuglevel(struct voicebus *vb, u32 level)
 	atomic_set(&vb->debuglevel, level);
 }
 
-int 
+int
 voicebus_getdebuglevel(struct voicebus *vb)
 {
 	return atomic_read(&vb->debuglevel);
 }
 
 /*! \brief Resets the voicebus hardware interface. */
-static int 
+static int
 vb_reset_interface(struct voicebus *vb)
 {
 	unsigned long timeout;
@@ -587,7 +587,7 @@ vb_reset_interface(struct voicebus *vb)
 	u32 pci_access;
 	const u32 DEFAULT_PCI_ACCESS = 0xfff80002;
 	BUG_ON(in_interrupt());
-	
+
 	switch (vb->cache_line_size) {
 	case 0x08:
 		pci_access = DEFAULT_PCI_ACCESS | (0x1 << 14);
@@ -595,7 +595,7 @@ vb_reset_interface(struct voicebus *vb)
 	case 0x10:
 		pci_access = DEFAULT_PCI_ACCESS | (0x2 << 14);
 		break;
-	case 0x20: 
+	case 0x20:
 		pci_access = DEFAULT_PCI_ACCESS | (0x3 << 14);
 		break;
 	default:
@@ -632,7 +632,7 @@ vb_reset_interface(struct voicebus *vb)
 	/* Pass bad packets, runt packets, disable SQE function,
 	 * store-and-forward */
 	vb_setctl(vb, 0x0030, 0x00280048);
-	/* ...disable jabber and the receive watchdog. */ 
+	/* ...disable jabber and the receive watchdog. */
 	vb_setctl(vb, 0x0078, 0x00000013);
 
 	/* Tell the card where the descriptors are in host memory. */
@@ -643,15 +643,15 @@ vb_reset_interface(struct voicebus *vb)
 	vb_setctl(vb, 0x00fc, (reg & ~0x7) | 0x7);
 	vb_setsdi(vb, 0x00, 0x0100);
 	vb_setsdi(vb, 0x16, 0x2100);
-	
+
 	reg = vb_getctl(vb, 0x00fc);
 
 	vb_setctl(vb, 0x00fc, (reg & ~0x7) | 0x4);
-	vb_setsdi(vb, 0x00, 0x0100); 
+	vb_setsdi(vb, 0x00, 0x0100);
 	vb_setsdi(vb, 0x16, 0x2100);
 	reg = vb_getctl(vb, 0x00fc);
-	
-	
+
+
 	/*
 	 * The calls to setsdi above toggle the reset line of the CPLD.  Wait
 	 * here to give the CPLD time to stabilize after reset.
@@ -700,7 +700,7 @@ vb_submit(struct voicebus *vb, struct voicebus_descriptor_list *dl, void *vbb)
 	unsigned int tail = dl->tail;
 	assert_in_vb_deferred(vb);
 
-	d = vb_descriptor(dl, tail); 
+	d = vb_descriptor(dl, tail);
 
 	if (unlikely(d->buffer1)) {
 		/* Do not overwrite a buffer that is still in progress. */
@@ -710,15 +710,15 @@ vb_submit(struct voicebus *vb, struct voicebus_descriptor_list *dl, void *vbb)
 	}
 
 	dl->pending[tail] = vbb;
-	dl->tail = (++tail) & DRING_MASK; 
+	dl->tail = (++tail) & DRING_MASK;
 	d->buffer1 = dma_map_single(
 			&vb->pdev->dev, vbb, vb->framesize, dl->direction);
-	SET_OWNED(d); /* That's it until the hardware is done with it. */ 
+	SET_OWNED(d); /* That's it until the hardware is done with it. */
 	atomic_inc(&dl->count);
 	return 0;
 }
 
-static inline void* 
+static inline void*
 vb_retrieve(struct voicebus *vb, struct voicebus_descriptor_list *dl)
 {
 	volatile struct voicebus_descriptor *d;
@@ -727,10 +727,10 @@ vb_retrieve(struct voicebus *vb, struct voicebus_descriptor_list *dl)
 	assert_in_vb_deferred(vb);
 	d = vb_descriptor(dl, head);
 	if (!OWNED(d)) {
-		dma_unmap_single(&vb->pdev->dev, d->buffer1, 
+		dma_unmap_single(&vb->pdev->dev, d->buffer1,
 			vb->framesize, dl->direction);
 		vbb = dl->pending[head];
-		dl->head = (++head) & DRING_MASK; 
+		dl->head = (++head) & DRING_MASK;
 		d->buffer1 = 0;
 		atomic_dec(&dl->count);
 		return vbb;
@@ -740,7 +740,7 @@ vb_retrieve(struct voicebus *vb, struct voicebus_descriptor_list *dl)
 }
 
 /*!
- * \brief Give a frame to the hardware to transmit. 
+ * \brief Give a frame to the hardware to transmit.
  *
  */
 int
@@ -753,14 +753,14 @@ voicebus_transmit(struct voicebus *vb, void *vbb)
  * \brief Give a frame to the hardware to use for receiving.
  *
  */
-static inline int 
+static inline int
 vb_submit_rxb(struct voicebus *vb, void *vbb)
 {
 	return vb_submit(vb, &vb->rxd, vbb);
 }
 
 /*!
- * \brief Remove the next completed transmit buffer (txb) from the tx 
+ * \brief Remove the next completed transmit buffer (txb) from the tx
  * descriptor ring.
  *
  * NOTE:  This function doesn't need any locking because only one instance is
@@ -772,19 +772,19 @@ vb_submit_rxb(struct voicebus *vb, void *vbb)
  *
  * \return Pointer to buffer, or NULL if not available.
  */
-static inline void * 
+static inline void *
 vb_get_completed_txb(struct voicebus *vb)
 {
-	return vb_retrieve(vb, &vb->txd); 
+	return vb_retrieve(vb, &vb->txd);
 }
 
-static inline void * 
+static inline void *
 vb_get_completed_rxb(struct voicebus *vb)
 {
 	return vb_retrieve(vb, &vb->rxd);
 }
 
-/*! 
+/*!
  * \brief Free a buffer for reuse.
  *
  */
@@ -798,14 +798,14 @@ voicebus_free(struct voicebus *vb, void *vbb)
  * \brief Instruct the hardware to check for a new tx descriptor.
  */
 inline static void
-__vb_tx_demand_poll(struct voicebus *vb) 
+__vb_tx_demand_poll(struct voicebus *vb)
 {
 	__vb_setctl(vb, 0x0008, 0x00000000);
 }
 
 /*!
  * \brief Command the hardware to check if it owns the next transmit
- * descriptor. 
+ * descriptor.
  */
 static void
 vb_tx_demand_poll(struct voicebus *vb)
@@ -821,7 +821,7 @@ vb_tx_demand_poll(struct voicebus *vb)
  * descriptor.
  */
 inline static void
-__vb_rx_demand_poll(struct voicebus *vb) 
+__vb_rx_demand_poll(struct voicebus *vb)
 {
 	__vb_setctl(vb, 0x0010, 0x00000000);
 }
@@ -838,13 +838,13 @@ vb_rx_demand_poll(struct voicebus *vb)
 static void
 __vb_enable_interrupts(struct voicebus *vb)
 {
-	__vb_setctl(vb, IER_CSR7, DEFAULT_INTERRUPTS); 
+	__vb_setctl(vb, IER_CSR7, DEFAULT_INTERRUPTS);
 }
 
-static void 
+static void
 __vb_disable_interrupts(struct voicebus *vb)
 {
-	__vb_setctl(vb, IER_CSR7, 0); 
+	__vb_setctl(vb, IER_CSR7, 0);
 }
 
 static void
@@ -861,14 +861,14 @@ vb_disable_interrupts(struct voicebus *vb)
  *
  * When the VoiceBus interface is started, it is actively transferring
  * frames to and from the backend of the card.  This means the card will
- * generate interrupts. 
+ * generate interrupts.
  *
  * This function should only be called from process context, with interrupts
  * enabled, since it can sleep while running the self checks.
  *
  * \return zero on success. -EBUSY if device is already running.
  */
-int 
+int
 voicebus_start(struct voicebus *vb)
 {
 	LOCKS_VOICEBUS;
@@ -886,10 +886,10 @@ voicebus_start(struct voicebus *vb)
 	if ((ret=vb_reset_interface(vb))) {
 		return ret;
 	}
-	
+
 	/* We must set up a minimum of three buffers to start with, since two
 	 * are immediately read into the TX FIFO, and the descriptor of the
-	 * third is read as soon as the first buffer is done. 
+	 * third is read as soon as the first buffer is done.
 	 */
 
 	/*
@@ -902,7 +902,7 @@ voicebus_start(struct voicebus *vb)
 	 *  is known to not be running at this point, it is safe to call the
 	 *  handle transmit as if it were.
 	 */
-	start_vb_deferred(vb); 
+	start_vb_deferred(vb);
 	/* Ensure that all the rx slots are ready for a buffer. */
 	for ( i = 0; i < DRING_SIZE; ++i) {
 		vbb = voicebus_alloc(vb);
@@ -948,7 +948,7 @@ voicebus_start(struct voicebus *vb)
 	return 0;
 }
 
-static void 
+static void
 vb_clear_start_transmit_bit(struct voicebus *vb)
 {
 	LOCKS_VOICEBUS;
@@ -960,7 +960,7 @@ vb_clear_start_transmit_bit(struct voicebus *vb)
 	VBUNLOCK(vb);
 }
 
-static void 
+static void
 vb_clear_start_receive_bit(struct voicebus *vb)
 {
 	LOCKS_VOICEBUS;
@@ -995,8 +995,8 @@ vb_wait_for_completion_timeout(struct completion *x, unsigned long timeout)
  * Stops the VoiceBus interface and waits for any outstanding DMA transactions
  * to complete.  When this functions returns the VoiceBus interface tx and rx
  * states will both be suspended.
- * 
- * Only call this function from process context, with interrupt enabled, 
+ *
+ * Only call this function from process context, with interrupt enabled,
  * without any locks held since it sleeps.
  *
  * \return zero on success, -1 on error.
@@ -1026,17 +1026,17 @@ voicebus_stop(struct voicebus *vb)
 	}
 	return 0;
 }
-	
+
 /*!
  * \brief Prepare the interface for module unload.
  *
- * Stop the interface and free all the resources allocated by the driver.  The 
+ * Stop the interface and free all the resources allocated by the driver.  The
  * caller should have returned all VoiceBus buffers to the VoiceBus layer
  * before calling this function.
- * 
+ *
  * context: !in_interrupt()
  */
-void 
+void
 voicebus_release(struct voicebus *vb)
 {
 	assert(!in_interrupt());
@@ -1063,7 +1063,7 @@ voicebus_release(struct voicebus *vb)
 }
 
 static void
-__vb_increase_latency(struct voicebus *vb) 
+__vb_increase_latency(struct voicebus *vb)
 {
 	static int __warn_once = 1;
 	void *vbb;
@@ -1097,7 +1097,7 @@ __vb_increase_latency(struct voicebus *vb)
 			latency+1);
 		/* Set the minimum latency in case we're restarted...we don't
 		 * want to wait for the buffer to grow to this depth again in
-		 * that case. 
+		 * that case.
 		 */
 		voicebus_set_minlatency(vb, latency+1);
 		vbb = voicebus_alloc(vb);
@@ -1109,14 +1109,14 @@ __vb_increase_latency(struct voicebus *vb)
 	}
 }
 
-/*! 
+/*!
  * \brief Actually process the completed transmit and receive buffers.
  *
  * NOTE: This function may be called either from a tasklet, workqueue, or
- * 	 directly in the interrupt service routine depending on 
+ * 	 directly in the interrupt service routine depending on
  * 	 VOICEBUS_DEFERRED.
- */ 
-static inline void 
+ */
+static inline void
 vb_deferred(struct voicebus *vb)
 {
 	void *vbb;
@@ -1172,7 +1172,7 @@ vb_deferred(struct voicebus *vb)
 }
 
 
-/*! 
+/*!
  * \brief Interrupt handler for VoiceBus interface.
  *
  * NOTE: This handler is optimized for the case where only a single interrupt
@@ -1211,7 +1211,7 @@ vb_isr(int irq, void *dev_id)
 #		else
 		vb_deferred(vb);
 #		endif
-		__vb_setctl(vb, SR_CSR5, TX_COMPLETE_INTERRUPT); 
+		__vb_setctl(vb, SR_CSR5, TX_COMPLETE_INTERRUPT);
 	} else {
 		/* ******************************************************** */
 		/* ABNORMAL / ERROR CONDITIONS 				    */
@@ -1244,7 +1244,7 @@ vb_isr(int irq, void *dev_id)
 		if (int_status & TX_STOPPED_INTERRUPT) {
 			assert(test_bit(STOP, &vb->flags));
 			vb_clear_start_receive_bit(vb);
-			__vb_setctl(vb, SR_CSR5, DEFAULT_INTERRUPTS); 
+			__vb_setctl(vb, SR_CSR5, DEFAULT_INTERRUPTS);
 			__vb_disable_interrupts(vb);
 			complete(&vb->stopped_completion);
 		}
@@ -1256,7 +1256,7 @@ vb_isr(int irq, void *dev_id)
 		}
 
 		/* Clear the interrupt(s) */
-		__vb_setctl(vb, SR_CSR5, int_status); 
+		__vb_setctl(vb, SR_CSR5, int_status);
 	}
 
 	return IRQ_HANDLED;
@@ -1297,7 +1297,7 @@ vb_workfunc(struct work_struct *work)
 	vb_deferred(vb);
 }
 #elif VOICEBUS_DEFERRED == TASKLET
-static void 
+static void
 vb_tasklet(unsigned long data)
 {
 	struct voicebus *vb = (struct voicebus*)data;
@@ -1306,17 +1306,17 @@ vb_tasklet(unsigned long data)
 #endif /* #if VOICEBUS_DEFERRED == WORKQUEUE */
 
 /*!
- * \brief Initalize the voicebus interface. 
+ * \brief Initalize the voicebus interface.
  *
  * This function must be called in process context since it may sleep.
  * \todo Complete this description.
  */
-int 
-voicebus_init(struct pci_dev *pdev, u32 framesize, 
-		  const char *board_name, 
+int
+voicebus_init(struct pci_dev *pdev, u32 framesize,
+		  const char *board_name,
 		  void (*handle_receive)(void *vbb, void *context),
 		  void (*handle_transmit)(void *vbb, void *context),
-		  void *context, 
+		  void *context,
 		  u32 debuglevel,
 		  struct voicebus **vbp
 		  )
@@ -1330,7 +1330,7 @@ voicebus_init(struct pci_dev *pdev, u32 framesize,
 	assert(NULL != handle_receive);
 	assert(NULL != handle_transmit);
 
-	/* ---------------------------------------------------------------- 
+	/* ----------------------------------------------------------------
 	   Initialize the pure software constructs.
 	   ---------------------------------------------------------------- */
 	*vbp = NULL;
@@ -1374,34 +1374,34 @@ voicebus_init(struct pci_dev *pdev, u32 framesize,
 #elif VOICEBUS_DEFERRED == TIMER
 	init_timer(&vb->timer);
 	vb->timer.function = vb_timer;
-	vb->timer.data = (unsigned long)vb; 
+	vb->timer.data = (unsigned long)vb;
 #endif
 
 	vb->handle_receive = handle_receive;
 	vb->handle_transmit = handle_transmit;
 	vb->context = context;
-	
+
 	/* \todo This cache should be shared by all instances supported by
 	 * this driver. */
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 23)
-	vb->buffer_cache = kmem_cache_create(board_name, vb->framesize, 0, 
+	vb->buffer_cache = kmem_cache_create(board_name, vb->framesize, 0,
 #if LINUX_VERSION_CODE == KERNEL_VERSION(2, 6, 22)
 				SLAB_HWCACHE_ALIGN | SLAB_STORE_USER, NULL, NULL);
 #else
 				SLAB_HWCACHE_ALIGN, NULL, NULL);
 #endif
 #else
-	vb->buffer_cache = kmem_cache_create(board_name, vb->framesize, 0, 
+	vb->buffer_cache = kmem_cache_create(board_name, vb->framesize, 0,
 				SLAB_HWCACHE_ALIGN, NULL);
 #endif
 	if (NULL == vb->buffer_cache) {
 		VB_PRINTK(vb, ERR, "Failed to allocate buffer cache.\n");
 		goto cleanup;
 	}
-	
 
-	/* ---------------------------------------------------------------- 
-	   Configure the hardware / kernel module interfaces. 
+
+	/* ----------------------------------------------------------------
+	   Configure the hardware / kernel module interfaces.
 	   ---------------------------------------------------------------- */
 	if (pci_read_config_byte(vb->pdev, 0x0c, &vb->cache_line_size)) {
 		VB_PRINTK(vb, ERR, "Failed read of cache line " \
@@ -1413,7 +1413,7 @@ voicebus_init(struct pci_dev *pdev, u32 framesize,
 		VB_PRINTK(vb, ERR, "Failed call to pci_enable_device.\n");
 		retval = -EIO;
 		goto cleanup;
-	} 
+	}
 
 	/* \todo This driver should be modified to use the memory mapped I/O
 	   as opposed to IO space for portability and performance. */
@@ -1437,8 +1437,8 @@ voicebus_init(struct pci_dev *pdev, u32 framesize,
 		goto cleanup;
 	}
 
-	/* ---------------------------------------------------------------- 
-	   Configure the hardware interface. 
+	/* ----------------------------------------------------------------
+	   Configure the hardware interface.
 	   ---------------------------------------------------------------- */
 	pci_set_master(pdev);
 	vb_enable_io_access(vb);
@@ -1447,7 +1447,7 @@ voicebus_init(struct pci_dev *pdev, u32 framesize,
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 22)
 #	define VB_IRQ_SHARED	SA_SHIRQ
 #else
-#	define VB_IRQ_SHARED	IRQF_SHARED	
+#	define VB_IRQ_SHARED	IRQF_SHARED
 #endif
 	if (request_irq(pdev->irq, vb_isr, VB_IRQ_SHARED, vb->board_name,
 		vb)) {
@@ -1464,7 +1464,7 @@ cleanup:
 	}
 #if VOICEBUS_DEFERRED == WORKQUEUE
 	if (vb->workqueue) {
-		destroy_workqueue(vb->workqueue); 
+		destroy_workqueue(vb->workqueue);
 	}
 #elif VOICEBUS_DEFERRED == TASKLET
 	tasklet_kill(&vb->tasklet);
