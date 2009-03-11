@@ -96,7 +96,7 @@
 #define		CSR7_AIE		0x00008000 /* abnormal enable */
 #define 	CSR7_NIE		0x00010000 /* normal enable */
 
-#define DEFAULT_INTERRUPTS	( CSR7_TCIE | CSR7_TPSIE | CSR7_TDUIE |  \
+#define DEFAULT_INTERRUPTS	(CSR7_TCIE | CSR7_TPSIE | CSR7_TDUIE |  \
 				 CSR7_RUIE | CSR7_RSIE | CSR7_FBEIE | \
 				 CSR7_AIE | CSR7_NIE)
 
@@ -275,9 +275,9 @@ stop_vb_deferred(struct voicebus *vb)
 	clear_bit(IN_DEFERRED_PROCESSING, &vb->flags);
 }
 #else
-#define assert_in_vb_deferred(_x_)  do {;} while(0)
-#define start_vb_deferred(_x_) do {;} while(0)
-#define stop_vb_deferred(_x_) do {;} while(0)
+#define assert_in_vb_deferred(_x_)  do {;} while (0)
+#define start_vb_deferred(_x_) do {;} while (0)
+#define stop_vb_deferred(_x_) do {;} while (0)
 #endif
 
 static inline struct voicebus_descriptor *
@@ -320,7 +320,7 @@ vb_initialize_descriptors(struct voicebus *vb, struct voicebus_descriptor_list *
 	}
 
 	memset(dl->desc, 0, (sizeof(*d) + dl->padding) * DRING_SIZE);
-	for ( i = 0; i < DRING_SIZE; ++i) {
+	for (i = 0; i < DRING_SIZE; ++i) {
 		d = vb_descriptor(dl, i);
 		d->des1 = des1;
 	}
@@ -358,10 +358,10 @@ voicebus_set_minlatency(struct voicebus *vb, unsigned int ms)
 	 *
 	 */
 #define MESSAGE "%d ms is an invalid value for minumum latency.  Setting to %d ms.\n"
-	if ( DRING_SIZE < ms ) {
+	if (DRING_SIZE < ms) {
 		VB_PRINTK(vb, WARNING, MESSAGE, ms, DRING_SIZE);
 		return -EINVAL;
-	} else if (VOICEBUS_DEFAULT_LATENCY > ms ) {
+	} else if (VOICEBUS_DEFAULT_LATENCY > ms) {
 		VB_PRINTK(vb, WARNING, MESSAGE, ms, VOICEBUS_DEFAULT_LATENCY);
 		return -EINVAL;
 	}
@@ -499,7 +499,7 @@ __vb_sdi_sendbits(struct voicebus *vb, u32 bits, int count)
 {
 	vb->sdi &= ~CSR9_MMC;
 	__vb_setctl(vb, 0x0048, vb->sdi);
-	while(count--) {
+	while (count--) {
 		if (bits & (1 << count)) {
 			vb->sdi |= CSR9_MDO;
 		} else {
@@ -516,7 +516,7 @@ __vb_sdi_recvbits(struct voicebus *vb, int count)
 	unsigned int bits=0;
 	vb->sdi |= CSR9_MMC;
 	__vb_setctl(vb, 0x0048, vb->sdi);
-	while(count--) {
+	while (count--) {
 		bits <<= 1;
 		if (__vb_sdi_clk(vb))
 			bits |= 1;
@@ -904,7 +904,7 @@ voicebus_start(struct voicebus *vb)
 	 */
 	start_vb_deferred(vb);
 	/* Ensure that all the rx slots are ready for a buffer. */
-	for ( i = 0; i < DRING_SIZE; ++i) {
+	for (i = 0; i < DRING_SIZE; ++i) {
 		vbb = voicebus_alloc(vb);
 		if (unlikely(NULL == vbb)) {
 			BUG_ON(1);
@@ -915,7 +915,7 @@ voicebus_start(struct voicebus *vb)
 		}
 	}
 
-	for ( i=0; i < vb->min_tx_buffer_count; ++i) {
+	for (i=0; i < vb->min_tx_buffer_count; ++i) {
 		vbb = voicebus_alloc(vb);
 		if (unlikely(NULL == vbb)) {
 			BUG_ON(1);
@@ -1129,10 +1129,10 @@ vb_deferred(struct voicebus *vb)
 
 	start_vb_deferred(vb);
 	if (unlikely(stopping)) {
-		while((vbb = vb_get_completed_txb(vb))) {
+		while ((vbb = vb_get_completed_txb(vb))) {
 			voicebus_free(vb, vbb);
 		}
-		while((vbb = vb_get_completed_rxb(vb))) {
+		while ((vbb = vb_get_completed_rxb(vb))) {
 			voicebus_free(vb, vbb);
 		}
 		stop_vb_deferred(vb);
@@ -1216,7 +1216,7 @@ vb_isr(int irq, void *dev_id)
 		/* ******************************************************** */
 		/* ABNORMAL / ERROR CONDITIONS 				    */
 		/* ******************************************************** */
-		if ((int_status & TX_UNAVAILABLE_INTERRUPT) ) {
+		if ((int_status & TX_UNAVAILABLE_INTERRUPT)) {
 			/* This can happen if the host fails to service the
 			 * interrupt within the required time interval (1ms
 			 * for each buffer on the queue).  Increasing the
@@ -1423,7 +1423,7 @@ voicebus_init(struct pci_dev *pdev, u32 framesize,
 		goto cleanup;
 	}
 	vb->iobase = pci_resource_start(pdev, 0);
-	if(NULL == request_region(vb->iobase, 0xff, board_name)) {
+	if (NULL == request_region(vb->iobase, 0xff, board_name)) {
 		VB_PRINTK(vb, ERR, "IO Registers are in use by another " \
 			"module.\n");
 		retval = -EIO;
