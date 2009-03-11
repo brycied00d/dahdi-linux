@@ -157,7 +157,7 @@ struct voicebus {
 	/*! Level of debugging information.  0=None, 5=Insane. */
 	atomic_t debuglevel;
 	/*! Cache of buffer objects. */
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,20)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 20)
 	kmem_cache_t *buffer_cache;
 #else
 	struct kmem_cache *buffer_cache;
@@ -228,8 +228,8 @@ struct voicebus {
 #define STOP				4
 
 #if VOICEBUS_DEFERRED == WORKQUEUE
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,18)
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,20)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 18)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 20)
 /*! \brief Make the current task real-time. */
 static void 
 vb_setup_deferred(void *data)
@@ -245,7 +245,7 @@ vb_setup_deferred(struct work_struct *work)
 static void
 vb_set_workqueue_priority(struct voicebus *vb)
 {
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,20)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 20)
 	DECLARE_WORK(deferred_setup, vb_setup_deferred, NULL);
 #else
 	DECLARE_WORK(deferred_setup, vb_setup_deferred);
@@ -975,7 +975,7 @@ vb_clear_start_receive_bit(struct voicebus *vb)
 static unsigned long
 vb_wait_for_completion_timeout(struct completion *x, unsigned long timeout)
 {
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,11)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 11)
 	/* There is a race condition here.  If x->done is reset to 0
 	 * before the call to wait_for_completion after this thread wakes.
 	 */
@@ -1077,7 +1077,7 @@ __vb_increase_latency(struct voicebus *vb)
 			/* We must subtract two from this number since there
 			 * are always two buffers in the TX FIFO.
 			 */
-			VB_PRINTK(vb,ERR,
+			VB_PRINTK(vb, ERR,
 				"ERROR: Unable to service card within %d ms "\
 				"and unable to further increase latency.\n",
 				DRING_SIZE-2);
@@ -1182,7 +1182,7 @@ vb_deferred(struct voicebus *vb)
  * since it doesn't employ any locking on the voicebus interface.
  */
 static irqreturn_t
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,20)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 20)
 vb_isr(int irq, void *dev_id, struct pt_regs *regs)
 #else
 vb_isr(int irq, void *dev_id)
@@ -1271,7 +1271,7 @@ vb_timer(unsigned long data)
 {
 	unsigned long start = jiffies;
 	struct voicebus *vb = (struct voicebus *)data;
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,20)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 20)
 	vb_isr(0, vb, 0);
 #else
 	vb_isr(0, vb);
@@ -1285,7 +1285,7 @@ vb_timer(unsigned long data)
 
 #if VOICEBUS_DEFERRED == WORKQUEUE
 static void
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,20)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 20)
 vb_workfunc(void *data)
 {
 	struct voicebus *vb = data;
@@ -1341,7 +1341,7 @@ voicebus_init(struct pci_dev *pdev, u32 framesize,
 		retval = -ENOMEM;
 		goto cleanup;
 	}
-	memset(vb,0,sizeof(*vb));
+	memset(vb, 0, sizeof(*vb));
 	voicebus_setdebuglevel(vb, debuglevel);
 	/* \todo make sure there is a note that the caller needs to make sure
 	 * board_name stays in memory until voicebus_release is called.
@@ -1361,12 +1361,12 @@ voicebus_init(struct pci_dev *pdev, u32 framesize,
 	 * there should only be one producer / consumer (the hardware or the
 	 * deferred processing function). */
 	vb->workqueue = create_singlethread_workqueue(board_name);
-#	if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,20)
+#	if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 20)
 	INIT_WORK(&vb->workitem, vb_workfunc, vb);
 #	else
 	INIT_WORK(&vb->workitem, vb_workfunc);
 #	endif
-#	if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,18)
+#	if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 18)
 	vb_set_workqueue_priority(vb);
 #	endif
 #elif VOICEBUS_DEFERRED == TASKLET
@@ -1383,9 +1383,9 @@ voicebus_init(struct pci_dev *pdev, u32 framesize,
 	
 	/* \todo This cache should be shared by all instances supported by
 	 * this driver. */
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,23)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 23)
 	vb->buffer_cache = kmem_cache_create(board_name, vb->framesize, 0, 
-#if LINUX_VERSION_CODE == KERNEL_VERSION(2,6,22)
+#if LINUX_VERSION_CODE == KERNEL_VERSION(2, 6, 22)
 				SLAB_HWCACHE_ALIGN | SLAB_STORE_USER, NULL, NULL);
 #else
 				SLAB_HWCACHE_ALIGN, NULL, NULL);
@@ -1444,7 +1444,7 @@ voicebus_init(struct pci_dev *pdev, u32 framesize,
 	vb_enable_io_access(vb);
 
 #if VOICEBUS_DEFERRED != TIMER
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,22)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 22)
 #	define VB_IRQ_SHARED	SA_SHIRQ
 #else
 #	define VB_IRQ_SHARED	IRQF_SHARED	
