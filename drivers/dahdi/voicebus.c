@@ -880,7 +880,8 @@ voicebus_start(struct voicebus *vb)
 	if (!vb_is_stopped(vb))
 		return -EBUSY;
 
-	if ((ret=vb_reset_interface(vb)))
+	ret = vb_reset_interface(vb);
+	if (ret)
 		return ret;
 
 	/* We must set up a minimum of three buffers to start with, since two
@@ -1426,10 +1427,12 @@ voicebus_init(struct pci_dev *pdev, u32 framesize,
 		goto cleanup;
 	}
 
-	if ((retval = vb_initialize_tx_descriptors(vb)))
+	retval = vb_initialize_tx_descriptors(vb);
+	if (retval)
 		goto cleanup;
 
-	if ((retval = vb_initialize_rx_descriptors(vb)))
+	retval = vb_initialize_rx_descriptors(vb);
+	if (retval)
 		goto cleanup;
 
 	/* ----------------------------------------------------------------
