@@ -163,7 +163,6 @@ static inline int t4_queue_work(struct workqueue_struct *wq, struct work_struct 
 static int pedanticpci = 1;
 static int debug=0;
 static int timingcable = 0;
-static int highestorder;
 static int t1e1override = -1; //0xFF; // -1 = jumper; 0xFF = E1
 static int j1mode = 0;
 static int sigmode = FRMR_MODE_NO_ADDR_CMP;
@@ -3659,23 +3658,22 @@ static int __devinit t4_init_one(struct pci_dev *pdev, const struct pci_device_i
 	}
 	
 	init_spans(wc);
-	
-	/* Launch cards as appropriate */
-	for (;;) {
-		/* Find a card to activate */
-		f = 0;
-		for (x = 0; cards[x]; x++) {
-			if (cards[x]->order <= highestorder) {
-				t4_launch(cards[x]);
-				if (cards[x]->order == highestorder)
-					f = 1;
-			}
-		}
-		/* If we found at least one, increment the highest order and search again, otherwise stop */
-		if (f) 
-			highestorder++;
-		else
+	/* get the current number of probed cards and run a slice of a tail
+	 * insertion sort */
+	for (x = 0; x < MAX_T4_CARDS; x++) {
+		if (!cards[x+1])
 			break;
+	}
+	for ( ; x > 0; x--) {
+		if (cards[x]->order < cards[x-1]->order) {
+			struct t4 *tmp = cards[x];
+			cards[x] = cards[x-1];
+			cards[x-1] = tmp;
+		} else {
+			/* if we're not moving it, we won't move any more
+			 * since all cards are sorted on addition */
+			break;
+		}
 	}
 	
 	printk(KERN_INFO "Found a Wildcard: %s\n", wc->variety);
@@ -3807,6 +3805,22 @@ static int __init t4_init(void)
 	res = dahdi_pci_module(&t4_driver);
 	if (res)
 		return -ENODEV;
+	/* initialize cards since we have all of them */
+	/* warn for missing zero and duplicate numbers */
+	if (cards[0] && cards[0]->order != 0) {
+		printk(KERN_NOTICE "wct4xxp: Ident of first card is not zero (%d)\n",
+			cards[0]->order);
+	}
+	for (res = 0; cards[res]; res++) {
+		/* warn the user of duplicate ident values it is probably
+		 * unintended */
+		if (debug && res < 15 && cards[res+1] &&
+		    cards[res]->order == cards[res+1]->order) {
+			printk(KERN_NOTICE "wct4xxp: Duplicate ident value found (%d)\n",
+				cards[res]->order);
+		}
+		t4_launch(cards[res]);
+	}
 	return 0;
 }
 
