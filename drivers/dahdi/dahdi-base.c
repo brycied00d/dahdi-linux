@@ -2626,7 +2626,7 @@ static int dahdi_timer_release(struct inode *inode, struct file *file)
 	return 0;
 }
 
-static int dahdi_specchan_open(struct inode *inode, struct file *file, int unit, int inc)
+static int dahdi_specchan_open(struct inode *inode, struct file *file, int unit)
 {
 	int res = 0;
 
@@ -2765,14 +2765,14 @@ static int dahdi_open(struct inode *inode, struct file *file)
 			chan = dahdi_alloc_pseudo();
 			if (chan) {
 				file->private_data = chan;
-				return dahdi_specchan_open(inode, file, chan->channo, 1);
+				return dahdi_specchan_open(inode, file, chan->channo);
 			} else {
 				return -ENXIO;
 			}
 		} else
 			return -ENXIO;
 	}
-	return dahdi_specchan_open(inode, file, unit, 1);
+	return dahdi_specchan_open(inode, file, unit);
 }
 
 #if 0
@@ -5349,7 +5349,7 @@ static int dahdi_prechan_ioctl(struct inode *inode, struct file *file, unsigned 
 			return -EINVAL;
 		if (channo > DAHDI_MAX_CHANNELS)
 			return -EINVAL;
-		res = dahdi_specchan_open(inode, file, channo, 0);
+		res = dahdi_specchan_open(inode, file, channo);
 		if (!res) {
 			/* Setup the pointer for future stuff */
 			chan = chans[channo];
