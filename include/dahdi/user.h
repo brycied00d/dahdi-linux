@@ -478,8 +478,9 @@ struct dahdi_params {
 	__u32 chan_alarms;	/* alarms on this channel */
 };
 
-#define DAHDI_GET_PARAMS		_IOR(DAHDI_CODE, 5, struct dahdi_params)
-#define DAHDI_SET_PARAMS		_IOW(DAHDI_CODE, 5, struct dahdi_params)
+#define DAHDI_GET_PARAMS_V1		_IOR(DAHDI_CODE,  5, struct dahdi_params)
+#define DAHDI_GET_PARAMS		_IOWR(DAHDI_CODE, 5, struct dahdi_params)
+#define DAHDI_SET_PARAMS		_IOW(DAHDI_CODE,  5, struct dahdi_params)
 
 /*
  * Set Hookswitch Status
@@ -547,8 +548,11 @@ struct dahdi_confinfo {
 	int	confmode;	/* conferencing mode */
 };
 
-#define DAHDI_GETCONF			_IOR(DAHDI_CODE, 12, struct dahdi_confinfo)
-#define DAHDI_SETCONF			_IOW(DAHDI_CODE, 12, struct dahdi_confinfo)
+#define DAHDI_GETCONF_V1		_IOR(DAHDI_CODE,   12, struct dahdi_confinfo)
+#define DAHDI_GETCONF			_IOWR(DAHDI_CODE,  12, struct dahdi_confinfo)
+
+#define DAHDI_SETCONF_V1		_IOW(DAHDI_CODE,  12, struct dahdi_confinfo)
+#define DAHDI_SETCONF			_IOWR(DAHDI_CODE, 13, struct dahdi_confinfo)
 
 /*
  * Setup or Remove Conference Link
@@ -558,7 +562,8 @@ struct dahdi_confinfo {
 /*
  * Display Conference Diagnostic Information on Console
  */
-#define DAHDI_CONFDIAG			_IOR(DAHDI_CODE, 15, int)
+#define DAHDI_CONFDIAG_V1		_IOR(DAHDI_CODE, 15, int)
+#define DAHDI_CONFDIAG			_IOW(DAHDI_CODE, 15, int)
 
 /*
  * Get/Set Channel audio gains
@@ -569,8 +574,9 @@ struct dahdi_gains {
 	unsigned char txgain[256];	/* Transmit gain table */
 };
 
-#define DAHDI_GETGAINS			_IOR(DAHDI_CODE, 16, struct dahdi_gains)
-#define DAHDI_SETGAINS			_IOW(DAHDI_CODE, 16, struct dahdi_gains)
+#define DAHDI_GETGAINS_V1		_IOR(DAHDI_CODE,  16, struct dahdi_gains)
+#define DAHDI_GETGAINS			_IOWR(DAHDI_CODE, 16, struct dahdi_gains)
+#define DAHDI_SETGAINS			_IOW(DAHDI_CODE,  16, struct dahdi_gains)
 
 /*
  * Set Line (T1) Configurations
@@ -810,7 +816,8 @@ struct dahdi_ring_cadence {
 /*
  * Display Channel Diagnostic Information on Console
  */
-#define DAHDI_CHANDIAG			_IOR(DAHDI_CODE, 44, int) 
+#define DAHDI_CHANDIAG_V1		_IOR(DAHDI_CODE, 44, int)
+#define DAHDI_CHANDIAG			_IOW(DAHDI_CODE, 44, int)
 
 /*
  * Set Channel's SF Tone Configuration
