@@ -429,7 +429,7 @@ vb_cleanup_descriptors(struct voicebus *vb, struct voicebus_descriptor_list *dl)
 
 	assert(vb_is_stopped(vb));
 
-	for (i=0; i < DRING_SIZE; ++i) {
+	for (i = 0; i < DRING_SIZE; ++i) {
 		d = vb_descriptor(dl, i);
 		if (d->buffer1) {
 			d->buffer1 = 0;
@@ -489,7 +489,7 @@ __vb_sdi_clk(struct voicebus *vb)
 	ret = __vb_getctl(vb, 0x0048);
 	vb->sdi |= CSR9_MDC;
 	__vb_setctl(vb, 0x0048, vb->sdi);
-	return (ret & CSR9_MDI) ? 1: 0;
+	return (ret & CSR9_MDI) ? 1 : 0;
 }
 
 static void
@@ -512,7 +512,7 @@ __vb_sdi_sendbits(struct voicebus *vb, u32 bits, int count)
 static unsigned int
 __vb_sdi_recvbits(struct voicebus *vb, int count)
 {
-	unsigned int bits=0;
+	unsigned int bits = 0;
 	vb->sdi |= CSR9_MMC;
 	__vb_setctl(vb, 0x0048, vb->sdi);
 	while (count--) {
@@ -795,7 +795,7 @@ voicebus_free(struct voicebus *vb, void *vbb)
 /*!
  * \brief Instruct the hardware to check for a new tx descriptor.
  */
-inline static void
+static inline void
 __vb_tx_demand_poll(struct voicebus *vb)
 {
 	__vb_setctl(vb, 0x0008, 0x00000000);
@@ -818,7 +818,7 @@ vb_tx_demand_poll(struct voicebus *vb)
  * \brief Command the hardware to check if it owns the next receive
  * descriptor.
  */
-inline static void
+static inline void
 __vb_rx_demand_poll(struct voicebus *vb)
 {
 	__vb_setctl(vb, 0x0010, 0x00000000);
@@ -912,7 +912,7 @@ voicebus_start(struct voicebus *vb)
 		}
 	}
 
-	for (i=0; i < vb->min_tx_buffer_count; ++i) {
+	for (i = 0; i < vb->min_tx_buffer_count; ++i) {
 		vbb = voicebus_alloc(vb);
 
 		if (unlikely(NULL == vbb))
@@ -1018,8 +1018,7 @@ voicebus_stop(struct voicebus *vb)
 #endif
 		assert(vb_is_stopped(vb));
 		clear_bit(STOP, &vb->flags);
-	}
-	else {
+	} else {
 		VB_PRINTK(vb, WARNING, "Timeout while waiting for board to "\
 			"stop.\n");
 	}
