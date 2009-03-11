@@ -3435,6 +3435,7 @@ static int dahdi_common_ioctl(struct inode *node, struct file *file, unsigned in
 
 	switch(cmd) {
 		/* get channel parameters */
+	case DAHDI_GET_PARAMS_V1: /* Intentional drop through. */
 	case DAHDI_GET_PARAMS:
 		size_to_copy = sizeof(struct dahdi_params);
 		if (copy_from_user(&stack.param, (struct dahdi_params *) data, size_to_copy))
@@ -3665,6 +3666,7 @@ static int dahdi_common_ioctl(struct inode *node, struct file *file, unsigned in
 		if (copy_to_user((struct dahdi_spaninfo *) data, &stack.spaninfo, size_to_copy))
 			return -EFAULT;
 		break;
+	case DAHDI_CHANDIAG_V1: /* Intentional drop through. */
 	case DAHDI_CHANDIAG:
 		get_user(j, (int *)data); /* get channel number from user */
 		/* make sure its a valid channel number */
@@ -4531,6 +4533,7 @@ static int dahdi_chanandpseudo_ioctl(struct inode *inode, struct file *file, uns
 		rv = start_tone(chan, j);
 		spin_unlock_irqrestore(&chan->lock, flags);
 		return rv;
+	case DAHDI_GETCONF_V1: /* intentional drop through */
 	case DAHDI_GETCONF:  /* get conf stuff */
 		if (copy_from_user(&stack.conf,(struct dahdi_confinfo *) data,sizeof(stack.conf)))
 			return -EFAULT;
@@ -4546,6 +4549,7 @@ static int dahdi_chanandpseudo_ioctl(struct inode *inode, struct file *file, uns
 		if (copy_to_user((struct dahdi_confinfo *) data,&stack.conf,sizeof(stack.conf)))
 			return -EFAULT;
 		break;
+	case DAHDI_SETCONF_V1: /* Intentional fall through. */
 	case DAHDI_SETCONF:  /* set conf stuff */
 		if (copy_from_user(&stack.conf,(struct dahdi_confinfo *) data,sizeof(stack.conf)))
 			return -EFAULT;
@@ -4708,6 +4712,7 @@ static int dahdi_chanandpseudo_ioctl(struct inode *inode, struct file *file, uns
 		spin_unlock(&chan->lock);
 		spin_unlock_irqrestore(&bigzaplock, flags);
 		return(rv);
+	case DAHDI_CONFDIAG_V1: /* Intention fall-through */
 	case DAHDI_CONFDIAG:  /* output diagnostic info to console */
 		if (!(chan->flags & DAHDI_FLAG_AUDIO)) return (-EINVAL);
 		get_user(j,(int *)data);  /* get conf # */
