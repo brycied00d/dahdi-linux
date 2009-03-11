@@ -6,16 +6,12 @@
  * Matthew Fredrickson <creslin@digium.com>, and
  * Michael Spiceland <mspiceland@digium.com>
  *
- * Copyright (C) 2007-2008 Digium, Inc.
+ * Copyright (C) 2007-2009 Digium, Inc.
  *
  * All rights reserved.
 
  * VoiceBus is a registered trademark of Digium.
  *
- * \todo   Make the client drivers back out gracefully when presented with a
- * signal.
- * \todo   Modify clients to sleep with timeout when waiting for interrupt.
- * \todo   Check on a 64-bit CPU / Kernel
  */
 
 /*
@@ -655,7 +651,7 @@ vb_reset_interface(struct voicebus *vb)
 	 * The calls to setsdi above toggle the reset line of the CPLD.  Wait
 	 * here to give the CPLD time to stabilize after reset.
 	 */
-	mdelay(1);
+	msleep(10);
 
 	return ((reg&0x7) == 0x4) ? 0 : -EIO;
 }
@@ -890,10 +886,6 @@ voicebus_start(struct voicebus *vb)
 	 */
 
 	/*
-	 * NOTE: The very first buffer after coming out of reset is used to
-	 *  prime the pump and is lost.  So we do not want the client driver to
-	 *  prepare it, since it will never see the corresponding receive
-	 *  buffer.
 	 * NOTE: handle_transmit is normally only called in the context of the
 	 *  deferred processing thread.  Since the deferred processing thread
 	 *  is known to not be running at this point, it is safe to call the
