@@ -275,9 +275,9 @@ stop_vb_deferred(struct voicebus *vb)
 	clear_bit(IN_DEFERRED_PROCESSING, &vb->flags);
 }
 #else
-#define assert_in_vb_deferred(_x_)  do {;} while (0)
-#define start_vb_deferred(_x_) do {;} while (0)
-#define stop_vb_deferred(_x_) do {;} while (0)
+#define assert_in_vb_deferred(_x_)  do {; } while (0)
+#define start_vb_deferred(_x_) do {; } while (0)
+#define stop_vb_deferred(_x_) do {; } while (0)
 #endif
 
 static inline struct voicebus_descriptor *
@@ -662,7 +662,7 @@ vb_reset_interface(struct voicebus *vb)
 }
 
 #define OWNED(_d_) (((_d_)->des0)&OWN_BIT)
-#define SET_OWNED(_d_) do { wmb(); (_d_)->des0 |= OWN_BIT; wmb();} while (0)
+#define SET_OWNED(_d_) do { wmb(); (_d_)->des0 |= OWN_BIT; wmb(); } while (0)
 
 #ifdef DBG
 static void
