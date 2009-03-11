@@ -1121,7 +1121,7 @@ vb_deferred(struct voicebus *vb)
 {
 	void *vbb;
 #ifdef DBG
-	static int count = 0;
+	static int count;
 #endif
 	int stopping = test_bit(STOP, &vb->flags);
 	int underrun = test_bit(TX_UNDERRUN, &vb->flags);
