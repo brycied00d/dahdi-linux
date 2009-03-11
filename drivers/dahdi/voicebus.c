@@ -118,13 +118,13 @@ struct voicebus_descriptor {
 
 struct voicebus_descriptor_list {
 	/* Pointer to an array of descriptors to give to hardware. */
-	struct voicebus_descriptor* desc;
+	struct voicebus_descriptor *desc;
 	/* Read completed buffers from the head. */
 	unsigned int 	head;
 	/* Write ready buffers to the tail. */
 	unsigned int 	tail;
 	/* Array to save the kernel virtual address of pending buffers. */
-	void * 		pending[DRING_SIZE];
+	void  		*pending[DRING_SIZE];
 	/* PCI Bus address of the descriptor list. */
 	dma_addr_t	desc_dma;
 	/*! either DMA_FROM_DEVICE or DMA_TO_DEVICE */
@@ -483,7 +483,7 @@ vb_setctl(struct voicebus *vb, u32 addr, u32 val)
 }
 
 static int
-__vb_sdi_clk(struct voicebus* vb)
+__vb_sdi_clk(struct voicebus *vb)
 {
 	unsigned int ret;
 	vb->sdi &= ~CSR9_MDC;
@@ -1300,7 +1300,7 @@ vb_workfunc(struct work_struct *work)
 static void
 vb_tasklet(unsigned long data)
 {
-	struct voicebus *vb = (struct voicebus*)data;
+	struct voicebus *vb = (struct voicebus *)data;
 	vb_deferred(vb);
 }
 #endif /* #if VOICEBUS_DEFERRED == WORKQUEUE */
