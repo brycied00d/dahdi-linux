@@ -71,14 +71,18 @@ sub logit {
 	print STDERR "$unit_id: @_\n";
 }
 
+sub debug {
+	logit @_ if $settings{debug};
+}
+
 # Arrange for error logging
 if (-t STDERR) {
 	$unit_id = 'Interactive';
-	logit "Interactive startup";
+	debug "Interactive startup";
 } else {
 	$unit_id = "$ENV{XBUS_NAME}/UNIT-$ENV{UNIT_NUMBER}";
 	open (STDERR, "| logger -t $program -p kern.info") || die;
-	logit "Non Interactive startup";
+	debug "Non Interactive startup";
 	foreach my $k (qw(
 			XBUS_NAME
 			XBUS_NUMBER
@@ -226,7 +230,7 @@ sub write_pri_info {
 		print INFO "$pri_protocol\n" || die "Failed writing '$pri_protocol' to '$file': $!\n";
 		close INFO || die "Failed during close of '$file': $!\n";
 	} else {
-		main::logit "$xpd_name: Skip setting pri protocol -- non given";
+		main::logit "$xpd_name: pri_protocol not given. Driver will use defaults.";
 	}
 }
 
@@ -359,7 +363,7 @@ sub port_setup($) {
 
 package main;
 
-logit "Starting '$0'";
+main::debug "Starting '$0'";
 
 PRI::read_defaults;
 
@@ -367,11 +371,11 @@ sub main() {
 	my @ports;
 	my $subunit;
 
-	logit "main(): Initializing chip ($ENV{UNIT_SUBUNITS} ports)";
+	main::debug "main(): Initializing chip ($ENV{UNIT_SUBUNITS} ports)";
 	PRI::init_quad;
 	# Must initialize all 4 ports, regardless how much there are
 	for($subunit = 0; $subunit < 4; $subunit++) {
-		#logit "main(): Initializing subunit $subunit";
+		#main::debug "main(): Initializing subunit $subunit";
 		my $p = PRI::Port->new(
 				'PORT_NUM'		=> $subunit,
 				'EXIST'			=> ($subunit < $ENV{UNIT_SUBUNITS})
@@ -389,7 +393,7 @@ sub main() {
 
 main;
 
-logit "Ending '$0'";
+main::debug "Ending '$0'";
 
 close REG;
 close STDERR;
