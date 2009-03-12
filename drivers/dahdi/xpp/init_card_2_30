@@ -69,11 +69,11 @@ sub debug {
 # Arrange for error logging
 if (-t STDERR || $opts{v}) {
 	$unit_id = 'Interactive';
-	main::debug "Interactive startup";
+	debug "Interactive startup";
 } else {
 	$unit_id = "$ENV{XBUS_NAME}/UNIT-$ENV{UNIT_NUMBER}";
 	open (STDERR, "| logger -t $program -p kern.info") || die;
-	main::debug "Non Interactive startup";
+	debug "Non Interactive startup";
 	foreach my $k (qw(
 			XBUS_NAME
 			XBUS_NUMBER
@@ -365,7 +365,7 @@ if($opts{v}) {
 	exit 0;
 }
 
-main::logit "Starting";
+main::debug "Starting";
 
 FXO::read_defaults;
 die "OPERMODE is undefined" unless $OPERMODE;
@@ -384,7 +384,7 @@ while(<DATA>) {
 FXO::opermode_setup;
 close REG;
 
-main::logit "Ending '$0'";
+main::debug "Ending '$0'";
 close STDERR;
 exit 0;
 

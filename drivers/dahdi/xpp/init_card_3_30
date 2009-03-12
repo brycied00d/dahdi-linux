@@ -67,18 +67,24 @@ my %opts;
 
 getopts('o:', \%opts);
 
+my %settings;
+
 sub logit {
 	print STDERR "$unit_id: @_\n";
+}
+
+sub debug {
+	logit @_ if $settings{debug};
 }
 
 # Arrange for error logging
 if (-t STDERR) {
 	$unit_id = 'Interactive';
-	logit "Interactive startup";
+	debug "Interactive startup";
 } else {
 	$unit_id = "$ENV{XBUS_NAME}/UNIT-$ENV{UNIT_NUMBER}";
 	open (STDERR, "| logger -t $program -p kern.info") || die;
-	logit "Non Interactive startup";
+	debug "Non Interactive startup";
 	foreach my $k (qw(
 			XBUS_NAME
 			XBUS_NUMBER
@@ -135,6 +141,14 @@ sub multibyte($) {
 		main::select_subunit($subunit);
 
 		BRI::gen "$subunit W$active";
+	}
+}
+
+sub read_defaults() {
+	if(XppConfig::read_config(\%settings)) {
+		main::logit "Defaults from $settings{xppconf}";
+	} else {
+		main::logit "No defaults file, use hard-coded defaults.";
 	}
 }
 
@@ -343,7 +357,7 @@ sub zthfc_startup {
 		$port->setup_su($chan);			# zap_xhfc_su.c:194
 	}
 
-	# Zaptel chan 2 used as HDLC D-Channel
+	# Dahdi chan 2 used as HDLC D-Channel
 	$port->setup_fifo(2, 0, 0x05, 2, 0);		# D-TX: zap_xhfc_su.c:205
 	$port->setup_fifo(2, 1, 0x05, 2, 0);		# D-RX: zap_xhfc_su.c:206
 	# E-chan, Echo channel is ignored
@@ -362,14 +376,16 @@ sub zthfc_startup {
 
 package main;
 
-logit "Starting '$0'";
+debug "Starting '$0'";
+
+BRI::read_defaults;
 
 #------------------------------------------- Instance detection
 
 # zap_xhfc_su.c:895
 sub init_xhfc($) {
 	my $portnum = shift;
-	main::logit "init_xhfc($portnum)";
+	main::debug "init_xhfc($portnum)";
 	BRI::gen "#--------------------------- init_xhfc";
 	BRI::gen "$portnum	WD	0D	00";	# r_FIFO_MD: 16 fifos,
 							# 64 bytes for TX and RX each (FIFO mode config)
@@ -452,7 +468,7 @@ sub main() {
 
 main;
 
-logit "Ending '$0'";
+debug "Ending '$0'";
 
 close REG;
 close STDERR;

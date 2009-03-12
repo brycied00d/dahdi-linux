@@ -70,11 +70,11 @@ sub debug {
 # Arrange for error logging
 if (-t STDERR) {
 	$unit_id = 'Interactive';
-	main::debug "Interactive startup";
+	debug "Interactive startup";
 } else {
 	$unit_id = "$ENV{XBUS_NAME}/UNIT-$ENV{UNIT_NUMBER}";
 	open (STDERR, "| logger -t $program -p kern.info") || die;
-	main::debug "Non Interactive startup";
+	debug "Non Interactive startup";
 	foreach my $k (qw(
 			XBUS_NAME
 			XBUS_NUMBER
@@ -385,14 +385,14 @@ sub auto_calibrate($$) {
 }
 
 sub calibrate_slics() {
-	main::logit "Calibrating '$0'";
+	main::debug "Calibrating '$0'";
 	auto_calibrate(0x47, 0x1E);
 	main::debug "after auto_calibrate";
 	manual_calibrate();
 	main::debug "after manul_calibrate";
 	auto_calibrate(0x40, 0x01);
 	main::debug "after auto_calibrate 2";
-	main::logit "Continue '$0'";
+	main::debug "Continue '$0'";
 }
 
 sub read_defaults() {
@@ -405,7 +405,7 @@ sub read_defaults() {
 
 package main;
 
-main::logit "Starting '$0'";
+main::debug "Starting '$0'";
 
 FXS::read_defaults;
 main::debug "before init_indirect_registers";
@@ -431,7 +431,7 @@ while(<DATA>) {
 }
 close REG;
 
-main::logit "Ending '$0'";
+main::debug "Ending '$0'";
 close STDERR;
 exit 0;
 
