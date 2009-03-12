@@ -3552,6 +3552,7 @@ static int dahdi_common_ioctl(struct inode *node, struct file *file, unsigned in
 		chan->pulsebreaktime = stack.param.pulsebreaktime;
 		chan->pulseaftertime = stack.param.pulseaftertime;
 		break;
+	case DAHDI_GETGAINS_V1: /* Intentional drop through. */
 	case DAHDI_GETGAINS:  /* get gain stuff */
 		if (copy_from_user(&stack.gain,(struct dahdi_gains *) data,sizeof(stack.gain)))
 			return -EFAULT;
