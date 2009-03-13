@@ -3078,6 +3078,15 @@ struct dahdi_tone *dahdi_mf_tone(const struct dahdi_chan *chan, char digit, int 
 	}
 
 	switch (digitmode) {
+	case DIGIT_MODE_PULSE:
+		/* We should only get here with a pulse digit if we need
+		 * to "dial" 'W' (wait 0.5 second) 
+		 */
+		if (digit == 'W')
+			return &tone_pause;
+
+		return NULL;
+		/* You should not get here */
 	case DIGIT_MODE_DTMF:
 		switch (digit) {
 		case '0':
