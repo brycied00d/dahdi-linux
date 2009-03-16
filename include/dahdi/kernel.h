@@ -96,7 +96,28 @@
 
 #define RING_DEBOUNCE_TIME	2000	/*!< 2000 ms ring debounce time */
 
-#include "ecdis.h"
+typedef struct
+{
+    int32_t gain;
+    int32_t a1;
+    int32_t a2;
+    int32_t b1;
+    int32_t b2;
+
+    int32_t z1;
+    int32_t z2;
+} biquad2_state_t;
+
+typedef struct
+{
+    biquad2_state_t notch;
+    int notch_level;
+    int channel_level;
+    int tone_present;
+    int tone_cycle_duration;
+    int good_cycles;
+    int hit;
+} echo_can_disable_detector_state_t;
 
 struct sf_detect_state {
 	long	x1;
