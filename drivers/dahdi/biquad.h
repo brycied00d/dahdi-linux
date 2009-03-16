@@ -25,18 +25,6 @@
  * this program for more details.
  */
 
-typedef struct
-{
-    int32_t gain;
-    int32_t a1;
-    int32_t a2;
-    int32_t b1;
-    int32_t b2;
-
-    int32_t z1;
-    int32_t z2;
-} biquad2_state_t;
-
 static inline void biquad2_init (biquad2_state_t *bq,
                 	 	 int32_t gain,
 		                 int32_t a1,

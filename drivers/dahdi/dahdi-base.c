@@ -82,6 +82,7 @@
 /* Grab fasthdlc with tables */
 #define FAST_HDLC_NEED_TABLES
 #include <dahdi/kernel.h>
+#include "ecdis.h"
 
 #include "hpec/hpec_user.h"
 
