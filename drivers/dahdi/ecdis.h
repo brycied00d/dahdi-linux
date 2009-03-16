@@ -28,18 +28,6 @@
 
 #include "biquad.h"
 
-typedef struct
-{
-    biquad2_state_t notch;
-    int notch_level;
-    int channel_level;
-    int tone_present;
-    int tone_cycle_duration;
-    int good_cycles;
-    int hit;
-} echo_can_disable_detector_state_t;
-
-
 #define FALSE 0
 #define TRUE (!FALSE)
 
