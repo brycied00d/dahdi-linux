@@ -18,7 +18,7 @@
  * 
  * Example :
  * 
- * Say you have two spans cross connected, a thrid one monitoring RX on the 
+ * Say you have two spans cross connected, a third one monitoring RX on the 
  * first one, a fourth one monitoring RX on the second one
  *
  *   1:0
