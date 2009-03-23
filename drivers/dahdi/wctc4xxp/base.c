@@ -86,6 +86,10 @@
 #endif
 #endif
 
+/* The total number of active channels over which the driver will start polling
+ * the card every 10 ms. */
+#define POLLING_CALL_THRESHOLD 40
+
 #define INVALID 999 /* Used to mark invalid channels, commands, etc.. */
 #define MAX_CHANNEL_PACKETS  5
 
@@ -397,6 +401,7 @@ struct wcdte {
 	struct semaphore chansem;
 #define DTE_READY	1
 #define DTE_SHUTDOWN	2
+#define DTE_POLLING	3
 	unsigned long flags;
 
 	/* This is a device-global list of commands that are waiting to be
@@ -407,6 +412,7 @@ struct wcdte {
 
 	spinlock_t rx_list_lock;
 	struct list_head rx_list;
+	spinlock_t rx_lock;
 
 	unsigned int seq_num;
 	int last_rx_seq_num;
@@ -443,7 +449,11 @@ struct wcdte {
 	struct napi_struct napi;
 #endif
 	struct timer_list watchdog;
-
+	atomic_t open_channels;
+	struct timer_list polling;
+#if HZ > 100
+	unsigned long jiffies_at_last_poll;
+#endif
 };
 
 #ifdef HAVE_NETDEV_PRIV
@@ -845,7 +855,7 @@ struct wctc4xxp_descriptor {
 	__le32 container; /* Unused */
 } __attribute__((packed));
 
-#define DRING_SIZE (1 << 5) /* Must be a power of two */
+#define DRING_SIZE (1 << 7) /* Must be a power of two */
 #define DRING_MASK (DRING_SIZE-1)
 #define MIN_PACKET_LEN  64
 
@@ -1028,9 +1038,10 @@ __wctc4xxp_getctl(struct wcdte *wc, unsigned int addr)
 static inline void
 wctc4xxp_setctl(struct wcdte *wc, unsigned int addr, unsigned int val)
 {
-	spin_lock_bh(&wc->reglock);
+	unsigned long flags;
+	spin_lock_irqsave(&wc->reglock, flags);
 	__wctc4xxp_setctl(wc, addr, val);
-	spin_unlock_bh(&wc->reglock);
+	spin_unlock_irqrestore(&wc->reglock, flags);
 }
 
 static inline void
@@ -1549,10 +1560,7 @@ wctc4xxp_cleanup_descriptor_ring(struct wctc4xxp_descriptor_ring *dr)
 {
 	int i;
 	struct wctc4xxp_descriptor *d;
-	unsigned long flags;
 
-	/* NOTE: The DTE must be in the stopped state. */
-	spin_lock_irqsave(&dr->lock, flags);
 	for (i = 0; i < DRING_SIZE; ++i) {
 		d = wctc4xxp_descriptor(dr, i);
 		if (d->buffer1) {
@@ -1570,7 +1578,6 @@ wctc4xxp_cleanup_descriptor_ring(struct wctc4xxp_descriptor_ring *dr)
 	dr->head = 0;
 	dr->tail = 0;
 	dr->count = 0;
-	spin_unlock_irqrestore(&dr->lock, flags);
 	pci_free_consistent(dr->pdev, (sizeof(*d)+dr->padding) * DRING_SIZE,
 		dr->desc, dr->desc_dma);
 }
@@ -1578,13 +1585,14 @@ wctc4xxp_cleanup_descriptor_ring(struct wctc4xxp_descriptor_ring *dr)
 static void wctc4xxp_cleanup_command_list(struct wcdte *wc)
 {
 	struct tcb *cmd;
+	unsigned long flags;
 	LIST_HEAD(local_list);
 
-	spin_lock_bh(&wc->cmd_list_lock);
+	spin_lock_irqsave(&wc->cmd_list_lock, flags);
 	list_splice_init(&wc->cmd_list, &local_list);
 	list_splice_init(&wc->waiting_for_response_list, &local_list);
 	list_splice_init(&wc->rx_list, &local_list);
-	spin_unlock_bh(&wc->cmd_list_lock);
+	spin_unlock_irqrestore(&wc->cmd_list_lock, flags);
 
 	while (!list_empty(&local_list)) {
 		cmd = list_entry(local_list.next, struct tcb, node);
@@ -1600,25 +1608,28 @@ static void wctc4xxp_cleanup_command_list(struct wcdte *wc)
 static void
 wctc4xxp_add_to_command_list(struct wcdte *wc, struct tcb *cmd)
 {
-	spin_lock_bh(&wc->cmd_list_lock);
+	unsigned long flags;
+	spin_lock_irqsave(&wc->cmd_list_lock, flags);
 	list_add_tail(&cmd->node, &wc->cmd_list);
-	spin_unlock_bh(&wc->cmd_list_lock);
+	spin_unlock_irqrestore(&wc->cmd_list_lock, flags);
 }
 
 static void
 wctc4xxp_add_to_response_list(struct wcdte *wc, struct tcb *cmd)
 {
-	spin_lock_bh(&wc->cmd_list_lock);
+	unsigned long flags;
+	spin_lock_irqsave(&wc->cmd_list_lock, flags);
 	list_add_tail(&cmd->node, &wc->waiting_for_response_list);
-	spin_unlock_bh(&wc->cmd_list_lock);
+	spin_unlock_irqrestore(&wc->cmd_list_lock, flags);
 }
 
 static void
 wctc4xxp_remove_from_response_list(struct wcdte *wc, struct tcb *cmd)
 {
-	spin_lock_bh(&wc->cmd_list_lock);
+	unsigned long flags;
+	spin_lock_irqsave(&wc->cmd_list_lock, flags);
 	list_del_init(&cmd->node);
-	spin_unlock_bh(&wc->cmd_list_lock);
+	spin_unlock_irqrestore(&wc->cmd_list_lock, flags);
 }
 
 static void
@@ -1709,9 +1720,10 @@ static unsigned int
 wctc4xxp_getctl(struct wcdte *wc, unsigned int addr)
 {
 	unsigned int val;
-	spin_lock_bh(&wc->reglock);
+	unsigned long flags;
+	spin_lock_irqsave(&wc->reglock, flags);
 	val = __wctc4xxp_getctl(wc, addr);
-	spin_unlock_bh(&wc->reglock);
+	spin_unlock_irqrestore(&wc->reglock, flags);
 	return val;
 }
 
@@ -1721,12 +1733,13 @@ wctc4xxp_cleanup_channel_private(struct wcdte *wc,
 {
 	struct tcb *cmd, *temp;
 	struct channel_pvt *cpvt = dtc->pvt;
+	unsigned long flags;
 	LIST_HEAD(local_list);
 
-	spin_lock_bh(&cpvt->lock);
+	spin_lock_irqsave(&cpvt->lock, flags);
 	list_splice_init(&cpvt->rx_queue, &local_list);
 	dahdi_tc_clear_data_waiting(dtc);
-	spin_unlock_bh(&cpvt->lock);
+	spin_unlock_irqrestore(&cpvt->lock, flags);
 
 	memset(&cpvt->stats, 0, sizeof(cpvt->stats));
 	list_for_each_entry_safe(cmd, temp, &local_list, node) {
@@ -1821,6 +1834,35 @@ do_channel_allocate(struct dahdi_transcoder_channel *dtc)
 	return res;
 }
 
+static void
+wctc4xxp_setintmask(struct wcdte *wc, unsigned int intmask)
+{
+	wc->intmask = intmask;
+	wctc4xxp_setctl(wc, 0x0038, intmask);
+}
+
+static void
+wctc4xxp_enable_interrupts(struct wcdte *wc)
+{
+	wctc4xxp_setintmask(wc, 0x000180c0);
+}
+
+static void
+wctc4xxp_disable_interrupts(struct wcdte *wc)
+{
+	/* Disable interrupts */
+	wctc4xxp_setintmask(wc, 0x00000000);
+	wctc4xxp_setctl(wc, 0x0084, 0x00000000);
+}
+
+static void 
+wctc4xxp_enable_polling(struct wcdte *wc)
+{
+	set_bit(DTE_POLLING, &wc->flags);
+	mod_timer(&wc->polling, jiffies + 1);
+	wctc4xxp_disable_interrupts(wc);
+}
+
 static int
 wctc4xxp_operation_allocate(struct dahdi_transcoder_channel *dtc)
 {
@@ -1832,12 +1874,25 @@ wctc4xxp_operation_allocate(struct dahdi_transcoder_channel *dtc)
 		return -EIO;
 	}
 
+	atomic_inc(&wc->open_channels);
+	if (atomic_read(&wc->open_channels) > POLLING_CALL_THRESHOLD) {
+		if (!test_bit(DTE_POLLING, &wc->flags))
+			wctc4xxp_enable_polling(wc);
+	}
+
 	if (dahdi_tc_is_built(dtc)) {
 		DTE_DEBUG(DTE_DEBUG_CHANNEL_SETUP,
 		  "Allocating channel %p which is already built.\n", dtc);
 		return 0;
 	}
 	return do_channel_allocate(dtc);
+}
+
+static void
+wctc4xxp_disable_polling(struct wcdte *wc)
+{
+	clear_bit(DTE_POLLING, &wc->flags);
+	wctc4xxp_enable_interrupts(wc);
 }
 
 static int
@@ -1868,6 +1923,14 @@ wctc4xxp_operation_release(struct dahdi_transcoder_channel *dtc)
 	if (down_interruptible(&wc->chansem))
 		return -EINTR;
 #endif
+
+	atomic_dec(&wc->open_channels);
+	if (atomic_read(&wc->open_channels) < POLLING_CALL_THRESHOLD) {
+		if (test_bit(DTE_POLLING, &wc->flags))
+			wctc4xxp_disable_polling(wc);
+	}
+
+	DTE_DEBUG(DTE_DEBUG_GENERAL, "%d open channels.\n", atomic_read(&wc->open_channels));
 
 	packets_received = atomic_read(&cpvt->stats.packets_received);
 	packets_sent = atomic_read(&cpvt->stats.packets_sent);
@@ -1924,7 +1987,8 @@ get_ready_cmd(struct dahdi_transcoder_channel *dtc)
 {
 	struct channel_pvt *cpvt = dtc->pvt;
 	struct tcb *cmd;
-	spin_lock_bh(&cpvt->lock);
+	unsigned long flags;
+	spin_lock_irqsave(&cpvt->lock, flags);
 	if (!list_empty(&cpvt->rx_queue)) {
 		WARN_ON(!dahdi_tc_is_data_waiting(dtc));
 		cmd = list_entry(cpvt->rx_queue.next, struct tcb, node);
@@ -1934,9 +1998,59 @@ get_ready_cmd(struct dahdi_transcoder_channel *dtc)
 	}
 	if (list_empty(&cpvt->rx_queue))
 		dahdi_tc_clear_data_waiting(dtc);
-	spin_unlock_bh(&cpvt->lock);
+	spin_unlock_irqrestore(&cpvt->lock, flags);
 	return cmd;
 }
+
+static int 
+wctc4xxp_handle_receive_ring(struct wcdte *wc)
+{
+	struct tcb *cmd;
+	unsigned long flags;
+	unsigned int count = 0;
+
+	/* If we can't grab this lock, another thread must already be checking
+	 * the receive ring...so we should just finish up, and we'll try again
+	 * later. */
+	if (!spin_trylock_irqsave(&wc->rx_lock, flags))
+		return 0;
+
+	while ((cmd = wctc4xxp_retrieve(wc->rxd))) {
+		++count;
+		spin_lock(&wc->rx_list_lock);
+		list_add_tail(&cmd->node, &wc->rx_list);
+		spin_unlock(&wc->rx_list_lock);
+		cmd = __alloc_cmd(GFP_ATOMIC, 0);
+		if (!cmd) {
+			DTE_PRINTK(ERR, "Out of memory in %s.\n", __func__);
+		} else {
+			if (wctc4xxp_submit(wc->rxd, cmd)) {
+				DTE_PRINTK(ERR, "Failed submit in %s\n",
+					__func__);
+				free_cmd(cmd);
+			}
+		}
+	}
+	spin_unlock_irqrestore(&wc->rx_lock, flags);
+	return count;
+}
+
+static void
+__wctc4xxp_polling(struct wcdte *wc)
+{
+	if (wctc4xxp_handle_receive_ring(wc))
+		schedule_work(&wc->deferred_work);
+}
+
+static void
+wctc4xxp_polling(unsigned long data)
+{
+	struct wcdte *wc = (struct wcdte *)data;
+	__wctc4xxp_polling(wc);
+	if (test_bit(DTE_POLLING, &wc->flags))
+		mod_timer(&wc->polling, jiffies + 1);
+}
+
 
 /* Called with a buffer in which to copy a transcoded frame. */
 static ssize_t
@@ -2073,6 +2187,19 @@ wctc4xxp_write(struct file *file, const char __user *frame,
 
 	atomic_inc(&cpvt->stats.packets_sent);
 	wctc4xxp_transmit_cmd(wc, cmd);
+
+	if (test_bit(DTE_POLLING, &wc->flags)) {
+#if HZ == 100
+		__wctc4xxp_polling(wc);
+#else
+		if (jiffies != wc->jiffies_at_last_poll) {
+			wc->jiffies_at_last_poll = jiffies;
+			__wctc4xxp_polling(wc);
+		}
+#endif
+	}
+
+
 	return count;
 }
 
@@ -2115,14 +2242,14 @@ do_rx_response_packet(struct wcdte *wc, struct tcb *cmd)
 		wc->last_rx_seq_num = rxhdr->seq_num;
 	}
 
-	spin_lock_bh(&wc->cmd_list_lock);
+	spin_lock_irqsave(&wc->cmd_list_lock, flags);
 	list_for_each_entry_safe(pos, temp,
 		&wc->waiting_for_response_list, node) {
 		listhdr = pos->data;
 		if ((listhdr->function == rxhdr->function) &&
 		    (listhdr->channel == rxhdr->channel)) {
 
-			spin_lock_irqsave(&pos->lock, flags);
+			spin_lock(&pos->lock);
 			list_del_init(&pos->node);
 			pos->flags &= ~(__WAIT_FOR_RESPONSE);
 			pos->response = cmd;
@@ -2131,13 +2258,13 @@ do_rx_response_packet(struct wcdte *wc, struct tcb *cmd)
 			if (pos->flags & TX_COMPLETE) {
 				complete(&pos->complete);
 			} 
-			spin_unlock_irqrestore(&pos->lock, flags);
+			spin_unlock(&pos->lock);
 			handled = 1;
 
 			break;
 		}
 	}
-	spin_unlock_bh(&wc->cmd_list_lock);
+	spin_unlock_irqrestore(&wc->cmd_list_lock, flags);
 
 	if (!handled) {
 		DTE_DEBUG(DTE_DEBUG_GENERAL, "Freeing unhandled response ch:(%04x)\n",
@@ -2155,7 +2282,7 @@ do_rx_ack_packet(struct wcdte *wc, struct tcb *cmd)
 
 	rxhdr = cmd->data;
 
-	spin_lock_bh(&wc->cmd_list_lock);
+	spin_lock_irqsave(&wc->cmd_list_lock, flags);
 	list_for_each_entry_safe(pos, temp,
 		&wc->waiting_for_response_list, node) {
 		listhdr = pos->data;
@@ -2168,26 +2295,26 @@ do_rx_ack_packet(struct wcdte *wc, struct tcb *cmd)
 			complete(&pos->complete);
 		} else if ((listhdr->seq_num == rxhdr->seq_num) &&
 			   (listhdr->channel == rxhdr->channel)) {
-			spin_lock_irqsave(&pos->lock, flags);
+			spin_lock(&pos->lock);
 			if (pos->flags & __WAIT_FOR_RESPONSE) {
 				pos->flags &= ~(__WAIT_FOR_ACK);
-				spin_unlock_irqrestore(&pos->lock, flags);
+				spin_unlock(&pos->lock);
 			} else {
 				list_del_init(&pos->node);
 
 				if (pos->flags & DO_NOT_AUTO_FREE) {
 					WARN_ON(!(pos->flags & TX_COMPLETE));
 					complete(&pos->complete);
-					spin_unlock_irqrestore(&pos->lock, flags);
+					spin_unlock(&pos->lock);
 				} else {
-					spin_unlock_irqrestore(&pos->lock, flags);
+					spin_unlock(&pos->lock);
 					free_cmd(pos);
 				}
 			}
 			break;
 		}
 	}
-	spin_unlock_bh(&wc->cmd_list_lock);
+	spin_unlock_irqrestore(&wc->cmd_list_lock, flags);
 
 	/* There is never a reason to store up the ack packets. */
 	free_cmd(cmd);
@@ -2286,6 +2413,7 @@ queue_rtp_packet(struct wcdte *wc, struct tcb *cmd)
 	struct dahdi_transcoder_channel *dtc;
 	struct channel_pvt *cpvt;
 	struct rtp_packet *packet = cmd->data;
+	unsigned long flags;
 
 	index = (be16_to_cpu(packet->udphdr.dest) - 0x5000) / 2;
 	if (unlikely(index >= wc->numchannels)) {
@@ -2312,10 +2440,10 @@ queue_rtp_packet(struct wcdte *wc, struct tcb *cmd)
 	}
 
 	cpvt = dtc->pvt;
-	spin_lock_bh(&cpvt->lock);
+	spin_lock_irqsave(&cpvt->lock, flags);
 	list_add_tail(&cmd->node, &cpvt->rx_queue);
 	dahdi_tc_set_data_waiting(dtc);
-	spin_unlock_bh(&cpvt->lock);
+	spin_unlock_irqrestore(&cpvt->lock, flags);
 	dahdi_transcoder_alert(dtc);
 	return;
 }
@@ -2364,14 +2492,14 @@ static inline void service_tx_ring(struct wcdte *wc)
 		/* We've freed up a spot in the hardware ring buffer.  If
 		 * another packet is queued up, let's submit it to the
 		 * hardware. */
-		spin_lock_bh(&wc->cmd_list_lock);
+		spin_lock_irqsave(&wc->cmd_list_lock, flags);
 		if (!list_empty(&wc->cmd_list)) {
 			cmd = list_entry(wc->cmd_list.next, struct tcb, node);
 			list_del_init(&cmd->node);
 		} else {
 			cmd = NULL;
 		}
-		spin_unlock_bh(&wc->cmd_list_lock);
+		spin_unlock_irqrestore(&wc->cmd_list_lock, flags);
 
 		if (cmd)
 			wctc4xxp_transmit_cmd(wc, cmd);
@@ -2422,7 +2550,6 @@ static void deferred_work_func(struct work_struct *work)
 DAHDI_IRQ_HANDLER(wctc4xxp_interrupt)
 {
 	struct wcdte *wc = dev_id;
-	struct tcb *cmd;
 	u32 ints;
 	u32 reg;
 #define TX_COMPLETE_INTERRUPT 0x00000001
@@ -2443,24 +2570,7 @@ DAHDI_IRQ_HANDLER(wctc4xxp_interrupt)
 			reg |= TX_COMPLETE_INTERRUPT;
 
 		if (ints & RX_COMPLETE_INTERRUPT) {
-			while ((cmd = wctc4xxp_retrieve(wc->rxd))) {
-				spin_lock(&wc->rx_list_lock);
-				list_add_tail(&cmd->node, &wc->rx_list);
-				spin_unlock(&wc->rx_list_lock);
-
-				cmd = __alloc_cmd(GFP_ATOMIC, 0);
-				if (!cmd) {
-					DTE_PRINTK(ERR,
-					  "Out of memory in %s.\n", __func__);
-				} else {
-					if (wctc4xxp_submit(wc->rxd, cmd)) {
-						DTE_PRINTK(ERR,
-						  "Failed submit in %s\n",
-						  __func__);
-						free_cmd(cmd);
-					}
-				}
-			}
+			wctc4xxp_handle_receive_ring(wc);
 			reg |= RX_COMPLETE_INTERRUPT;
 		}
 
@@ -2558,19 +2668,6 @@ wctc4xxp_hardware_init(struct wcdte *wc)
 }
 
 static void
-wctc4xxp_setintmask(struct wcdte *wc, unsigned int intmask)
-{
-	wc->intmask = intmask;
-	wctc4xxp_setctl(wc, 0x0038, intmask);
-}
-
-static void
-wctc4xxp_enable_interrupts(struct wcdte *wc)
-{
-	wctc4xxp_setintmask(wc, 0x000180c0);
-}
-
-static void
 wctc4xxp_start_dma(struct wcdte *wc)
 {
 	int res;
@@ -2630,13 +2727,6 @@ wctc4xxp_stop_dma(struct wcdte *wc)
 			msleep(1);
 }
 
-static void
-wctc4xxp_disable_interrupts(struct wcdte *wc)
-{
-	/* Disable interrupts */
-	wctc4xxp_setintmask(wc, 0x00000000);
-	wctc4xxp_setctl(wc, 0x0084, 0x00000000);
-}
 
 #define MDIO_SHIFT_CLK		0x10000
 #define MDIO_DATA_WRITE1 	0x20000
@@ -3303,6 +3393,7 @@ wctc4xxp_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 	spin_lock_init(&wc->reglock);
 	spin_lock_init(&wc->cmd_list_lock);
 	spin_lock_init(&wc->rx_list_lock);
+	spin_lock_init(&wc->rx_lock);
 	INIT_LIST_HEAD(&wc->cmd_list);
 	INIT_LIST_HEAD(&wc->waiting_for_response_list);
 	INIT_LIST_HEAD(&wc->rx_list);
@@ -3408,6 +3499,14 @@ wctc4xxp_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 	init_timer(&wc->watchdog);
 #	else
 	setup_timer(&wc->watchdog, wctc4xxp_watchdog, (unsigned long)wc);
+#	endif
+
+#	if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 18)
+	wc->polling.function = wctc4xxp_polling;
+	wc->polling.data = (unsigned long)wc;
+	init_timer(&wc->polling);
+#	else
+	setup_timer(&wc->polling, wctc4xxp_polling, (unsigned long)wc);
 #	endif
 
 	/* ------------------------------------------------------------------
@@ -3530,6 +3629,12 @@ static void __devexit wctc4xxp_remove_one(struct pci_dev *pdev)
 		del_timer_sync(&wc->watchdog);
 	}
 
+	/* This should already be stopped, but it doesn't hurt to make sure. */
+	clear_bit(DTE_POLLING, &wc->flags);
+	if (del_timer_sync(&wc->polling)) {
+		del_timer_sync(&wc->polling);
+	}
+
 	wctc4xxp_net_unregister(wc);
 
 	/* Stop any DMA */
@@ -3548,7 +3653,6 @@ static void __devexit wctc4xxp_remove_one(struct pci_dev *pdev)
 
 	/* Free Resources */
 	release_region(wc->iobase, 0xff);
-	spin_lock_bh(&wc->cmd_list_lock);
 	if (wc->txd) {
 		if (wc->txd->desc)
 			wctc4xxp_cleanup_descriptor_ring(wc->txd);
@@ -3559,7 +3663,7 @@ static void __devexit wctc4xxp_remove_one(struct pci_dev *pdev)
 			wctc4xxp_cleanup_descriptor_ring(wc->rxd);
 		kfree(wc->rxd);
 	}
-	spin_unlock_bh(&wc->cmd_list_lock);
+
 	wctc4xxp_cleanup_command_list(wc);
 	wctc4xxp_cleanup_channels(wc);
 
