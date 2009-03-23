@@ -410,6 +410,7 @@ struct wcdte {
 	struct list_head rx_list;
 
 	unsigned int seq_num;
+	int last_rx_seq_num;
 	unsigned char numchannels;
 	unsigned char complexname[40];
 
@@ -2111,8 +2112,17 @@ do_rx_response_packet(struct wcdte *wc, struct tcb *cmd)
 	const struct csm_encaps_hdr *listhdr, *rxhdr;
 	struct tcb *pos, *temp;
 	unsigned long flags;
-
+	u32 handled = 0;
 	rxhdr = cmd->data;
+	if (0xffff == rxhdr->channel) {
+		/* We received a duplicate response. */
+		if (rxhdr->seq_num == wc->last_rx_seq_num) {
+			free_cmd(cmd);
+			return;
+		}
+		wc->last_rx_seq_num = rxhdr->seq_num;
+	}
+
 	spin_lock_bh(&wc->cmd_list_lock);
 	list_for_each_entry_safe(pos, temp,
 		&wc->waiting_for_response_list, node) {
@@ -2130,11 +2140,17 @@ do_rx_response_packet(struct wcdte *wc, struct tcb *cmd)
 				complete(&pos->complete);
 			} 
 			spin_unlock_irqrestore(&pos->lock, flags);
+			handled = 1;
 
 			break;
 		}
 	}
 	spin_unlock_bh(&wc->cmd_list_lock);
+
+	if (!handled) {
+		printk(KERN_INFO "Freeing unhandled response\n");
+		free_cmd(cmd);
+	}
 }
 
 static void
@@ -3277,10 +3293,9 @@ wctc4xxp_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 	 * Setup the pure software constructs internal to this driver.
 	 * --------------------------------------------------------------- */
 
-	wc = kmalloc(sizeof(*wc), GFP_KERNEL);
+	wc = kzalloc(sizeof(*wc), GFP_KERNEL);
 	if (!wc)
 		return -ENOMEM;
-	memset(wc, 0, sizeof(*wc));
 
 	position_on_list = wctc4xxp_add_to_device_list(wc);
 	snprintf(wc->board_name, sizeof(wc->board_name)-1, "%s%d",
@@ -3289,6 +3304,7 @@ wctc4xxp_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 	wc->pdev             = pdev;
 	wc->pos              = position_on_list;
 	wc->variety          = d->long_name;
+	wc->last_rx_seq_num  = -1;
 
 	init_MUTEX(&wc->chansem);
 	spin_lock_init(&wc->reglock);
