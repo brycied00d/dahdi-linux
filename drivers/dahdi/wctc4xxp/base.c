@@ -380,7 +380,6 @@ struct channel_pvt {
 	u16 chan_in_num;	/* DTE channel to receive from */
 	u16 chan_out_num;	/* DTE channel to send data to */
 	u32 timestamp;
-	u16 last_dte_seqno;
 	struct {
 		u8 encoder:1;	/* If we're an encoder */
 	};
@@ -1727,9 +1726,9 @@ wctc4xxp_cleanup_channel_private(struct wcdte *wc,
 	spin_lock_bh(&cpvt->lock);
 	list_splice_init(&cpvt->rx_queue, &local_list);
 	dahdi_tc_clear_data_waiting(dtc);
-	cpvt->last_dte_seqno = 0;
 	spin_unlock_bh(&cpvt->lock);
 
+	memset(&cpvt->stats, 0, sizeof(cpvt->stats));
 	list_for_each_entry_safe(cmd, temp, &local_list, node) {
 		list_del(&cmd->node);
 		free_cmd(cmd);
@@ -1852,6 +1851,7 @@ wctc4xxp_operation_release(struct dahdi_transcoder_channel *dtc)
 	struct channel_pvt *compl_cpvt;
 	struct channel_pvt *cpvt = dtc->pvt;
 	struct wcdte *wc = cpvt->wc;
+	int packets_received, packets_sent;
 
 	BUG_ON(!cpvt);
 	BUG_ON(!wc);
@@ -1869,6 +1869,14 @@ wctc4xxp_operation_release(struct dahdi_transcoder_channel *dtc)
 		return -EINTR;
 #endif
 
+	packets_received = atomic_read(&cpvt->stats.packets_received);
+	packets_sent = atomic_read(&cpvt->stats.packets_sent);
+		
+	if ((packets_sent - packets_received) > 5) {
+		DTE_DEBUG(DTE_DEBUG_GENERAL, "%s channel %d sent %d packets and received %d packets.\n",
+			(cpvt->encoder) ? "encoder" : "decoder", 
+			cpvt->chan_out_num, packets_sent, packets_received);
+	}
 	/* Remove any packets that are waiting on the outbound queue. */
 	wctc4xxp_cleanup_channel_private(wc, dtc);
 	index = cpvt->timeslot_in_num/2;
@@ -1941,7 +1949,6 @@ wctc4xxp_read(struct file *file, char __user *frame, size_t count, loff_t *ppos)
 	struct tcb *cmd;
 	struct rtp_packet *packet;
 	ssize_t payload_bytes;
-	u16 rtp_eseq;
 
 	BUG_ON(!dtc);
 	BUG_ON(!cpvt);
@@ -1986,20 +1993,6 @@ wctc4xxp_read(struct file *file, char __user *frame, size_t count, loff_t *ppos)
 	}
 
 	atomic_inc(&cpvt->stats.packets_received);
-
-	if (!(cpvt->last_dte_seqno)) {
-		cpvt->last_dte_seqno = be16_to_cpu(packet->rtphdr.seqno);
-	} else {
-		rtp_eseq = ++cpvt->last_dte_seqno;
-		cpvt->last_dte_seqno = be16_to_cpu(packet->rtphdr.seqno);
-		if (rtp_eseq != cpvt->last_dte_seqno)
-			DTE_DEBUG(DTE_DEBUG_GENERAL,
-			 "Bad seqno from DTE! [%04X][%d][%d][%d]\n",
-			 be16_to_cpu(packet->rtphdr.seqno),
-			 (be16_to_cpu(packet->udphdr.dest) - 0x5000),
-			 be16_to_cpu(packet->rtphdr.seqno),
-			 rtp_eseq);
-	}
 
 	if (unlikely(copy_to_user(frame, &packet->payload[0], payload_bytes))) {
 		DTE_PRINTK(ERR, "Failed to copy data in %s\n", __func__);
@@ -2078,9 +2071,8 @@ wctc4xxp_write(struct file *file, const char __user *frame,
 	DTE_DEBUG(DTE_DEBUG_RTP_TX,
 	    "Sending packet of %Zu byte on channel (%p).\n", count, dtc);
 
-	wctc4xxp_transmit_cmd(wc, cmd);
 	atomic_inc(&cpvt->stats.packets_sent);
-
+	wctc4xxp_transmit_cmd(wc, cmd);
 	return count;
 }
 
@@ -2148,7 +2140,8 @@ do_rx_response_packet(struct wcdte *wc, struct tcb *cmd)
 	spin_unlock_bh(&wc->cmd_list_lock);
 
 	if (!handled) {
-		printk(KERN_INFO "Freeing unhandled response\n");
+		DTE_DEBUG(DTE_DEBUG_GENERAL, "Freeing unhandled response ch:(%04x)\n",
+			be16_to_cpu(rxhdr->channel));
 		free_cmd(cmd);
 	}
 }
@@ -3518,10 +3511,7 @@ static void wctc4xxp_cleanup_channels(struct wcdte *wc)
 
 static void __devexit wctc4xxp_remove_one(struct pci_dev *pdev)
 {
-	int i;
 	struct wcdte *wc = pci_get_drvdata(pdev);
-	struct dahdi_transcoder_channel *dtc_en, *dtc_de;
-	struct channel_pvt *cpvt;
 
 	if (!wc) {
 		/* \todo print warning message here. */
@@ -3541,28 +3531,6 @@ static void __devexit wctc4xxp_remove_one(struct pci_dev *pdev)
 	}
 
 	wctc4xxp_net_unregister(wc);
-
-	if (debug) {
-		for (i = 0; i < wc->numchannels; ++i) {
-			dtc_en = &(wc->uencode->channels[i]);
-			cpvt = dtc_en->pvt;
-			DTE_DEBUG(DTE_DEBUG_GENERAL,
-			   "encoder[%d] snt = %d, rcv = %d [%d]\n", i,
-			   atomic_read(&cpvt->stats.packets_sent),
-			   atomic_read(&cpvt->stats.packets_received),
-			   atomic_read(&cpvt->stats.packets_sent) -
-			   atomic_read(&cpvt->stats.packets_received));
-
-			dtc_de = &(wc->udecode->channels[i]);
-			cpvt = dtc_de->pvt;
-			DTE_DEBUG(DTE_DEBUG_GENERAL,
-			   "decoder[%d] snt = %d, rcv = %d [%d]\n", i,
-			   atomic_read(&cpvt->stats.packets_sent),
-			   atomic_read(&cpvt->stats.packets_received),
-			   atomic_read(&cpvt->stats.packets_sent) -
-			   atomic_read(&cpvt->stats.packets_received));
-		}
-	}
 
 	/* Stop any DMA */
 	wctc4xxp_stop_dma(wc);
