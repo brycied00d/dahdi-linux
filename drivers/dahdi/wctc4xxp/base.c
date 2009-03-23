@@ -212,6 +212,7 @@ struct tcb {
 	void *data;
 	/* The number of bytes available in data. */
 	int data_len;
+	spinlock_t lock;
 };
 
 static inline void *hdr_from_cmd(struct tcb *cmd)
@@ -235,6 +236,7 @@ initialize_cmd(struct tcb *cmd, unsigned long cmd_flags)
 	cmd->flags = cmd_flags;
 	cmd->data = &cmd->cmd[0];
 	cmd->data_len = SFRAME_SIZE;
+	spin_lock_init(&cmd->lock);
 }
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 20)
@@ -910,7 +912,6 @@ wctc4xxp_retrieve(struct wctc4xxp_descriptor_ring *dr)
 		--dr->count;
 		WARN_ON(!c);
 		c->data_len = (d->des0 >> 16) & BUFFER1_SIZE_MASK;
-		c->flags |= TX_COMPLETE;
 	} else {
 		c = NULL;
 	}
@@ -2024,6 +2025,7 @@ do_rx_response_packet(struct wcdte *wc, struct tcb *cmd)
 	const struct csm_encaps_hdr *rxhdr;
 	struct tcb *pos;
 	struct tcb *temp;
+	unsigned long flags;
 
 	rxhdr = cmd->data;
 	spin_lock_bh(&wc->cmd_list_lock);
@@ -2032,11 +2034,14 @@ do_rx_response_packet(struct wcdte *wc, struct tcb *cmd)
 		listhdr = pos->data;
 		if ((listhdr->function == rxhdr->function) &&
 		    (listhdr->channel == rxhdr->channel)) {
+			spin_lock_irqsave(&pos->lock, flags);
 			list_del_init(&pos->node);
 			pos->flags &= ~(__WAIT_FOR_RESPONSE);
 			pos->response = cmd;
-			WARN_ON(!(pos->flags & TX_COMPLETE));
-			complete(&pos->complete);
+			if (pos->flags & TX_COMPLETE) {
+				complete(&pos->complete);
+			} 
+			spin_unlock_irqrestore(&pos->lock, flags);
 			break;
 		}
 	}
@@ -2234,18 +2239,25 @@ wctc4xxp_receiveprep(struct wcdte *wc, struct tcb *cmd)
 static inline void service_tx_ring(struct wcdte *wc)
 {
 	struct tcb *cmd;
+	unsigned long flags;
 	while ((cmd = wctc4xxp_retrieve(wc->txd))) {
+		spin_lock_irqsave(&cmd->lock, flags);
+		cmd->flags |= TX_COMPLETE;
 		if (!(cmd->flags & (__WAIT_FOR_ACK | __WAIT_FOR_RESPONSE))) {
 			/* If we're not waiting for an ACK or Response from
 			 * the DTE, this message should not be sitting on any
 			 * lists. */
 			WARN_ON(!list_empty(&cmd->node));
 			if (DO_NOT_AUTO_FREE & cmd->flags) {
+				spin_unlock_irqrestore(&cmd->lock, flags);
 				WARN_ON(!(cmd->flags & TX_COMPLETE));
 				complete(&cmd->complete);
 			} else {
+				spin_unlock_irqrestore(&cmd->lock, flags);
 				free_cmd(cmd);
 			}
+		} else {
+			spin_unlock_irqrestore(&cmd->lock, flags);
 		}
 		/* We've freed up a spot in the hardware ring buffer.  If
 		 * another packet is queued up, let's submit it to the
