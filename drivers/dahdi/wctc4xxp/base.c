@@ -188,6 +188,8 @@ struct csm_encaps_hdr {
 #define MAX_FRAME_SIZE 1518
 #define SFRAME_SIZE MAX_FRAME_SIZE
 
+#undef USE_CUSTOM_MEMCACHE
+
 /* Transcoder buffer (tcb) */
 struct tcb {
 	/* First field so that is aligned by default. */
@@ -213,6 +215,9 @@ struct tcb {
 	/* The number of bytes available in data. */
 	int data_len;
 	spinlock_t lock;
+#ifdef USE_CUSTOM_MEMCACHE
+	u32 sentinel;
+#endif
 };
 
 static inline void *hdr_from_cmd(struct tcb *cmd)
@@ -237,7 +242,75 @@ initialize_cmd(struct tcb *cmd, unsigned long cmd_flags)
 	cmd->data = &cmd->cmd[0];
 	cmd->data_len = SFRAME_SIZE;
 	spin_lock_init(&cmd->lock);
+#ifdef USE_CUSTOM_MEMCACHE
+	cmd->sentinel = 0xdeadbeef;
+#endif
 }
+
+#ifdef USE_CUSTOM_MEMCACHE
+
+struct my_cache {
+	atomic_t outstanding_count;
+	spinlock_t lock;
+	struct list_head free;
+};
+
+static struct tcb *my_cache_alloc(struct my_cache *c, gfp_t alloc_flags)
+{
+	unsigned long flags;
+	struct tcb *cmd;
+	spin_lock_irqsave(&c->lock, flags);
+	if (!list_empty(&c->free)) {
+		cmd = list_entry(c->free.next, struct tcb, node);
+		list_del_init(&cmd->node);
+		spin_unlock_irqrestore(&c->lock, flags);
+	} else {
+		spin_unlock_irqrestore(&c->lock, flags);
+		cmd = kmalloc(sizeof(*cmd), alloc_flags);
+	}
+	atomic_inc(&c->outstanding_count);
+	return cmd;
+}
+
+static void my_cache_free(struct my_cache *c, struct tcb *cmd)
+{
+	unsigned long flags;
+	spin_lock_irqsave(&c->lock, flags);
+	list_add_tail(&cmd->node, &c->free);
+	spin_unlock_irqrestore(&c->lock, flags);
+	atomic_dec(&c->outstanding_count);
+}
+
+static struct my_cache *my_cache_create(void)
+{
+	struct my_cache *c;
+	c = kzalloc(sizeof(*c), GFP_KERNEL);
+	if (!c)
+		return NULL;
+	spin_lock_init(&c->lock);
+	INIT_LIST_HEAD(&c->free);
+	return c;
+}
+
+static int my_cache_destroy(struct my_cache *c)
+{
+	struct tcb *cmd;
+	if (atomic_read(&c->outstanding_count)) {
+		printk(KERN_WARNING "%s: Leaked %d commands.\n",
+			THIS_MODULE->name, atomic_read(&c->outstanding_count));
+	}
+	while (!list_empty(&c->free)) {
+		cmd = list_entry(c->free.next, struct tcb, node);
+		list_del_init(&cmd->node);
+		kfree(cmd);
+	}
+	kfree(c);
+	return 0;
+}
+
+static struct my_cache *cmd_cache;
+
+#else
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 20)
 /*! Used to allocate commands to submit to the dte. */
@@ -247,12 +320,18 @@ kmem_cache_t *cmd_cache;
 static struct kmem_cache *cmd_cache;
 #endif
 
+#endif /* USE_CUSTOM_MEMCACHE */
+
 static inline struct tcb *
 __alloc_cmd(gfp_t alloc_flags, unsigned long cmd_flags)
 {
 	struct tcb *cmd;
 
+#ifdef USE_CUSTOM_MEMCACHE
+	cmd = my_cache_alloc(cmd_cache, alloc_flags);
+#else
 	cmd = kmem_cache_alloc(cmd_cache, alloc_flags);
+#endif
 	if (likely(cmd))
 		initialize_cmd(cmd, cmd_flags);
 	return cmd;
@@ -269,7 +348,11 @@ __free_cmd(struct tcb *cmd)
 {
 	if (cmd->data != &cmd->cmd[0])
 		kfree(cmd->data);
+#ifdef USE_CUSTOM_MEMCACHE
+	my_cache_free(cmd_cache, cmd);
+#else
 	kmem_cache_free(cmd_cache, cmd);
+#endif
 	return;
 }
 
@@ -317,12 +400,13 @@ struct wcdte {
 #define DTE_SHUTDOWN	2
 	unsigned long flags;
 
-	spinlock_t cmd_list_lock;
-	spinlock_t rx_list_lock;
 	/* This is a device-global list of commands that are waiting to be
 	 * transmited (and did not fit on the transmit descriptor ring) */
+	spinlock_t cmd_list_lock;
 	struct list_head cmd_list;
 	struct list_head waiting_for_response_list;
+
+	spinlock_t rx_list_lock;
 	struct list_head rx_list;
 
 	unsigned int seq_num;
@@ -1374,6 +1458,9 @@ _send_trans_connect_cmd(struct wcdte *wc, struct tcb *cmd, u16 enable, u16
 
 	/* Let's check the response for any error codes.... */
 	if (0x0000 != response_header(cmd)->params[0]) {
+#ifdef USE_CUSTOM_MEMCACHE
+		WARN_ON(0xdeadbeef != cmd->response->sentinel);
+#endif
 		WARN_ON(1);
 		return -EIO;
 	}
@@ -2021,10 +2108,8 @@ wctc4xxp_send_ack(struct wcdte *wc, u8 seqno, __be16 channel)
 static void
 do_rx_response_packet(struct wcdte *wc, struct tcb *cmd)
 {
-	const struct csm_encaps_hdr *listhdr;
-	const struct csm_encaps_hdr *rxhdr;
-	struct tcb *pos;
-	struct tcb *temp;
+	const struct csm_encaps_hdr *listhdr, *rxhdr;
+	struct tcb *pos, *temp;
 	unsigned long flags;
 
 	rxhdr = cmd->data;
@@ -2034,14 +2119,18 @@ do_rx_response_packet(struct wcdte *wc, struct tcb *cmd)
 		listhdr = pos->data;
 		if ((listhdr->function == rxhdr->function) &&
 		    (listhdr->channel == rxhdr->channel)) {
+
 			spin_lock_irqsave(&pos->lock, flags);
 			list_del_init(&pos->node);
 			pos->flags &= ~(__WAIT_FOR_RESPONSE);
 			pos->response = cmd;
+			/* If this isn't TX_COMPLETE yet, then this packet will
+			 * be completed in service_tx_ring. */
 			if (pos->flags & TX_COMPLETE) {
 				complete(&pos->complete);
 			} 
 			spin_unlock_irqrestore(&pos->lock, flags);
+
 			break;
 		}
 	}
@@ -2051,10 +2140,9 @@ do_rx_response_packet(struct wcdte *wc, struct tcb *cmd)
 static void
 do_rx_ack_packet(struct wcdte *wc, struct tcb *cmd)
 {
-	const struct csm_encaps_hdr *listhdr;
-	const struct csm_encaps_hdr *rxhdr;
-	struct tcb *pos;
-	struct tcb *temp;
+	const struct csm_encaps_hdr *listhdr, *rxhdr;
+	struct tcb *pos, *temp;
+	unsigned long flags;
 
 	rxhdr = cmd->data;
 
@@ -2071,15 +2159,19 @@ do_rx_ack_packet(struct wcdte *wc, struct tcb *cmd)
 			complete(&pos->complete);
 		} else if ((listhdr->seq_num == rxhdr->seq_num) &&
 			   (listhdr->channel == rxhdr->channel)) {
+			spin_lock_irqsave(&pos->lock, flags);
 			if (pos->flags & __WAIT_FOR_RESPONSE) {
 				pos->flags &= ~(__WAIT_FOR_ACK);
+				spin_unlock_irqrestore(&pos->lock, flags);
 			} else {
 				list_del_init(&pos->node);
 
 				if (pos->flags & DO_NOT_AUTO_FREE) {
 					WARN_ON(!(pos->flags & TX_COMPLETE));
 					complete(&pos->complete);
+					spin_unlock_irqrestore(&pos->lock, flags);
 				} else {
+					spin_unlock_irqrestore(&pos->lock, flags);
 					free_cmd(pos);
 				}
 			}
@@ -2259,6 +2351,7 @@ static inline void service_tx_ring(struct wcdte *wc)
 		} else {
 			spin_unlock_irqrestore(&cmd->lock, flags);
 		}
+
 		/* We've freed up a spot in the hardware ring buffer.  If
 		 * another packet is queued up, let's submit it to the
 		 * hardware. */
@@ -2796,6 +2889,7 @@ wctc4xxp_create_channel_pair(struct wcdte *wc, struct channel_pvt *cpvt,
 	BUG_ON(!encoder_pvt);
 	BUG_ON(!decoder_pvt);
 
+	WARN_ON(encoder_timeslot == decoder_timeslot);
 	/* First, let's create two channels, one for the simple -> complex
 	 * encoder and another for the complex->simple decoder. */
 	if (send_create_channel_cmd(wc, cmd, encoder_timeslot,
@@ -2809,6 +2903,7 @@ wctc4xxp_create_channel_pair(struct wcdte *wc, struct channel_pvt *cpvt,
 	length = (DTE_FORMAT_G729A == complicated) ? G729_LENGTH :
 		(DTE_FORMAT_G723_1 == complicated) ? G723_LENGTH : 0;
 
+	WARN_ON(encoder_channel == decoder_channel);
 	/* Now set all the default parameters for the encoder. */
 	encoder_pvt->chan_in_num = encoder_channel;
 	encoder_pvt->chan_out_num = decoder_channel;
@@ -3513,13 +3608,17 @@ static struct pci_driver wctc4xxp_driver = {
 static int __init wctc4xxp_init(void)
 {
 	int res;
+#ifdef USE_CUSTOM_MEMCACHE
+	cmd_cache = my_cache_create();
+#else
 #	if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 23)
 	cmd_cache = kmem_cache_create(THIS_MODULE->name, sizeof(struct tcb),
-			0, SLAB_HWCACHE_ALIGN, NULL, NULL);
+			0, SLAB_HWCACHE_ALIGN | SLAB_STORE_USER | SLAB_DEBUG_FREE, NULL, NULL);
 #	else
 	cmd_cache = kmem_cache_create(THIS_MODULE->name, sizeof(struct tcb),
 			0, SLAB_HWCACHE_ALIGN, NULL);
 #	endif
+#endif
 
 	if (!cmd_cache)
 		return -ENOMEM;
@@ -3527,7 +3626,11 @@ static int __init wctc4xxp_init(void)
 	INIT_LIST_HEAD(&wctc4xxp_list);
 	res = dahdi_pci_module(&wctc4xxp_driver);
 	if (res) {
+#ifdef USE_CUSTOM_MEMCACHE
+		my_cache_destroy(cmd_cache);
+#else
 		kmem_cache_destroy(cmd_cache);
+#endif
 		return -ENODEV;
 	}
 	return 0;
@@ -3536,7 +3639,11 @@ static int __init wctc4xxp_init(void)
 static void __exit wctc4xxp_cleanup(void)
 {
 	pci_unregister_driver(&wctc4xxp_driver);
+#ifdef USE_CUSTOM_MEMCACHE
+	my_cache_destroy(cmd_cache);
+#else
 	kmem_cache_destroy(cmd_cache);
+#endif
 }
 
 module_param(debug, int, S_IRUGO | S_IWUSR);
