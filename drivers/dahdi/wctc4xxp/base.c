@@ -955,6 +955,8 @@ wctc4xxp_receive_demand_poll(struct wcdte *wc)
 static inline void
 wctc4xxp_transmit_demand_poll(struct wcdte *wc)
 {
+	return;
+# if 0
 	__wctc4xxp_setctl(wc, 0x0008, 0x00000000);
 
 	/* \todo Investigate why this register needs to be written twice in
@@ -964,6 +966,7 @@ wctc4xxp_transmit_demand_poll(struct wcdte *wc)
 	 * problem with the dte firmware.
 	 */
 	__wctc4xxp_setctl(wc, 0x0008, 0x00000000);
+#endif
 }
 
 /* Returns the size, in bytes, of a CSM_ENCAPS packet, given the number of
@@ -2409,7 +2412,7 @@ wctc4xxp_hardware_init(struct wcdte *wc)
 		(newjiffies > jiffies))
 		msleep(1);
 
-	wctc4xxp_setctl(wc, 0x0000, reg);
+	wctc4xxp_setctl(wc, 0x0000, reg | 0x60000);
 
 	/* Configure watchdogs, access, etc */
 	wctc4xxp_setctl(wc, 0x0030, 0x00280048);
