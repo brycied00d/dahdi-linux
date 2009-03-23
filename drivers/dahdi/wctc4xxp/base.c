@@ -1522,7 +1522,7 @@ wctc4xxp_create_rtp_cmd(struct wcdte *wc, struct dahdi_transcoder_channel *dtc,
 	packet->iphdr.version =		4;
 	packet->iphdr.tos =		0;
 	packet->iphdr.tot_len =		cpu_to_be16(inbytes+40);
-	packet->iphdr.id =		cpu_to_be16(cpvt->seqno);
+	packet->iphdr.id =		0;
 	packet->iphdr.frag_off =	cpu_to_be16(0x4000);
 	packet->iphdr.ttl =		64;
 	packet->iphdr.protocol =	0x11; /* UDP */
@@ -1530,8 +1530,7 @@ wctc4xxp_create_rtp_cmd(struct wcdte *wc, struct dahdi_transcoder_channel *dtc,
 	packet->iphdr.saddr =		cpu_to_be32(0xc0a80903);
 	packet->iphdr.daddr =		cpu_to_be32(0xc0a80903);
 
-	packet->iphdr.check =	ip_fast_csum((void *)&packet->iphdr,
-					sizeof(struct iphdr));
+	packet->iphdr.check =	ip_fast_csum((void *)&packet->iphdr, packet->iphdr.ihl);
 
 	/* setup the UDP header */
 	packet->udphdr.source =	cpu_to_be16(cpvt->timeslot_out_num + 0x5000);
@@ -2409,14 +2408,22 @@ receive_csm_encaps_packet(struct wcdte *wc, struct tcb *cmd)
 static void
 queue_rtp_packet(struct wcdte *wc, struct tcb *cmd)
 {
-	int index;
+	unsigned index;
 	struct dahdi_transcoder_channel *dtc;
 	struct channel_pvt *cpvt;
 	struct rtp_packet *packet = cmd->data;
 	unsigned long flags;
 
+	if (unlikely(ip_fast_csum((void *)(&packet->iphdr), packet->iphdr.ihl))) {
+		DTE_PRINTK(ERR,
+			"Invalid checksum in RTP packet %04x\n", ip_fast_csum((void *)(&packet->iphdr), 
+			packet->iphdr.ihl));
+		free_cmd(cmd);
+		return;
+	}
+
 	index = (be16_to_cpu(packet->udphdr.dest) - 0x5000) / 2;
-	if (unlikely(index >= wc->numchannels)) {
+	if (unlikely(!(index < wc->numchannels))) {
 		DTE_PRINTK(ERR,
 		  "Invalid channel number in response from DTE.\n");
 		free_cmd(cmd);
