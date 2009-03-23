@@ -286,18 +286,20 @@ struct channel_stats {
 
 struct channel_pvt {
 	spinlock_t lock;	/* Lock for this structure */
-	int encoder;		/* If we're an encoder */
 	struct wcdte *wc;
-	u32 timestamp;
 	u16 seqno;
 	u8 cmd_seqno;
+	u8 ssrc;
 	u16 timeslot_in_num;	/* DTE timeslot to receive from */
 	u16 timeslot_out_num;	/* DTE timeslot to send data to */
 	u16 chan_in_num;	/* DTE channel to receive from */
 	u16 chan_out_num;	/* DTE channel to send data to */
-	struct channel_stats stats;
+	u32 timestamp;
 	u16 last_dte_seqno;
-	u8 ssrc;
+	struct {
+		u8 encoder:1;	/* If we're an encoder */
+	};
+	struct channel_stats stats;
 	struct list_head rx_queue; /* Transcoded packets for this channel. */
 };
 
@@ -1356,7 +1358,7 @@ send_ip_options_cmd(struct wcdte *wc, struct tcb *cmd)
 }
 
 static int
-send_trans_connect_cmd(struct wcdte *wc, struct tcb *cmd, u16 enable, u16
+_send_trans_connect_cmd(struct wcdte *wc, struct tcb *cmd, u16 enable, u16
 	encoder_channel, u16 decoder_channel, u16 encoder_format,
 	u16 decoder_format)
 {
@@ -1375,6 +1377,24 @@ send_trans_connect_cmd(struct wcdte *wc, struct tcb *cmd, u16 enable, u16
 		return -EIO;
 	}
 	return 0;
+}
+
+static int
+send_trans_connect_cmd(struct wcdte *wc, struct tcb *cmd, const u16
+	encoder_channel, const u16 decoder_channel, const u16 encoder_format,
+	const u16 decoder_format)
+{
+	return _send_trans_connect_cmd(wc, cmd, 1, encoder_channel, decoder_channel,
+		encoder_format, decoder_format);
+}
+
+static int
+send_trans_disconnect_cmd(struct wcdte *wc, struct tcb *cmd, const u16
+	encoder_channel, const u16 decoder_channel, const u16 encoder_format,
+	const u16 decoder_format)
+{
+	return _send_trans_connect_cmd(wc, cmd, 0, encoder_channel, decoder_channel,
+		encoder_format, decoder_format);
 }
 
 static struct tcb *
@@ -2789,7 +2809,7 @@ wctc4xxp_create_channel_pair(struct wcdte *wc, struct channel_pvt *cpvt,
 	if (setup_half_channel(decoder_pvt, cmd, length))
 		goto error_exit;
 
-	if (send_trans_connect_cmd(wc, cmd, 1, encoder_channel,
+	if (send_trans_connect_cmd(wc, cmd, encoder_channel,
 		decoder_channel, complicated, simple))
 		goto error_exit;
 	if (send_voip_vopena_cmd(encoder_pvt, cmd, complicated))
@@ -2848,7 +2868,7 @@ wctc4xxp_destroy_channel_pair(struct wcdte *wc, struct channel_pvt *cpvt)
 		goto error_exit;
 	if (send_voip_vopena_close_cmd(decoder_pvt, cmd))
 		goto error_exit;
-	if (send_trans_connect_cmd(wc, cmd, 0, chan1, chan2, 0, 0))
+	if (send_trans_disconnect_cmd(wc, cmd, chan1, chan2, 0, 0))
 		goto error_exit;
 	if (send_destroy_channel_cmd(wc, cmd, chan1))
 		goto error_exit;
