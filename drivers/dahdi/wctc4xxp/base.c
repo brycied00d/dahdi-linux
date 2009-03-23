@@ -300,8 +300,8 @@ static int my_cache_destroy(struct my_cache *c)
 {
 	struct tcb *cmd;
 	if (atomic_read(&c->outstanding_count)) {
-		printk(KERN_WARNING "%s: Leaked %d commands.\n",
-			THIS_MODULE->name, atomic_read(&c->outstanding_count));
+		DTE_DEBUG(DTE_DEBUG_GENERAL,"Leaked %d commands.\n",
+			atomic_read(&c->outstanding_count));
 	}
 	while (!list_empty(&c->free)) {
 		cmd = list_entry(c->free.next, struct tcb, node);
@@ -1172,8 +1172,9 @@ send_create_channel_cmd(struct wcdte *wc, struct tcb *cmd, u16 timeslot,
 	int res;
 	const u16 parameters[] = {0x0002, timeslot};
 
-	create_supervisor_cmd(wc, cmd, CONFIG_CHANGE_TYPE, CONFIG_DEVICE_CLASS,
-		SUPVSR_CREATE_CHANNEL, parameters, ARRAY_SIZE(parameters));
+	create_supervisor_cmd(wc, cmd, CONFIG_CHANGE_TYPE,
+		CONFIG_DEVICE_CLASS, SUPVSR_CREATE_CHANNEL,
+		parameters, ARRAY_SIZE(parameters));
 
 	res = wctc4xxp_transmit_cmd_and_wait(wc, cmd);
 	if (res)
@@ -1187,6 +1188,7 @@ send_create_channel_cmd(struct wcdte *wc, struct tcb *cmd, u16 timeslot,
 		cmd->response = NULL;
 		return -EIO;
 	}
+
 	*channel_number = le16_to_cpu(response_header(cmd)->params[1]);
 	free_cmd(cmd->response);
 	cmd->response = NULL;
@@ -1198,7 +1200,8 @@ send_set_arm_clk_cmd(struct wcdte *wc, struct tcb *cmd)
 {
 	const u16 parameters[] = {0x012c, 0x0000};
 	create_supervisor_cmd(wc, cmd, CONFIG_CHANGE_TYPE,
-		CONFIG_DEVICE_CLASS, 0x0411, parameters, ARRAY_SIZE(parameters));
+		CONFIG_DEVICE_CLASS, 0x0411, parameters,
+		ARRAY_SIZE(parameters));
 	return wctc4xxp_transmit_cmd_and_wait(wc, cmd);
 }
 
@@ -1207,7 +1210,8 @@ send_set_spu_clk_cmd(struct wcdte *wc, struct tcb *cmd)
 {
 	const u16 parameters[] = {0x012c, 0x0000};
 	create_supervisor_cmd(wc, cmd, CONFIG_CHANGE_TYPE,
-		CONFIG_DEVICE_CLASS, 0x0412, parameters, ARRAY_SIZE(parameters));
+		CONFIG_DEVICE_CLASS, 0x0412, parameters,
+		ARRAY_SIZE(parameters));
 	return wctc4xxp_transmit_cmd_and_wait(wc, cmd);
 }
 
@@ -1216,7 +1220,8 @@ send_tdm_select_bus_mode_cmd(struct wcdte *wc, struct tcb *cmd)
 {
 	const u16 parameters[] = {0x0004};
 	create_supervisor_cmd(wc, cmd, CONFIG_CHANGE_TYPE,
-		CONFIG_DEVICE_CLASS, 0x0417, parameters, ARRAY_SIZE(parameters));
+		CONFIG_DEVICE_CLASS, 0x0417, parameters,
+		ARRAY_SIZE(parameters));
 	return wctc4xxp_transmit_cmd_and_wait(wc, cmd);
 }
 
@@ -1239,7 +1244,8 @@ send_set_eth_header_cmd(struct wcdte *wc, struct tcb *cmd,
 	parameters[7] = 0x0008;
 
 	create_supervisor_cmd(wc, cmd, CONFIG_CHANGE_TYPE,
-		CONFIG_DEVICE_CLASS, 0x0100, parameters, ARRAY_SIZE(parameters));
+		CONFIG_DEVICE_CLASS, 0x0100, parameters,
+		ARRAY_SIZE(parameters));
 	return wctc4xxp_transmit_cmd_and_wait(wc, cmd);
 }
 
@@ -1249,7 +1255,8 @@ send_supvsr_setup_tdm_parms(struct wcdte *wc, struct tcb *cmd,
 {
 	const u16 parameters[] = {0x8380, 0x0c00, 0, (bus_number << 2)&0xc};
 	create_supervisor_cmd(wc, cmd, CONFIG_CHANGE_TYPE,
-		CONFIG_DEVICE_CLASS, 0x0407, parameters, ARRAY_SIZE(parameters));
+		CONFIG_DEVICE_CLASS, 0x0407, parameters,
+		ARRAY_SIZE(parameters));
 	return wctc4xxp_transmit_cmd_and_wait(wc, cmd);
 }
 
@@ -1258,7 +1265,8 @@ send_ip_service_config_cmd(struct wcdte *wc, struct tcb *cmd)
 {
 	const u16 parameters[] = {0x0200};
 	create_supervisor_cmd(wc, cmd, CONFIG_CHANGE_TYPE,
-		CONFIG_DEVICE_CLASS, 0x0302, parameters, ARRAY_SIZE(parameters));
+		CONFIG_DEVICE_CLASS, 0x0302, parameters,
+		ARRAY_SIZE(parameters));
 	return wctc4xxp_transmit_cmd_and_wait(wc, cmd);
 }
 
@@ -1267,7 +1275,8 @@ send_arp_service_config_cmd(struct wcdte *wc, struct tcb *cmd)
 {
 	const u16 parameters[] = {0x0001};
 	create_supervisor_cmd(wc, cmd, CONFIG_CHANGE_TYPE,
-		CONFIG_DEVICE_CLASS, 0x0105, parameters, ARRAY_SIZE(parameters));
+		CONFIG_DEVICE_CLASS, 0x0105, parameters,
+		ARRAY_SIZE(parameters));
 	return wctc4xxp_transmit_cmd_and_wait(wc, cmd);
 }
 
@@ -1276,7 +1285,8 @@ send_icmp_service_config_cmd(struct wcdte *wc, struct tcb *cmd)
 {
 	const u16 parameters[] = {0xff01};
 	create_supervisor_cmd(wc, cmd, CONFIG_CHANGE_TYPE,
-		CONFIG_DEVICE_CLASS, 0x0304, parameters, ARRAY_SIZE(parameters));
+		CONFIG_DEVICE_CLASS, 0x0304, parameters,
+		ARRAY_SIZE(parameters));
 	return wctc4xxp_transmit_cmd_and_wait(wc, cmd);
 }
 
@@ -1285,7 +1295,8 @@ send_device_set_country_code_cmd(struct wcdte *wc, struct tcb *cmd)
 {
 	const u16 parameters[] = {0x0000};
 	create_supervisor_cmd(wc, cmd, CONFIG_CHANGE_TYPE,
-		CONFIG_DEVICE_CLASS, 0x041b, parameters, ARRAY_SIZE(parameters));
+		CONFIG_DEVICE_CLASS, 0x041b, parameters,
+		ARRAY_SIZE(parameters));
 	return wctc4xxp_transmit_cmd_and_wait(wc, cmd);
 }
 
@@ -1294,7 +1305,8 @@ send_spu_features_control_cmd(struct wcdte *wc, struct tcb *cmd, u16 options)
 {
 	const u16 parameters[] = {options};
 	create_supervisor_cmd(wc, cmd, CONFIG_CHANGE_TYPE,
-		CONFIG_DEVICE_CLASS, 0x0013, parameters, ARRAY_SIZE(parameters));
+		CONFIG_DEVICE_CLASS, 0x0013, parameters,
+		ARRAY_SIZE(parameters));
 	return wctc4xxp_transmit_cmd_and_wait(wc, cmd);
 }
 
@@ -1303,7 +1315,8 @@ send_tdm_opt_cmd(struct wcdte *wc, struct tcb *cmd)
 {
 	const u16 parameters[] = {0x0000};
 	create_supervisor_cmd(wc, cmd, CONFIG_CHANGE_TYPE,
-		CONFIG_DEVICE_CLASS, 0x0435, parameters, ARRAY_SIZE(parameters));
+		CONFIG_DEVICE_CLASS, 0x0435, parameters,
+		ARRAY_SIZE(parameters));
 	return wctc4xxp_transmit_cmd_and_wait(wc, cmd);
 }
 
@@ -1314,7 +1327,8 @@ send_destroy_channel_cmd(struct wcdte *wc, struct tcb *cmd, u16 channel)
 	u16 result;
 	const u16 parameters[] = {channel};
 	create_supervisor_cmd(wc, cmd, CONFIG_CHANGE_TYPE,
-		CONFIG_DEVICE_CLASS, 0x0011, parameters, ARRAY_SIZE(parameters));
+		CONFIG_DEVICE_CLASS, 0x0011, parameters,
+		ARRAY_SIZE(parameters));
 	res = wctc4xxp_transmit_cmd_and_wait(wc, cmd);
 	if (res)
 		return res;
@@ -1449,7 +1463,8 @@ send_ip_options_cmd(struct wcdte *wc, struct tcb *cmd)
 {
 	const u16 parameters[] = {0x0002};
 	create_supervisor_cmd(wc, cmd, CONFIG_CHANGE_TYPE,
-		CONFIG_DEVICE_CLASS, 0x0306, parameters, ARRAY_SIZE(parameters));
+		CONFIG_DEVICE_CLASS, 0x0306, parameters,
+		ARRAY_SIZE(parameters));
 	return wctc4xxp_transmit_cmd_and_wait(wc, cmd);
 }
 
@@ -1462,7 +1477,8 @@ _send_trans_connect_cmd(struct wcdte *wc, struct tcb *cmd, u16 enable, u16
 	const u16 parameters[] = {enable, encoder_channel, encoder_format,
 		decoder_channel, decoder_format};
 	create_supervisor_cmd(wc, cmd, CONFIG_CHANGE_TYPE,
-		CONFIG_DEVICE_CLASS, 0x9322, parameters, ARRAY_SIZE(parameters));
+		CONFIG_DEVICE_CLASS, 0x9322, parameters,
+		ARRAY_SIZE(parameters));
 	res = wctc4xxp_transmit_cmd_and_wait(wc, cmd);
 	if (res)
 		return res;
@@ -1483,8 +1499,8 @@ send_trans_connect_cmd(struct wcdte *wc, struct tcb *cmd, const u16
 	encoder_channel, const u16 decoder_channel, const u16 encoder_format,
 	const u16 decoder_format)
 {
-	return _send_trans_connect_cmd(wc, cmd, 1, encoder_channel, decoder_channel,
-		encoder_format, decoder_format);
+	return _send_trans_connect_cmd(wc, cmd, 1, encoder_channel,
+		decoder_channel, encoder_format, decoder_format);
 }
 
 static int
@@ -1492,8 +1508,8 @@ send_trans_disconnect_cmd(struct wcdte *wc, struct tcb *cmd, const u16
 	encoder_channel, const u16 decoder_channel, const u16 encoder_format,
 	const u16 decoder_format)
 {
-	return _send_trans_connect_cmd(wc, cmd, 0, encoder_channel, decoder_channel,
-		encoder_format, decoder_format);
+	return _send_trans_connect_cmd(wc, cmd, 0, encoder_channel,
+		decoder_channel, encoder_format, decoder_format);
 }
 
 static struct tcb *
@@ -1530,7 +1546,8 @@ wctc4xxp_create_rtp_cmd(struct wcdte *wc, struct dahdi_transcoder_channel *dtc,
 	packet->iphdr.saddr =		cpu_to_be32(0xc0a80903);
 	packet->iphdr.daddr =		cpu_to_be32(0xc0a80903);
 
-	packet->iphdr.check =	ip_fast_csum((void *)&packet->iphdr, packet->iphdr.ihl);
+	packet->iphdr.check =	ip_fast_csum((void *)&packet->iphdr,
+					packet->iphdr.ihl);
 
 	/* setup the UDP header */
 	packet->udphdr.source =	cpu_to_be16(cpvt->timeslot_out_num + 0x5000);
@@ -1854,7 +1871,7 @@ wctc4xxp_disable_interrupts(struct wcdte *wc)
 	wctc4xxp_setctl(wc, 0x0084, 0x00000000);
 }
 
-static void 
+static void
 wctc4xxp_enable_polling(struct wcdte *wc)
 {
 	set_bit(DTE_POLLING, &wc->flags);
@@ -1929,16 +1946,16 @@ wctc4xxp_operation_release(struct dahdi_transcoder_channel *dtc)
 			wctc4xxp_disable_polling(wc);
 	}
 
-	DTE_DEBUG(DTE_DEBUG_GENERAL, "%d open channels.\n", atomic_read(&wc->open_channels));
-
 	packets_received = atomic_read(&cpvt->stats.packets_received);
 	packets_sent = atomic_read(&cpvt->stats.packets_sent);
 		
 	if ((packets_sent - packets_received) > 5) {
-		DTE_DEBUG(DTE_DEBUG_GENERAL, "%s channel %d sent %d packets and received %d packets.\n",
-			(cpvt->encoder) ? "encoder" : "decoder", 
-			cpvt->chan_out_num, packets_sent, packets_received);
+		DTE_DEBUG(DTE_DEBUG_GENERAL, "%s channel %d sent %d packets " 
+			"and received %d packets.\n", (cpvt->encoder) ? 
+			"encoder" : "decoder", cpvt->chan_out_num,
+			packets_sent, packets_received);
 	}
+
 	/* Remove any packets that are waiting on the outbound queue. */
 	wctc4xxp_cleanup_channel_private(wc, dtc);
 	index = cpvt->timeslot_in_num/2;
@@ -2001,7 +2018,7 @@ get_ready_cmd(struct dahdi_transcoder_channel *dtc)
 	return cmd;
 }
 
-static int 
+static int
 wctc4xxp_handle_receive_ring(struct wcdte *wc)
 {
 	struct tcb *cmd;
@@ -2254,9 +2271,8 @@ do_rx_response_packet(struct wcdte *wc, struct tcb *cmd)
 			pos->response = cmd;
 			/* If this isn't TX_COMPLETE yet, then this packet will
 			 * be completed in service_tx_ring. */
-			if (pos->flags & TX_COMPLETE) {
+			if (pos->flags & TX_COMPLETE)
 				complete(&pos->complete);
-			} 
 			spin_unlock(&pos->lock);
 			handled = 1;
 
@@ -2266,7 +2282,8 @@ do_rx_response_packet(struct wcdte *wc, struct tcb *cmd)
 	spin_unlock_irqrestore(&wc->cmd_list_lock, flags);
 
 	if (!handled) {
-		DTE_DEBUG(DTE_DEBUG_GENERAL, "Freeing unhandled response ch:(%04x)\n",
+		DTE_DEBUG(DTE_DEBUG_GENERAL,
+			"Freeing unhandled response ch:(%04x)\n",
 			be16_to_cpu(rxhdr->channel));
 		free_cmd(cmd);
 	}
@@ -2414,9 +2431,11 @@ queue_rtp_packet(struct wcdte *wc, struct tcb *cmd)
 	struct rtp_packet *packet = cmd->data;
 	unsigned long flags;
 
-	if (unlikely(ip_fast_csum((void *)(&packet->iphdr), packet->iphdr.ihl))) {
-		DTE_PRINTK(ERR,
-			"Invalid checksum in RTP packet %04x\n", ip_fast_csum((void *)(&packet->iphdr), 
+	if (unlikely(ip_fast_csum((void *)(&packet->iphdr),
+		packet->iphdr.ihl))) {
+		DTE_DEBUG(DTE_DEBUG_GENERAL,
+			"Invalid checksum in RTP packet %04x\n",
+			ip_fast_csum((void *)(&packet->iphdr),
 			packet->iphdr.ihl));
 		free_cmd(cmd);
 		return;
@@ -2465,7 +2484,7 @@ wctc4xxp_receiveprep(struct wcdte *wc, struct tcb *cmd)
 	} else if (cpu_to_be16(ETH_P_CSM_ENCAPS) == ethhdr->h_proto) {
 		receive_csm_encaps_packet(wc, cmd);
 	} else {
-		DTE_PRINTK(WARNING,
+		DTE_DEBUG(DTE_DEBUG_GENERAL,
 		   "Unknown packet protocol recieved: %04x.\n",
 		   be16_to_cpu(ethhdr->h_proto));
 		free_cmd(cmd);
@@ -3629,18 +3648,13 @@ static void __devexit wctc4xxp_remove_one(struct pci_dev *pdev)
 	spin_unlock(&wctc4xxp_list_lock);
 
 	set_bit(DTE_SHUTDOWN, &wc->flags);
-	if (del_timer_sync(&wc->watchdog)) {
-		/* Just delete the timer twice in case the timer had already
-		 * checked DTE_SHUTDOWN and rescheduled itself the first time.
-		 */
+	if (del_timer_sync(&wc->watchdog))
 		del_timer_sync(&wc->watchdog);
-	}
 
 	/* This should already be stopped, but it doesn't hurt to make sure. */
 	clear_bit(DTE_POLLING, &wc->flags);
-	if (del_timer_sync(&wc->polling)) {
+	if (del_timer_sync(&wc->polling))
 		del_timer_sync(&wc->polling);
-	}
 
 	wctc4xxp_net_unregister(wc);
 
