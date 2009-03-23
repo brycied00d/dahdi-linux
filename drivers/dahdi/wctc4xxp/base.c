@@ -3025,6 +3025,7 @@ wctc4xxp_watchdog(unsigned long data)
 	struct tcb *cmd, *temp;
 	LIST_HEAD(cmds_to_retry);
 	const int MAX_RETRIES = 5;
+	int reschedule_timer = 0;
 
 	service_tx_ring(wc);
 
@@ -3067,12 +3068,16 @@ wctc4xxp_watchdog(unsigned long data)
 				  "still on descriptor list.\n");
 				cmd->timeout = jiffies + HZ/4;
 				wctc4xxp_transmit_demand_poll(wc);
+				reschedule_timer = 1;
 			}
 		}
 	}
 	spin_unlock(&wc->cmd_list_lock);
 
-	wctc4xxp_send_commands(wc, &cmds_to_retry);
+	if (list_empty(&cmds_to_retry) && reschedule_timer)
+		mod_timer(&wc->watchdog, jiffies + HZ/2);
+	else if (!list_empty(&cmds_to_retry))
+		wctc4xxp_send_commands(wc, &cmds_to_retry);
 }
 
 /**
