@@ -200,6 +200,7 @@ struct csm_encaps_hdr {
 
 /* Transcoder buffer (tcb) */
 struct tcb {
+	void *data;
 	struct list_head node;
 	unsigned long timeout;
 	unsigned long retries;
@@ -217,7 +218,6 @@ struct tcb {
 	struct tcb *response;
 	struct completion complete;
 	struct timer_list timer;
-	void *data;
 	/* The number of bytes available in data. */
 	int data_len;
 	spinlock_t lock;
@@ -1578,6 +1578,9 @@ wctc4xxp_cleanup_descriptor_ring(struct wctc4xxp_descriptor_ring *dr)
 {
 	int i;
 	struct wctc4xxp_descriptor *d;
+
+	if (!dr || !dr->desc)
+		return;
 
 	for (i = 0; i < DRING_SIZE; ++i) {
 		d = wctc4xxp_descriptor(dr, i);
@@ -3590,20 +3593,12 @@ error_exit_swinit:
 	wctc4xxp_net_unregister(wc);
 	kfree(wc->encoders);
 	kfree(wc->decoders);
-	if (wc->uencode)
-		dahdi_transcoder_free(wc->uencode);
-	if (wc->udecode)
-		dahdi_transcoder_free(wc->udecode);
-	if (wc->txd) {
-		if (wc->txd->desc)
-			wctc4xxp_cleanup_descriptor_ring(wc->txd);
-		kfree(wc->txd);
-	}
-	if (wc->rxd) {
-		if (wc->rxd && wc->rxd->desc)
-			wctc4xxp_cleanup_descriptor_ring(wc->rxd);
-		kfree(wc->rxd);
-	}
+	dahdi_transcoder_free(wc->uencode);
+	dahdi_transcoder_free(wc->udecode);
+	wctc4xxp_cleanup_descriptor_ring(wc->txd);
+	kfree(wc->txd);
+	wctc4xxp_cleanup_descriptor_ring(wc->rxd);
+	kfree(wc->rxd);
 	release_region(wc->iobase, 0xff);
 	spin_lock(&wctc4xxp_list_lock);
 	list_del(&wc->node);
@@ -3630,10 +3625,8 @@ static void __devexit wctc4xxp_remove_one(struct pci_dev *pdev)
 {
 	struct wcdte *wc = pci_get_drvdata(pdev);
 
-	if (!wc) {
-		/* \todo print warning message here. */
+	if (!wc)
 		return;
-	}
 
 	spin_lock(&wctc4xxp_list_lock);
 	list_del(&wc->node);
@@ -3666,16 +3659,10 @@ static void __devexit wctc4xxp_remove_one(struct pci_dev *pdev)
 
 	/* Free Resources */
 	release_region(wc->iobase, 0xff);
-	if (wc->txd) {
-		if (wc->txd->desc)
-			wctc4xxp_cleanup_descriptor_ring(wc->txd);
-		kfree(wc->txd);
-	}
-	if (wc->rxd) {
-		if (wc->rxd && wc->rxd->desc)
-			wctc4xxp_cleanup_descriptor_ring(wc->rxd);
-		kfree(wc->rxd);
-	}
+	wctc4xxp_cleanup_descriptor_ring(wc->txd);
+	kfree(wc->txd);
+	wctc4xxp_cleanup_descriptor_ring(wc->rxd);
+	kfree(wc->rxd);
 
 	wctc4xxp_cleanup_command_list(wc);
 	wctc4xxp_cleanup_channels(wc);
