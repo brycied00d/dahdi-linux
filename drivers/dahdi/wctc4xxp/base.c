@@ -192,12 +192,14 @@ struct csm_encaps_hdr {
 #define MAX_FRAME_SIZE 1518
 #define SFRAME_SIZE MAX_FRAME_SIZE
 
+#define DRING_SIZE (1 << 7) /* Must be a power of two */
+#define DRING_MASK (DRING_SIZE-1)
+#define MIN_PACKET_LEN  64
+
 #undef USE_CUSTOM_MEMCACHE
 
 /* Transcoder buffer (tcb) */
 struct tcb {
-	/* First field so that is aligned by default. */
-	u8 cmd[SFRAME_SIZE];
 	struct list_head node;
 	unsigned long timeout;
 	unsigned long retries;
@@ -224,11 +226,6 @@ struct tcb {
 #endif
 };
 
-static inline void *hdr_from_cmd(struct tcb *cmd)
-{
-	return cmd->data;
-}
-
 static inline const struct csm_encaps_hdr *
 response_header(struct tcb *cmd)
 {
@@ -239,12 +236,9 @@ response_header(struct tcb *cmd)
 static inline void
 initialize_cmd(struct tcb *cmd, unsigned long cmd_flags)
 {
-	memset(cmd, 0, sizeof(*cmd));
 	INIT_LIST_HEAD(&cmd->node);
 	init_completion(&cmd->complete);
 	cmd->flags = cmd_flags;
-	cmd->data = &cmd->cmd[0];
-	cmd->data_len = SFRAME_SIZE;
 	spin_lock_init(&cmd->lock);
 #ifdef USE_CUSTOM_MEMCACHE
 	cmd->sentinel = 0xdeadbeef;
@@ -327,30 +321,42 @@ static struct kmem_cache *cmd_cache;
 #endif /* USE_CUSTOM_MEMCACHE */
 
 static inline struct tcb *
-__alloc_cmd(gfp_t alloc_flags, unsigned long cmd_flags)
+__alloc_cmd(size_t size, gfp_t alloc_flags, unsigned long cmd_flags)
 {
 	struct tcb *cmd;
 
+	if (unlikely(size > SFRAME_SIZE))
+		return NULL;
+	if (size < MIN_PACKET_LEN)
+		size = MIN_PACKET_LEN;
 #ifdef USE_CUSTOM_MEMCACHE
 	cmd = my_cache_alloc(cmd_cache, alloc_flags);
 #else
 	cmd = kmem_cache_alloc(cmd_cache, alloc_flags);
 #endif
-	if (likely(cmd))
+	if (likely(cmd)) {
+		memset(cmd, 0, sizeof(*cmd));
+		cmd->data = kzalloc(size, alloc_flags);
+		if (unlikely(!cmd->data)) {
+			kmem_cache_free(cmd_cache, cmd);
+			return NULL;
+		}
+		cmd->data_len = size;
 		initialize_cmd(cmd, cmd_flags);
+	}
 	return cmd;
 }
 
 static struct tcb *
-alloc_cmd(void)
+alloc_cmd(size_t size)
 {
-	return __alloc_cmd(GFP_KERNEL, 0);
+	return __alloc_cmd(size, GFP_KERNEL, 0);
 }
 
 static void
 __free_cmd(struct tcb *cmd)
 {
-	if (cmd->data != &cmd->cmd[0])
+	if (cmd)
 		kfree(cmd->data);
 #ifdef USE_CUSTOM_MEMCACHE
 	my_cache_free(cmd_cache, cmd);
@@ -541,7 +547,7 @@ wctc4xxp_skb_to_cmd(struct wcdte *wc, const struct sk_buff *skb)
 {
 	const gfp_t alloc_flags = in_interrupt() ? GFP_ATOMIC : GFP_KERNEL;
 	struct tcb *cmd;
-	cmd = __alloc_cmd(alloc_flags, 0);
+	cmd = __alloc_cmd(skb->len, alloc_flags, 0);
 	if (cmd) {
 		int res;
 		cmd->data_len = skb->len;
@@ -855,10 +861,6 @@ struct wctc4xxp_descriptor {
 	__le32 container; /* Unused */
 } __attribute__((packed));
 
-#define DRING_SIZE (1 << 7) /* Must be a power of two */
-#define DRING_MASK (DRING_SIZE-1)
-#define MIN_PACKET_LEN  64
-
 struct wctc4xxp_descriptor_ring {
 	/* Pointer to an array of descriptors to give to hardware. */
 	struct wctc4xxp_descriptor *desc;
@@ -1006,6 +1008,7 @@ wctc4xxp_retrieve(struct wctc4xxp_descriptor_ring *dr)
 		--dr->count;
 		WARN_ON(!c);
 		c->data_len = (d->des0 >> 16) & BUFFER1_SIZE_MASK;
+		WARN_ON(c->data_len > SFRAME_SIZE);
 	} else {
 		c = NULL;
 	}
@@ -1111,7 +1114,7 @@ setup_channel_header(struct channel_pvt *pvt, struct csm_encaps_hdr *hdr)
 
 static void
 create_supervisor_cmd(struct wcdte *wc, struct tcb *cmd, u8 type, u8 class,
-	u16 function, const u16 *parameters, int num_parameters)
+	u16 function, const u16 *parameters, const int num_parameters)
 {
 	struct csm_encaps_hdr *hdr = cmd->data;
 	int i;
@@ -1520,7 +1523,7 @@ wctc4xxp_create_rtp_cmd(struct wcdte *wc, struct dahdi_transcoder_channel *dtc,
 	struct rtp_packet *packet;
 	struct tcb *cmd;
 
-	cmd = alloc_cmd();
+	cmd = alloc_cmd(sizeof(*packet) + inbytes);
 	if (!cmd)
 		return NULL;
 
@@ -1567,8 +1570,7 @@ wctc4xxp_create_rtp_cmd(struct wcdte *wc, struct dahdi_transcoder_channel *dtc,
 	packet->rtphdr.timestamp =  cpu_to_be32(cpvt->timestamp);
 	packet->rtphdr.ssrc =	    cpu_to_be32(cpvt->ssrc);
 
-	cmd->data_len = sizeof(*packet) + inbytes;
-
+	WARN_ON(cmd->data_len > SFRAME_SIZE);
 	return cmd;
 }
 static void
@@ -2036,7 +2038,7 @@ wctc4xxp_handle_receive_ring(struct wcdte *wc)
 		spin_lock(&wc->rx_list_lock);
 		list_add_tail(&cmd->node, &wc->rx_list);
 		spin_unlock(&wc->rx_list_lock);
-		cmd = __alloc_cmd(GFP_ATOMIC, 0);
+		cmd = __alloc_cmd(SFRAME_SIZE, GFP_ATOMIC, 0);
 		if (!cmd) {
 			DTE_PRINTK(ERR, "Out of memory in %s.\n", __func__);
 		} else {
@@ -2224,7 +2226,7 @@ wctc4xxp_send_ack(struct wcdte *wc, u8 seqno, __be16 channel)
 {
 	struct tcb *cmd;
 	struct csm_encaps_hdr *hdr;
-	cmd = __alloc_cmd(ALLOC_FLAGS, 0);
+	cmd = __alloc_cmd(sizeof(*hdr), ALLOC_FLAGS, 0);
 	if (!cmd) {
 		WARN_ON(1);
 		return;
@@ -2237,7 +2239,6 @@ wctc4xxp_send_ack(struct wcdte *wc, u8 seqno, __be16 channel)
 	hdr->control = 0xe0;
 	hdr->channel = channel;
 
-	cmd->data_len = sizeof(*hdr);
 	wctc4xxp_transmit_cmd(wc, cmd);
 }
 
@@ -2701,12 +2702,12 @@ wctc4xxp_start_dma(struct wcdte *wc)
 	struct tcb *cmd;
 
 	for (i = 0; i < DRING_SIZE; ++i) {
-		cmd = alloc_cmd();
+		cmd = alloc_cmd(SFRAME_SIZE);
 		if (!cmd) {
 			WARN_ALWAYS();
 			return;
 		}
-		cmd->data_len = SFRAME_SIZE;
+		WARN_ON(SFRAME_SIZE != cmd->data_len);
 		res = wctc4xxp_submit(wc->rxd, cmd);
 		if (res) {
 			/* When we're starting the DMA, we should always be
@@ -2864,18 +2865,10 @@ wctc4xxp_load_firmware(struct wcdte *wc, const struct firmware *firmware)
 
 	byteloc = 17;
 
-	cmd = alloc_cmd();
+	cmd = alloc_cmd(SFRAME_SIZE);
 	if (!cmd)
 		return -ENOMEM;
 
-	if (MAX_FRAME_SIZE > cmd->data_len) {
-		cmd->data = kmalloc(MAX_FRAME_SIZE, GFP_KERNEL);
-		if (!(cmd->data)) {
-			free_cmd(cmd);
-			return -ENOMEM;
-		}
-		cmd->data_len = MAX_FRAME_SIZE;
-	}
 	while (byteloc < (firmware->size-20)) {
 		last_byteloc = byteloc;
 		length = (firmware->data[byteloc] << 8) |
@@ -2985,7 +2978,7 @@ wctc4xxp_create_channel_pair(struct wcdte *wc, struct channel_pvt *cpvt,
 	u16 length;
 	struct tcb *cmd;
 
-	cmd = alloc_cmd();
+	cmd = alloc_cmd(SFRAME_SIZE);
 	if (!cmd)
 		return -ENOMEM;
 
@@ -3067,7 +3060,7 @@ wctc4xxp_destroy_channel_pair(struct wcdte *wc, struct channel_pvt *cpvt)
 	int chan1, chan2, timeslot1, timeslot2;
 	struct tcb *cmd;
 
-	cmd = alloc_cmd();
+	cmd = alloc_cmd(SFRAME_SIZE);
 	if (!cmd)
 		return -ENOMEM;
 
@@ -3120,7 +3113,7 @@ __wctc4xxp_setup_channels(struct wcdte *wc)
 	struct tcb *cmd;
 	int tdm_bus;
 
-	cmd = alloc_cmd();
+	cmd = alloc_cmd(SFRAME_SIZE);
 	if (!cmd)
 		return -ENOMEM;
 
