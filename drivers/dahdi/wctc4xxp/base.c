@@ -2380,7 +2380,6 @@ receive_csm_encaps_packet(struct wcdte *wc, struct tcb *cmd)
 	const struct csm_encaps_hdr *hdr = cmd->data;
 
 	if (!(hdr->control & MESSAGE_PACKET)) {
-
 		if (!(hdr->control & SUPPRESS_ACK))
 			wctc4xxp_send_ack(wc, hdr->seq_num, hdr->channel);
 
@@ -2685,7 +2684,7 @@ wctc4xxp_hardware_init(struct wcdte *wc)
 	wctc4xxp_setctl(wc, 0x0000, reg | 0x60000);
 
 	/* Configure watchdogs, access, etc */
-	wctc4xxp_setctl(wc, 0x0030, 0x00280048);
+	wctc4xxp_setctl(wc, 0x0030, 0x00280040);
 	wctc4xxp_setctl(wc, 0x0078, 0x00000013);
 	reg = wctc4xxp_getctl(wc, 0x00fc);
 	wctc4xxp_setctl(wc, 0x00fc, (reg & ~0x7) | 0x7);
