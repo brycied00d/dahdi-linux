@@ -3858,6 +3858,7 @@ static int dahdi_ctl_ioctl(struct inode *inode, struct file *file, unsigned int 
 
 		VALID_CHANNEL(ae.chan);
 
+		ae.echocan[sizeof(ae.echocan) - 1] = 0;
 		if (ae.echocan[0]) {
 			if (!(new = find_echocan(ae.echocan))) {
 				return -EINVAL;
