@@ -222,6 +222,7 @@ struct voicebus {
 #define RX_UNDERRUN			2
 #define IN_DEFERRED_PROCESSING		3
 #define STOP				4
+#define STOPPED				8
 
 #if VOICEBUS_DEFERRED == WORKQUEUE
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 18)
@@ -413,7 +414,7 @@ vb_is_stopped(struct voicebus *vb)
 {
 	u32 reg;
 	reg = vb_getctl(vb, SR_CSR5);
-	reg = (reg >> 17)&0x38;
+	reg = (reg >> 17) & 0x38;
 	return (0 == reg) ? 1 : 0;
 }
 
@@ -621,6 +622,14 @@ vb_reset_interface(struct voicebus *vb)
 
 	vb_setctl(vb, 0x0000, pci_access);
 
+	return 0;
+}
+
+static int
+vb_initialize_interface(struct voicebus *vb)
+{
+	u32 reg;
+
 	vb_cleanup_descriptors(vb, &vb->txd);
 	vb_cleanup_descriptors(vb, &vb->rxd);
 
@@ -645,7 +654,6 @@ vb_reset_interface(struct voicebus *vb)
 	vb_setsdi(vb, 0x00, 0x0100);
 	vb_setsdi(vb, 0x16, 0x2100);
 	reg = vb_getctl(vb, 0x00fc);
-
 
 	/*
 	 * The calls to setsdi above toggle the reset line of the CPLD.  Wait
@@ -720,7 +728,7 @@ vb_retrieve(struct voicebus *vb, struct voicebus_descriptor_list *dl)
 	unsigned int head = dl->head;
 	assert_in_vb_deferred(vb);
 	d = vb_descriptor(dl, head);
-	if (!OWNED(d)) {
+	if (d->buffer1 && !OWNED(d)) {
 		dma_unmap_single(&vb->pdev->dev, d->buffer1,
 			vb->framesize, dl->direction);
 		vbb = dl->pending[head];
@@ -879,6 +887,9 @@ voicebus_start(struct voicebus *vb)
 	ret = vb_reset_interface(vb);
 	if (ret)
 		return ret;
+	ret = vb_initialize_interface(vb);
+	if (ret)
+		return ret;
 
 	/* We must set up a minimum of three buffers to start with, since two
 	 * are immediately read into the TX FIFO, and the descriptor of the
@@ -917,6 +928,7 @@ voicebus_start(struct voicebus *vb)
 
 	VBLOCK(vb);
 	clear_bit(STOP, &vb->flags);
+	clear_bit(STOPPED, &vb->flags);
 #if VOICEBUS_DEFERRED == TIMER
 	vb->timer.expires = jiffies + HZ/1000;
 	add_timer(&vb->timer);
@@ -1002,18 +1014,24 @@ voicebus_stop(struct voicebus *vb)
 	INIT_COMPLETION(vb->stopped_completion);
 	set_bit(STOP, &vb->flags);
 	vb_clear_start_transmit_bit(vb);
+	vb_clear_start_receive_bit(vb);
 	if (vb_wait_for_completion_timeout(&vb->stopped_completion, HZ)) {
-#if VOICEBUS_DEFERRED == TIMER
-		del_timer_sync(&vb->timer);
-#else
-		vb_disable_interrupts(vb);
-#endif
 		assert(vb_is_stopped(vb));
-		clear_bit(STOP, &vb->flags);
 	} else {
 		VB_PRINTK(vb, WARNING, "Timeout while waiting for board to "\
 			"stop.\n");
+
+
+		vb_clear_start_transmit_bit(vb);
+		vb_clear_start_receive_bit(vb);
+		set_bit(STOPPED, &vb->flags);
+		vb_disable_interrupts(vb);
 	}
+
+#if VOICEBUS_DEFERRED == TIMER
+	del_timer_sync(&vb->timer);
+#endif
+
 	return 0;
 }
 
@@ -1114,11 +1132,14 @@ vb_deferred(struct voicebus *vb)
 #ifdef DBG
 	static int count;
 #endif
+#if 0
 	int stopping = test_bit(STOP, &vb->flags);
+#endif
 	int underrun = test_bit(TX_UNDERRUN, &vb->flags);
 
 
 	start_vb_deferred(vb);
+#if 0
 	if (unlikely(stopping)) {
 
 		while ((vbb = vb_get_completed_txb(vb)))
@@ -1130,7 +1151,7 @@ vb_deferred(struct voicebus *vb)
 		stop_vb_deferred(vb);
 		return;
 	}
-
+#endif
 	if (unlikely(underrun)) {
 		/* When we've underrun our FIFO, for some reason we're not
 		 * able to keep enough transmit descriptors pending.  This can
@@ -1232,15 +1253,15 @@ vb_isr(int irq, void *dev_id)
 
 		if (int_status & TX_STOPPED_INTERRUPT) {
 			assert(test_bit(STOP, &vb->flags));
-			vb_clear_start_receive_bit(vb);
-			__vb_setctl(vb, SR_CSR5, DEFAULT_INTERRUPTS);
 			__vb_disable_interrupts(vb);
 			complete(&vb->stopped_completion);
 		}
 		if (int_status & RX_STOPPED_INTERRUPT) {
 			assert(test_bit(STOP, &vb->flags));
-			if (vb_is_stopped(vb))
+			if (vb_is_stopped(vb)) {
+				__vb_disable_interrupts(vb);
 				complete(&vb->stopped_completion);
+			}
 		}
 
 		/* Clear the interrupt(s) */
@@ -1264,7 +1285,7 @@ vb_timer(unsigned long data)
 #else
 	vb_isr(0, vb);
 #endif
-	if (!vb_is_stopped(vb)) {
+	if (!test_bit(STOPPED, &vb->flags)) {
 		vb->timer.expires = start + HZ/1000;
 		add_timer(&vb->timer);
 	}
