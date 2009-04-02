@@ -4352,6 +4352,7 @@ static int dahdi_chanandpseudo_ioctl(struct inode *inode, struct file *file, uns
 	case DAHDI_DIAL:
 		return ioctl_dahdi_dial(chan, data);
 	case DAHDI_GET_BUFINFO:
+		memset(&stack.bi, 0, sizeof(stack.bi));
 		stack.bi.rxbufpolicy = chan->rxbufpolicy;
 		stack.bi.txbufpolicy = chan->txbufpolicy;
 		stack.bi.numbufs = chan->numbufs;
