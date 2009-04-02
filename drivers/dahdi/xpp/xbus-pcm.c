@@ -472,7 +472,7 @@ int dahdi_sync_tick(struct dahdi_span *span, int is_master)
 	if(is_master) {
 		static int	rate_limit;
 
-		if((rate_limit++ % 1003) == 0)
+		if((rate_limit++ % 10003) == 0)
 			XPD_NOTICE(xpd, "Is a DAHDI sync master: ignore sync from DAHDI\n");
 		goto noop;
 	}
