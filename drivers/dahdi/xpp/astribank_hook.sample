@@ -1,7 +1,17 @@
 #! /bin/sh
 
 me=`basename $0`
+dir=`dirname $0`
 LOGGER="logger -i -t '$me'"
+
+# Always redirect stderr somewhere, otherwise the shell script will die
+# when it tries to do I/O related stuff on closed file descriptor.
+# Our default is to throw it down the bit-bucket.
+#exec 2> /dev/console
+## If you wish to trace this script:
+#exec 2> "/tmp/${me}_$XBUS_NAME" 1>&2
+
+PATH="$dir:/usr/sbin:/sbin:/usr/bin:/bin"
 
 set -e
 
@@ -13,8 +23,14 @@ add)
 remove)
 	;;
 online)
+	if [ -x "$dir/twinstar_hook" ]; then
+		"$dir/twinstar_hook"
+	fi
 	;;
 offline)
+	if [ -x "$dir/twinstar_hook" ]; then
+		"$dir/twinstar_hook"
+	fi
 	;;
 *)
 	echo "$0: Unknown ACTION='$ACTION'" | $LOGGER
