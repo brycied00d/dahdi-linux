@@ -991,7 +991,7 @@ struct dahdi_vmwi_info {
  * Value: number of waiting messages (hence 0: switch messages off).
  */
 #define DAHDI_VMWI			_IOWR(DAHDI_CODE, 94, int)
-#define DAHDI_VMWI_CONFIG  	_IOW(DAHDI_CODE, 95, struct dahdi_vmwi_info)
+#define DAHDI_VMWI_CONFIG		_IOW(DAHDI_CODE, 95, struct dahdi_vmwi_info)
 
 /*
  * Startup or Shutdown a span
