@@ -57,7 +57,7 @@ endif
 
 MODULE_ALIASES:=wcfxs wctdm8xxp wct2xxp
 
-INST_HEADERS:=kernel.h user.h fasthdlc.h wctdm_user.h
+INST_HEADERS:=kernel.h user.h fasthdlc.h wctdm_user.h dahdi_config.h
 
 DAHDI_BUILD_ALL:=m
 
