@@ -100,6 +100,7 @@ enum fxs_state {
 #define	REG_BATTERY_BATSL	BIT(1)	/* Battery Feed Select */
 
 #define	REG_LOOPCLOSURE		0x44	/* 68 -  Loop Closure/Ring Trip Detect Status */
+#define	REG_LOOPCLOSURE_ZERO	0xF8	/* Loop Closure zero bits. */
 #define	REG_LOOPCLOSURE_LCR	BIT(0)	/* Loop Closure Detect Indicator. */
 
 /*---------------- FXS Protocol Commands ----------------------------------*/
@@ -1307,11 +1308,17 @@ static int FXS_card_register_reply(xbus_t *xbus, xpd_t *xpd, reg_cmd_t *info)
 		xpp_line_t	mask = BIT(info->portnum);
 		xpp_line_t	offhook;
 
-		offhook = (val & REG_LOOPCLOSURE_LCR) ? mask : 0;
-		LINE_DBG(SIGNAL, xpd, info->portnum,
-			"REG_LOOPCLOSURE: dataL=0x%X (offhook=0x%X mask=0x%X\n",
-			val, offhook, mask);
-		process_hookstate(xpd, offhook, mask);
+		/*
+		 * Validate reply. Non-existing/disabled ports
+		 * will reply with 0xFF. Ignore these.
+		 */
+		if((val & REG_LOOPCLOSURE_ZERO) == 0) {
+			offhook = (val & REG_LOOPCLOSURE_LCR) ? mask : 0;
+			LINE_DBG(SIGNAL, xpd, info->portnum,
+				"REG_LOOPCLOSURE: dataL=0x%X (offhook=0x%X mask=0x%X\n",
+				val, offhook, mask);
+			process_hookstate(xpd, offhook, mask);
+		}
 	} else {
 #if 0
 		XPD_NOTICE(xpd, "Spurious register reply(ignored): %s reg_num=0x%X, dataL=0x%X dataH=0x%X\n",
