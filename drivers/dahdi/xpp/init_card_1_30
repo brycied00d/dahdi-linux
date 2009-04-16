@@ -148,28 +148,45 @@ sub read_reg($$$) {
 	
 	write_to_slic_file(
 		sprintf("%s R%s %02X", $read_slic, $direct, $read_reg));
-	main::mysleep(0.005);
-	open(SLICS,$chipregs) or 
-		die("Failed reading from chipregs file $chipregs");
-	#awk '/^SLIC_REPLY:/{print $5}' $SLICS | cut -dx -f2
-	my @reply = ();
-	while(<SLICS>){
-		#if (/^ /) {
-		#	main::debug "answer line: $_";
-		#}
-		s/#.*//;
-		next unless /\S/;
-		if (/^ \d*\s+[RW][DI]\s+[[:xdigit:]]+\s+([[:xdigit:]]+)\s+([[:xdigit:]]*)/){
-			@reply = (hex($1), hex($2)); 
-			#main::debug "got [$reply]";
-			last;
-		} else {
-			main::logit("Got from '$chipregs' a non-matching line '$_'");
+	my $retries = 10;
+	my @reply;
+	# If the command queue is long, we may need to wait...
+WAIT_RESULTS:
+	{
+		my @results;
+
+		# The time to sleep is a tradeoff:
+		#   - Too long is a waste of time.
+		#   - Too short will cause many retries, wastes time.
+		# So the current value (after trial and error) is...
+		main::mysleep(0.013);
+		open(SLICS,$chipregs) or 
+			die("Failed reading from chipregs file $chipregs");
+		while(<SLICS>){
+			s/#.*//;
+			next unless /\S/;
+			@results = /^\s*(\d+)\s+[RW][DI]\s+([[:xdigit:]]+)\s+([[:xdigit:]]+)\s+([[:xdigit:]]*)/;
+			if(@results != 4) {
+				main::logit "Failed reading from '$chipregs' ($read_slic,$read_reg,$direct)";
+				die;
+			}
 		}
+		close(SLICS);
+		my $reg = hex($results[1]);
+		if($results[0] ne $read_slic || $reg ne $read_reg) {
+			# We read obsolete values, need to wait some more
+			if(--$retries) {
+				main::debug "$read_slic RD $read_reg -- retry ($results[0], $reg)";
+				redo WAIT_RESULTS;
+			} else {
+				main::logit "Failed: $read_slic RD $read_reg returned $results[0], $reg";
+				die;
+			}
+		}
+		# Good.
+		@reply = (hex($results[2]), hex($results[3]));
+
 	}
-	close(SLICS);
-	die("Failed reading from '$chipregs' ($read_slic,$read_reg,$direct)")
-		unless @reply;
 	if ($direct eq 'S') {
 		return @reply;
 	} else {
@@ -230,8 +247,8 @@ sub init_indirect_registers() {
 *	WS	1E	12	00	00
 *	WS	1E	13	00	00
                           
-*	WS	1E	14	F0	7E
-*	WS	1E	15	C0	01
+*	WS	1E	14	FD	7E
+*	WS	1E	15	77	01
 *	WS	1E	16	00	00
 *	WS	1E	17	00	20
                           
@@ -246,23 +263,17 @@ sub init_indirect_registers() {
 *	WS	1E	1F	00	02
                           
 *	WS	1E	20	C0	07
-*	WS	1E	21	00	26
-*	WS	1E	22	F4	0F
+*	WS	1E	21	6F	37
+*	WS	1E	22	80	1B
 *	WS	1E	23	00	80
-
-#*	WS	1E	24	20	03
-#*	WS	1E	25	8C	08
-#*	WS	1E	26	00	01
-#*	WS	1E	27	10	00
                           
 *	WS	1E	24	00	08
 *	WS	1E	25	00	08
 *	WS	1E	26	00	08
 *	WS	1E	27	00	08
                           
-*	WS	1E	28	00	0C
-*	WS	1E	29	00	0C
-*	WS	1E	2B	00	01
+*	WS	1E	28	00	00
+*	WS	1E	2B	00	08 # LCRTL = 5.08 mA
                           
 *	WS	1E	63	DA	00
 *	WS	1E	64	60	6B
@@ -277,7 +288,8 @@ sub init_indirect_registers() {
 sub init_early_direct_regs() {
 	return write_to_slic_file("#
 *	WD	08	00	# Audio Path Loopback Control
-*	WD	4A	34	# High Battery Voltage
+*	WD	6C	01
+*	WD	4A	3F	# High Battery Voltage
 *	WD	4B	10	# Low Battery Voltage
 *	WD	40	00	# Line Feed Control
 #")
@@ -310,35 +322,36 @@ my $ManualCalibrationSleepTime = 0.04; # 40ms
 sub manual_calibrate_loop($$) {
 	my $write_reg = shift;
 	my $read_reg = shift;
-	
-	# counters to count down to (at most) 0
-	my @slic_counters = ();
-	for my $i (0 .. $#SlicNums) {
-		$slic_counters[$i] = 0x1F;
-	}
-	
-	# start calibration:
-	my $calibration_in_progress = 1;
-	write_reg('*', $write_reg, 'D', 0x1F);
-	main::mysleep $ManualCalibrationSleepTime;
-	
+	my @curr_slics = @SlicNums;
+
+	# initialize counters
+	my @slic_counters = map { 0x1F } @curr_slics;
+
 	# wait until all slics have finished calibration, or for timeout
-	while ($calibration_in_progress) {
-		$calibration_in_progress = 0; # until proven otherwise
+	while (@curr_slics) {
 		my $debug_calib_str = "ManualCalib:: ";
-		for my $slic(@SlicNums) {
+		my @next_slics;
+
+		for my $slic (@curr_slics) {
+			write_reg($slic,$write_reg,'D',$slic_counters[$slic]);
+		}
+		main::mysleep $ManualCalibrationSleepTime;
+		for my $slic (@curr_slics) {
 			my $value = read_reg($slic, $read_reg, 'D');
-			$debug_calib_str .= " [$slic_counters[$slic]:$value]";
-			if ($value != 0 && $slic_counters[$slic] > 0) {
-				$calibration_in_progress = 1;
+			$debug_calib_str .= sprintf " [%d:%d:%X]",
+				$slic, $slic_counters[$slic], $value;
+			next if $value == 0;	# This one is calibrated.
+			if ($slic_counters[$slic] > 0) {
 				$slic_counters[$slic]--;
-				write_reg($slic,$write_reg,'D',$slic_counters[$slic]);
+				push(@next_slics, $slic);
+			} else {
+				main::logit("ERROR: SLIC $slic reached 0 during manual calibration");
 			}
 		}
+		@curr_slics = @next_slics;
 		main::debug($debug_calib_str);
-		# TODO: unnecessary sleep in the last round:
-		main::mysleep $ManualCalibrationSleepTime;
 	}
+	main::debug("No more slics to calibrate");
 }
 
 sub manual_calibrate() {
@@ -352,41 +365,46 @@ sub auto_calibrate($$) {
 
 	#log_calib_params();
 	# start calibration:
-	write_to_slic_file(
-		sprintf
-			"* WD 60 %02X\n".
-			"* WD 61 %02X\n".
-			"", $calib_96, $calib_97
-			
-	);
+	for my $slic(@SlicNums) {
+		write_to_slic_file(
+			sprintf
+				"$slic WD 61 %02X\n".
+				"$slic WD 60 %02X\n".
+				"", $calib_97, $calib_96
+				
+		);
+	}
+
 	# wait until all slics have finished calibration, or for timeout
-	my $sleep_cnt = 0;
 	# time periods in seconds:
-	my $sleep_time = 0.1;
-	my $timeout_time = 2; 
-	CALIB_LOOP: for my $slic (@SlicNums) {
-		main::debug("checking slic $slic");
-		while(1) {
-			if ((read_reg($slic, 60, 'D')) == 0) {
-				# move to next register
-				main::debug("slic $slic calibrated");
-				last;
-			}
-			if ( $sleep_cnt > $timeout_time/$sleep_time) {
-				main::debug("Auto Calibration: Exiting on timeout: $timeout_time.");
-				last CALIB_LOOP;
-			}
-			main::debug("auto_calibrate not done yet: slic #$slic");
-			main::mysleep(0.1);
-			$sleep_cnt++;
+	my $sleep_time = 0.001;
+	my $timeout_time = 0.600; # Maximum from the spec
+	my @curr_slics = @SlicNums;
+	my $sleep_cnt = 0;
+CALIB_LOOP:
+	while(1) {
+		main::mysleep($sleep_time);
+		my @next_slics;
+		for my $slic (@curr_slics) {
+			main::debug("checking slic $slic");
+			my $val = read_reg($slic, 60, 'D');
+			push(@next_slics, $slic) if $val != 0;
 		}
+		@curr_slics = @next_slics;
+		last unless @curr_slics;
+		if ($sleep_cnt * $sleep_time > $timeout_time) {
+			main::logit("Auto Calibration: Exiting on timeout: $timeout_time.");
+			last CALIB_LOOP;
+		}
+		main::debug("auto_calibrate not done yet($sleep_cnt): @curr_slics");
+		$sleep_cnt++;
 	}
 	#log_calib_params();
 }
 
 sub calibrate_slics() {
 	main::debug "Calibrating '$0'";
-	auto_calibrate(0x47, 0x1E);
+	auto_calibrate(0x40, 0x1E);
 	main::debug "after auto_calibrate";
 	manual_calibrate();
 	main::debug "after manul_calibrate";
@@ -403,11 +421,23 @@ sub read_defaults() {
 	}
 }
 
+# Try to identify which slics are valid
+sub check_slics() {
+	my @slics;
+	foreach my $slic (0 .. 7) {
+		my $value = read_reg($slic, 0, 'D');
+		push(@slics, $slic) if $value != 0xFF;
+	}
+	main::logit "Found " . scalar(@slics) . " SLICS (@slics)";
+	return @slics;
+}
+
 package main;
 
 main::debug "Starting '$0'";
 
 FXS::read_defaults;
+@SlicNums = FXS::check_slics;
 main::debug "before init_indirect_registers";
 FXS::init_indirect_registers();
 main::debug "after init_indirect_registers";
@@ -438,8 +468,6 @@ exit 0;
 # ----------------------------------==== 8-channel FXS unit initialization ===-----------------------------------------
 
 __DATA__
-# Change SLICs states to "Open state"s  (Off,all transfers tristated to avoid data collision), Voltage sense
-*	WD	40	00
 
 # Flush out energy accumulators
 *	WS	1E	58	00 00
@@ -450,8 +478,9 @@ __DATA__
 *	WS	1E	5D	00 00
 *	WS	1E	5E	00 00
 *	WS	1E	5F	00 00
+
 *	WS	1E	61	00 00
-*	WS	1E	58	00 00
+
 *	WS	1E	C1	00 00
 *	WS	1E	C2	00 00
 *	WS	1E	C3	00 00
@@ -471,31 +500,63 @@ __DATA__
 *	WS	1E	D1	00 00
 *	WS	1E	D2	00 00
 *	WS	1E	D3	00 00
+
+# Clear and disable interrupts
+*	WD	12	FF
+*	WD	13	FF
+*	WD	14	FF
+*	WD	15	00
+*	WD	16	00
+*	WD	17	00
                 
+## Mode(8-bit,u-Law,1 PCLK ) 
+*	WD	01	08	# Disable PCM transfers
+
 # Setting of SLICs offsets
 # New card initialization
-0	WD	02	00
-0	WD	04	00
-1	WD	02	08
-1	WD	04	08
-2	WD	02	10
-2	WD	04	10
-3	WD	02	18
-3	WD	04	18
-4	WD	02	20
-4	WD	04	20
-5	WD	02	28
-5	WD	04	28
-6	WD	02	30
-6	WD	04	30
-7	WD	02	38
-7	WD	04	38
+
 *	WD	03	00
 *	WD	05	00
+
+0	WD	02	00
+0	WD	04	00
+0	WD	01	28	# Enable PCM transfers
+1	WD	02	08
+1	WD	04	08
+1	WD	01	28
+2	WD	02	10
+2	WD	04	10
+2	WD	01	28
+3	WD	02	18
+3	WD	04	18
+3	WD	01	28
+4	WD	02	20
+4	WD	04	20
+4	WD	01	28
+5	WD	02	28
+5	WD	04	28
+5	WD	01	28
+6	WD	02	30
+6	WD	04	30
+6	WD	01	28
+7	WD	02	38
+7	WD	04	38
+7	WD	01	28
 
 # Audio path. (also initialize 0A and 0B here if necessary)
 *	WD	08 00
 *	WD	09 00
+*	WD	0A 08
+*	WD	0B 33
+
+#------ Metering tone
+*	WD	2C	00	# Timer dL
+*	WD	2D	03	# Timer dH
+*	WS	1E	17	61 15	# Amplitue Ramp-up
+*	WS	1E	18	61 15	# Max Amplitude
+*	WS	1E	19	FB 30	# Frequency
+
+# Ring regs are set by driver
 
 # Automatic/Manual Control: defaults but:
 #	Cancel AOPN - Power Alarm
@@ -514,39 +575,16 @@ __DATA__
 # Loop Current Limit
 *	WD	47 00
 
-# Ring VBath:
-*	WD	4A 3F
+# On-Hook Line Voltage (VOC)
+*	WD	48 20
 
-
-*	WD	6C	01
+# Common Mode Voltage (VCM)
+*	WD	49 03
 
 *	WS	1E	23	00 80
 *	WS	1E	24	20 03
-*	WS	1E	25	8C 08
-*	WS	1E	26	00 01
+*	WS	1E	25	8C 00
+*	WS	1E	26	00 00
 *	WS	1E	27	10 00
 
-#------ Metering tone
-*	WS	1E	17	61 15	# Amplitue Ramp-up
-*	WS	1E	18	61 15	# Max Amplitude
-*	WS	1E	19	FB 30	# Frequency
-*	WD	2C	00	# Timer dL
-*	WD	2D	03	# Timer dH
-
-# ------------------------------------- Initialization of direct registers --------------------------------------------
-
-# Mode(8-bit,u-Law,1 PCLK ) setting, Loopbacks and Interrupts clear
-
-*	WD	01	29
-#*	WD	0E	00  
-
-#*	WD	15 00
-#*	WD	16 03
-
-# Clear pending interrupts
-*	WD	12 FF
-*	WD	13 FF
-*	WD	14 FF 
-
-#*	WD	4A 34
-#*	WD	4B 10
+*	WD	0E 00
