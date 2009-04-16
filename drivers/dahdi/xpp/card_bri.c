@@ -636,6 +636,8 @@ static int BRI_card_init(xbus_t *xbus, xpd_t *xpd)
 	BUG_ON(!xpd);
 	XPD_DBG(GENERAL, xpd, "\n");
 	priv = xpd->priv;
+	DO_LED(xpd, GREEN_LED, BRI_LED_OFF);
+	DO_LED(xpd, RED_LED, BRI_LED_OFF);
 	set_bri_timer(xpd, "T1", &priv->t1, HFC_TIMER_OFF);
 	write_state_register(xpd, 0);	/* Enable L1 state machine */
 	priv->initialized = 1;
