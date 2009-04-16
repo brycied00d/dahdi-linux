@@ -389,51 +389,46 @@ close STDERR;
 exit 0;
 
 __DATA__
-*	WD	21	28
+*	WD	21	08	# Disable PCM transfers
 *	WD	18	99
 *	WD	06	00
 
 # ----------- DAA PCM start offset ----------
 
+*	WD	23	00
+*	WD	25	00
+
 0	WD	22	00
-0	WD	23	00
 0	WD	24	00
-0	WD	25	00
+0	WD	21	28	# Enable PCM transfers, when offsets are set
 
 1	WD	22	08
-1	WD	23	00
 1	WD	24	08
-1	WD	25	00
+1	WD	21	28
 
 2	WD	22	10
-2	WD	23	00
 2	WD	24	10
-2	WD	25	00
+2	WD	21	28
 
 3	WD	22	18
-3	WD	23	00
 3	WD	24	18
-3	WD	25	00
+3	WD	21	28
 
 4	WD	22	20
-4	WD	23	00
 4	WD	24	20
-4	WD	25	00
+4	WD	21	28
 
 5	WD	22	28
-5	WD	23	00
 5	WD	24	28
-5	WD	25	00
+5	WD	21	28
 
 6	WD	22	30
-6	WD	23	00
 6	WD	24	30
-6	WD	25	00
+6	WD	21	28
 
 7	WD	22	38
-7	WD	23	00
 7	WD	24	38
-7	WD	25	00
+7	WD	21	28
 
 # ----------- DAA ONHOOK --------------------
 *	WD	05	00
