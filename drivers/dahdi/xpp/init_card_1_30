@@ -387,7 +387,7 @@ CALIB_LOOP:
 		my @next_slics;
 		for my $slic (@curr_slics) {
 			main::debug("checking slic $slic");
-			my $val = read_reg($slic, 60, 'D');
+			my $val = read_reg($slic, 96, 'D');
 			push(@next_slics, $slic) if $val != 0;
 		}
 		@curr_slics = @next_slics;
