@@ -377,7 +377,8 @@ err:
 	return -EINVAL;
 }
 
-static xpd_t *FXS_card_new(xbus_t *xbus, int unit, int subunit, const xproto_table_t *proto_table, byte subtype, int subunits, bool to_phone)
+static xpd_t *FXS_card_new(xbus_t *xbus, int unit, int subunit, const xproto_table_t *proto_table,
+	byte subtype, int subunits, int subunit_ports, bool to_phone)
 {
 	xpd_t			*xpd = NULL;
 	int			channels;
@@ -392,9 +393,9 @@ static xpd_t *FXS_card_new(xbus_t *xbus, int unit, int subunit, const xproto_tab
 		return NULL;
 	}
 	if(subtype == 2)
-		regular_channels = min(6, CHANNELS_PERXPD);
+		regular_channels = min(6, subunit_ports);
 	else
-		regular_channels = min(8, CHANNELS_PERXPD);
+		regular_channels = min(8, subunit_ports);
 	channels = regular_channels;
 	if(unit == 0)
 		channels += 6;	/* 2 DIGITAL OUTPUTS, 4 DIGITAL INPUTS */
