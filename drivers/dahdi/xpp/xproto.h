@@ -218,7 +218,8 @@ xproto_handler_t xproto_global_handler(byte opcode);
 
 struct xops {
 	 xpd_t *(*card_new)(xbus_t *xbus, int unit, int subunit,
-		 const xproto_table_t *proto_table, byte subtype, int subunits, bool to_phone);
+		const xproto_table_t *proto_table, byte subtype,
+		int subunits, int subunit_ports, bool to_phone);
 	int (*card_init)(xbus_t *xbus, xpd_t *xpd);
 	int (*card_remove)(xbus_t *xbus, xpd_t *xpd);
 	int (*card_tick)(xbus_t *xbus, xpd_t *xpd);

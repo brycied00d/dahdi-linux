@@ -255,6 +255,7 @@ int create_xpd(xbus_t *xbus, const xproto_table_t *proto_table,
 		byte type,
 		byte subtype,
 		int subunits,
+		int subunit_ports,
 		byte port_dir)
 {
 	xpd_t			*xpd = NULL;
@@ -269,7 +270,12 @@ int create_xpd(xbus_t *xbus, const xproto_table_t *proto_table,
 			unit, subunit);
 		return 0;
 	}
-	xpd = proto_table->xops.card_new(xbus, unit, subunit, proto_table, subtype, subunits, to_phone);
+	if(subunit_ports <= 0 || subunit_ports > CHANNELS_PERXPD) {
+		XBUS_NOTICE(xbus, "Illegal number of ports %d for XPD %d%d\n",
+			subunit_ports, unit, subunit);
+		return 0;
+	}
+	xpd = proto_table->xops.card_new(xbus, unit, subunit, proto_table, subtype, subunits, subunit_ports, to_phone);
 	if(!xpd) {
 		XBUS_NOTICE(xbus, "card_new(%d,%d,%d,%d,%d) failed. Ignored.\n",
 			unit, subunit, proto_table->type, subtype, to_phone);

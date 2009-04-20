@@ -728,6 +728,7 @@ static int new_card(xbus_t *xbus,
 	int			i;
 	int			subunits;
 	int			ret = 0;
+	int			remaining_ports;
 
 	proto_table = xproto_get(type);
 	if(!proto_table) {
@@ -736,6 +737,7 @@ static int new_card(xbus_t *xbus,
 			unit, type);
 		return -EINVAL;
 	}
+	remaining_ports = ports;
 	subunits = (ports + proto_table->ports_per_subunit - 1) /
 			proto_table->ports_per_subunit;
 	XBUS_DBG(DEVICES, xbus, "CARD %d type=%d.%d ports=%d (%dx%d), %d subunits, port-dir=0x%02X\n",
@@ -752,6 +754,21 @@ static int new_card(xbus_t *xbus,
 	BUG_ON(!xops);
 	xbus->worker->num_units += subunits - 1;
 	for(i = 0; i < subunits; i++) {
+		int	subunit_ports = proto_table->ports_per_subunit;
+
+		if(subunit_ports > remaining_ports)
+			subunit_ports = remaining_ports;
+		remaining_ports -= proto_table->ports_per_subunit;
+		if(subunit_ports <= 0) {
+			XBUS_NOTICE(xbus,
+				"Subunit XPD=%d%d without ports (%d of %d)\n",
+				unit,
+				i,
+				subunit_ports,
+				ports);
+			ret = -ENODEV;
+			goto out;
+		}
 		if(!XBUS_IS(xbus, RECVD_DESC)) {
 			XBUS_NOTICE(xbus,
 				"Cannot create XPD=%d%d in state %s\n",
@@ -761,18 +778,18 @@ static int new_card(xbus_t *xbus,
 			ret = -ENODEV;
 			goto out;
 		}
-		XBUS_DBG(DEVICES, xbus, "Creating XPD=%d%d type=%d.%d\n",
+		XBUS_DBG(DEVICES, xbus, "Creating XPD=%d%d type=%d.%d (%d ports)\n",
 				unit,
 				i,
 				type,
-				subtype);
+				subtype, subunit_ports);
 		if(!XBUS_IS(xbus, RECVD_DESC)) {
 			XBUS_ERR(xbus, "Aborting creation -- In bad state %s\n",
 				xbus_statename(XBUS_STATE(xbus)));
 			ret = -ENODEV;
 			goto out;
 		}
-		ret = create_xpd(xbus, proto_table, unit, i, type, subtype, subunits, port_dir);
+		ret = create_xpd(xbus, proto_table, unit, i, type, subtype, subunits, subunit_ports, port_dir);
 		if(ret < 0) {
 			XBUS_ERR(xbus, "Creation of XPD=%d%d failed %d\n",
 				unit, i, ret);
