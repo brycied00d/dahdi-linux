@@ -422,7 +422,8 @@ err:
 	return -EINVAL;
 }
 
-static xpd_t *FXO_card_new(xbus_t *xbus, int unit, int subunit, const xproto_table_t *proto_table, byte subtype, int subunits, bool to_phone)
+static xpd_t *FXO_card_new(xbus_t *xbus, int unit, int subunit, const xproto_table_t *proto_table,
+	byte subtype, int subunits, int subunit_ports, bool to_phone)
 {
 	xpd_t		*xpd = NULL;
 	int		channels;
@@ -434,9 +435,9 @@ static xpd_t *FXO_card_new(xbus_t *xbus, int unit, int subunit, const xproto_tab
 		return NULL;
 	}
 	if(subtype == 2)
-		channels = min(2, CHANNELS_PERXPD);
+		channels = min(2, subunit_ports);
 	else
-		channels = min(8, CHANNELS_PERXPD);
+		channels = min(8, subunit_ports);
 	xpd = xpd_alloc(xbus, unit, subunit, subtype, subunits, sizeof(struct FXO_priv_data), proto_table, channels);
 	if(!xpd)
 		return NULL;

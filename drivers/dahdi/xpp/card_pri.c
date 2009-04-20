@@ -909,12 +909,17 @@ static int pri_chanconfig(struct dahdi_chan *chan, int sigtype)
 	return 0;
 }
 
-static xpd_t *PRI_card_new(xbus_t *xbus, int unit, int subunit, const xproto_table_t *proto_table, byte subtype, int subunits, bool to_phone)
+static xpd_t *PRI_card_new(xbus_t *xbus, int unit, int subunit, const xproto_table_t *proto_table,
+	byte subtype, int subunits, int subunit_ports, bool to_phone)
 {
 	xpd_t			*xpd = NULL;
 	struct PRI_priv_data	*priv;
 	int			channels = min(31, CHANNELS_PERXPD);	/* worst case */
 
+	if(subunit_ports != 1) {
+		XBUS_ERR(xbus, "Bad subunit_ports=%d\n", subunit_ports);
+		return NULL;
+	}
 	XBUS_DBG(GENERAL, xbus, "\n");
 	xpd = xpd_alloc(xbus, unit, subunit, subtype, subunits, sizeof(struct PRI_priv_data), proto_table, channels);
 	if(!xpd)
