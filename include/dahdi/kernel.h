@@ -392,9 +392,6 @@ void dahdi_unregister_echocan(const struct dahdi_echocan *ec);
 /*! Define the maximum block size */
 #define DAHDI_MAX_BLOCKSIZE	8192
 
-/*! Define the default network block size */
-#define DAHDI_DEFAULT_MTU_MRU	2048
-
 
 #define DAHDI_DEFAULT_WINKTIME	150	/*!< 150 ms default wink time */
 #define DAHDI_DEFAULT_FLASHTIME	750	/*!< 750 ms default flash time */
