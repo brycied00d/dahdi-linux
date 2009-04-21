@@ -116,6 +116,9 @@
 #define DAHDI_DEFAULT_BLOCKSIZE 1024
 #define DAHDI_DEFAULT_MTR_MRU	2048
 
+/*! Define the default network block size */
+#define DAHDI_DEFAULT_MTU_MRU	2048
+
 #define DAHDI_POLICY_IMMEDIATE	0		/* Start play/record immediately */
 #define DAHDI_POLICY_WHEN_FULL	1		/* Start play/record when buffer is full */
 #define DAHDI_POLICY_HALF_FULL	2		/* Start play/record when buffer is half full.
