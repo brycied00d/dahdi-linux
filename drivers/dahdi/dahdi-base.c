@@ -47,17 +47,6 @@
 #include <linux/moduleparam.h>
 #include <linux/list.h>
 
-#ifdef CONFIG_DAHDI_NET
-#include <linux/netdevice.h>
-#endif /* CONFIG_DAHDI_NET */
-
-#include <linux/ppp_defs.h>
-#ifdef CONFIG_DAHDI_PPP
-#include <linux/netdevice.h>
-#include <linux/if.h>
-#include <linux/if_ppp.h>
-#endif
-
 #include <asm/atomic.h>
 
 #define module_printk(level, fmt, args...) printk(level "%s: " fmt, THIS_MODULE->name, ## args)
@@ -81,6 +70,18 @@
 #define FAST_HDLC_NEED_TABLES
 #include <dahdi/kernel.h>
 #include "ecdis.h"
+
+#ifdef CONFIG_DAHDI_NET
+#include <linux/netdevice.h>
+#endif /* CONFIG_DAHDI_NET */
+
+#include <linux/ppp_defs.h>
+
+#ifdef CONFIG_DAHDI_PPP
+#include <linux/netdevice.h>
+#include <linux/if.h>
+#include <linux/if_ppp.h>
+#endif
 
 #include "hpec/hpec_user.h"
 
@@ -1783,7 +1784,7 @@ static int dahdi_ppp_xmit(struct ppp_channel *ppp, struct sk_buff *skb)
 	int x,oldbuf;
 	unsigned int fcs;
 	unsigned char *data;
-	long flags;
+	unsigned long flags;
 	int retval = 0;
 
 	/* See if we have any buffers */
