@@ -35,10 +35,6 @@
 
 static const char rcsid[] = "$Id$";
 
-#ifndef CONFIG_DAHDI_BRI_DCHANS
-#error CONFIG_DAHDI_BRI_DCHANS is not defined
-#endif
-
 static DEF_PARM(int, debug, 0, 0644, "Print DBG statements");	/* must be before dahdi_debug.h */
 static DEF_PARM(uint, poll_interval, 500, 0644, "Poll channel state interval in milliseconds (0 - disable)");
 static DEF_PARM_BOOL(nt_keepalive, 1, 0644, "Force BRI_NT to keep trying connection");
@@ -131,6 +127,7 @@ typedef union {
 #define	REG30_LOST	3	/* in polls */
 #define	DCHAN_LOST	15000	/* in ticks */
 
+#ifdef	CONFIG_DAHDI_BRI_DCHANS
 #define	BRI_DCHAN_SIGCAP	(			  \
 					DAHDI_SIG_EM	| \
 					DAHDI_SIG_CLEAR	| \
@@ -143,6 +140,9 @@ typedef union {
 					DAHDI_SIG_CAS	| \
 					DAHDI_SIG_SF	  \
 				)
+#else
+#define	BRI_DCHAN_SIGCAP	DAHDI_SIG_HARDHDLC
+#endif
 #define	BRI_BCHAN_SIGCAP	(DAHDI_SIG_CLEAR | DAHDI_SIG_DACS)
 
 #define	IS_NT(xpd)		((xpd)->direction == TO_PHONE)
@@ -212,8 +212,12 @@ struct BRI_priv_data {
 	/*
 	 * D-Chan: buffers + extra state info.
 	 */
+#ifdef	CONFIG_DAHDI_BRI_DCHANS
 	int				dchan_r_idx;
 	byte				dchan_rbuf[DCHAN_BUFSIZE];
+#else
+	atomic_t			hdlc_pending;
+#endif
 	byte				dchan_tbuf[DCHAN_BUFSIZE];
 	bool				txframe_begin;
 
@@ -251,7 +255,7 @@ static void dump_hex_buf(xpd_t *xpd, char *msg, byte *buf, size_t len)
 	debug_buf[0] = '\0';
 	for(i = 0; i < len && n < DEBUG_BUF_SIZE; i++)
 		n += snprintf(&debug_buf[n], DEBUG_BUF_SIZE - n, "%02X ", buf[i]);
-	XPD_DBG(GENERAL, xpd, "%s[0..%zd]: %s%s\n", msg, len-1, debug_buf,
+	XPD_NOTICE(xpd, "%s[0..%zd]: %s%s\n", msg, len-1, debug_buf,
 			(n >= DEBUG_BUF_SIZE)?"...":"");
 }
 
@@ -432,6 +436,102 @@ static void nt_activation(xpd_t *xpd, bool on)
 /*
  * D-Chan receive
  */
+static void bri_hdlc_abort(xpd_t *xpd, struct dahdi_chan *dchan, int event)
+{
+	struct BRI_priv_data	*priv;
+
+	priv = xpd->priv;
+	BUG_ON(!priv);
+#ifdef	CONFIG_DAHDI_BRI_DCHANS
+	dump_hex_buf(xpd, "D-Chan RX: dchan_rbuf", priv->dchan_rbuf, priv->dchan_r_idx);
+	priv->dchan_r_idx = 0;
+#else
+	dahdi_hdlc_abort(dchan, event);
+#endif
+}
+
+static int bri_check_stat(xpd_t *xpd, struct dahdi_chan *dchan, byte *buf, int len)
+{
+	struct BRI_priv_data	*priv;
+	byte			status;
+
+	priv = xpd->priv;
+	BUG_ON(!priv);
+#ifdef	CONFIG_DAHDI_BRI_DCHANS
+	if(priv->dchan_r_idx < 4) {
+		XPD_NOTICE(xpd, "D-Chan RX short frame (dchan_r_idx=%d)\n",
+			priv->dchan_r_idx);
+		dump_hex_buf(xpd, "D-Chan RX:    current packet", buf, len);
+		bri_hdlc_abort(xpd, dchan, DAHDI_EVENT_ABORT);
+		return -EPROTO;
+	}
+#else
+	if(len <= 0) {
+		XPD_NOTICE(xpd, "D-Chan RX DROP: short frame (len=%d)\n", len);
+		bri_hdlc_abort(xpd, dchan, DAHDI_EVENT_ABORT);
+		return -EPROTO;
+	}
+#endif
+	status = buf[len-1];
+	if(status) {
+		int	event = DAHDI_EVENT_ABORT;
+
+		if(status == 0xFF) {
+			XPD_NOTICE(xpd, "D-Chan RX DROP: ABORT: %d\n", status);
+		} else {
+			XPD_NOTICE(xpd, "D-Chan RX DROP: BADFCS: %d\n", status);
+			event = DAHDI_EVENT_BADFCS;
+		}
+		dump_hex_buf(xpd, "D-Chan RX:    current packet", buf, len);
+		bri_hdlc_abort(xpd, dchan, event);
+		return -EPROTO;
+	}
+	return 0;
+}
+
+int bri_hdlc_putbuf(xpd_t *xpd, struct dahdi_chan *dchan, unsigned char *buf, int len)
+{
+#ifdef	CONFIG_DAHDI_BRI_DCHANS
+	struct BRI_priv_data	*priv;
+	byte			*dchan_buf;
+	byte			*dst;
+	int			idx;
+
+	priv = xpd->priv;
+	BUG_ON(!priv);
+	dchan_buf = dchan->readchunk;
+	idx = priv->dchan_r_idx;
+	if(idx + len >= DCHAN_BUFSIZE) {
+		XPD_ERR(xpd, "D-Chan RX overflow: %d\n", idx);
+		dump_hex_buf(xpd, "    current packet", buf, len);
+		dump_hex_buf(xpd, "    dchan_buf", dchan_buf, idx);
+		return -ENOSPC;
+	}
+	dst = dchan_buf + idx;
+	idx += len;
+	priv->dchan_r_idx = idx;
+	memcpy(dst, buf, len);
+#else
+	dahdi_hdlc_putbuf(dchan, buf, len);
+#endif
+	return 0;
+}
+
+void bri_hdlc_finish(xpd_t *xpd, struct dahdi_chan *dchan)
+{
+	struct BRI_priv_data	*priv;
+
+	priv = xpd->priv;
+	BUG_ON(!priv);
+#ifdef	CONFIG_DAHDI_BRI_DCHANS
+	dchan->bytes2receive = priv->dchan_r_idx - 1;
+	dchan->eofrx = 1;
+#else
+	dahdi_hdlc_finish(dchan);
+#endif
+}
+
+#ifdef	CONFIG_DAHDI_BRI_DCHANS
 static int rx_dchan(xpd_t *xpd, reg_cmd_t *regcmd)
 {
 	xbus_t			*xbus;
@@ -493,14 +593,8 @@ static int rx_dchan(xpd_t *xpd, reg_cmd_t *regcmd)
 		ret = -EPROTO;
 		goto drop;
 	}
-	if(dchan_buf[idx-1]) {
-		XPD_NOTICE(xpd, "D-Chan RX Bad checksum: [%02X:%02X=%02X] (%d)\n",
-				dchan_buf[idx-3], dchan_buf[idx-2], dchan_buf[idx-1], dchan_buf[idx-1]);
-		dump_hex_buf(xpd, "D-Chan RX:    current packet", src, len);
-		dump_hex_buf(xpd, "D-Chan RX:    chan_buf", dchan_buf, idx);
-		ret = -EPROTO;
+	if((ret = bri_check_stat(xpd, dchan, dchan_buf, idx)) < 0)
 		goto drop;
-	}
 	if(debug)
 		dump_dchan_packet(xpd, 0, dchan_buf, idx /* - 3 */);	/* Print checksum? */
 	/* 
@@ -517,10 +611,105 @@ drop:
 out:
 	return ret;
 }
+#else
+static int rx_dchan(xpd_t *xpd, reg_cmd_t *regcmd)
+{
+	xbus_t			*xbus;
+	struct BRI_priv_data	*priv;
+	byte			*src;
+	struct dahdi_chan	*dchan;
+	uint			len;
+	bool			eoframe;
+	int			ret = 0;
+
+	src = REG_XDATA(regcmd);
+	len = regcmd->bytes;
+	eoframe = regcmd->eoframe;
+	if(len <= 0)
+		return 0;
+	if(!SPAN_REGISTERED(xpd)) /* Nowhere to copy data */
+		return 0;
+	BUG_ON(!xpd);
+	priv = xpd->priv;
+	BUG_ON(!priv);
+	xbus = xpd->xbus;
+#ifdef XPP_DEBUGFS
+	xbus_log(xbus, xpd, 0, regcmd, sizeof(reg_cmd_t));		/* 0 = RX */
+#endif
+	dchan = XPD_CHAN(xpd, 2);
+	if(!IS_OFFHOOK(xpd, 2)) {	/* D-chan is used? */
+		static int rate_limit;
+
+		if((rate_limit++ % 1000) == 0)
+			XPD_DBG(SIGNAL, xpd, "D-Chan unused\n");
+#ifdef	CONFIG_DAHDI_BRI_DCHANS
+		dchan->bytes2receive = 0;
+		dchan->bytes2transmit = 0;
+#endif
+		goto out;
+	}
+	XPD_DBG(GENERAL, xpd, "D-Chan RX: eoframe=%d len=%d\n", eoframe, len);
+	ret = bri_hdlc_putbuf(xpd, dchan, src, (eoframe) ? len - 1 : len);
+	if(ret < 0)
+		goto out;
+	if(!eoframe)
+		goto out;
+	if((ret = bri_check_stat(xpd, dchan, src, len)) < 0)
+		goto out;
+	/* 
+	 * Tell Dahdi that we received len-1 bytes. They include the data and a 2-byte checksum.
+	 * The last byte (that we don't pass on) is 0 if the checksum is correct. If it were wrong,
+	 * we would drop the packet in the "if(src[len-1])" above.
+	 */
+	bri_hdlc_finish(xpd, dchan);
+	priv->dchan_rx_counter++;
+	priv->dchan_norx_ticks = 0;
+out:
+	return ret;
+}
+#endif
 
 /*
  * D-Chan transmit
  */
+#ifndef	CONFIG_DAHDI_BRI_DCHANS
+/* DAHDI calls this when it has data it wants to send to the HDLC controller */
+static void bri_hdlc_hard_xmit(struct dahdi_chan *chan)
+{
+	xpd_t			*xpd = chan->pvt;
+	struct dahdi_chan	*dchan;
+	struct BRI_priv_data	*priv;
+
+	priv = xpd->priv;
+	BUG_ON(!priv);
+	dchan = XPD_CHAN(xpd, 2);
+	if (dchan == chan) {
+		atomic_inc(&priv->hdlc_pending);
+	}
+}
+#endif
+
+int bri_hdlc_getbuf(struct dahdi_chan *dchan, unsigned char *buf, unsigned int *size)
+{
+	int			len = *size;
+	int			eoframe;
+
+#ifdef	CONFIG_DAHDI_BRI_DCHANS
+	len = dchan->bytes2transmit;	/* dchan's hdlc package len */
+	if(len > *size)
+		len = *size;		/* Silent truncation */
+	eoframe = dchan->eoftx;		/* dchan's end of frame */
+	dchan->bytes2transmit = 0;
+	dchan->eoftx = 0;
+	dchan->bytes2receive = 0;
+	dchan->eofrx = 0;
+#else
+	eoframe = dahdi_hdlc_getbuf(dchan, buf, &len);
+#endif
+	*size = len;
+	return eoframe;
+}
+
 static int tx_dchan(xpd_t *xpd)
 {
 	struct BRI_priv_data	*priv;
@@ -531,19 +720,22 @@ static int tx_dchan(xpd_t *xpd)
 
 	priv = xpd->priv;
 	BUG_ON(!priv);
+#ifndef	CONFIG_DAHDI_BRI_DCHANS
+	if(atomic_read(&priv->hdlc_pending) == 0)
+		return 0;
+#endif
 	if(!SPAN_REGISTERED(xpd) || !(xpd->span.flags & DAHDI_FLAG_RUNNING))
 		return 0;
 	dchan = XPD_CHAN(xpd, 2);
-	len = dchan->bytes2transmit;	/* dchan's hdlc package len */
-	eoframe = dchan->eoftx;		/* dchan's end of frame */
-	dchan->bytes2transmit = 0;
-	dchan->eoftx = 0;
-	dchan->bytes2receive = 0;
-	dchan->eofrx = 0;
+	len = ARRAY_SIZE(priv->dchan_tbuf);
+	if(len > MULTIBYTE_MAX_LEN)
+		len = MULTIBYTE_MAX_LEN;
+	eoframe = bri_hdlc_getbuf(dchan, priv->dchan_tbuf, &len);
 	if(len <= 0)
 		return 0; /* Nothing to transmit on D channel */
 	if(len > MULTIBYTE_MAX_LEN) {
 		XPD_ERR(xpd, "%s: len=%d. need to split. Unimplemented.\n", __FUNCTION__, len);
+		dump_hex_buf(xpd, "D-Chan TX:", priv->dchan_tbuf, len);
 		return -EINVAL;
 	}
 	if(!test_bit(HFC_L1_ACTIVATED, &priv->l1_flags) && !test_bit(HFC_L1_ACTIVATING, &priv->l1_flags)) {
@@ -552,7 +744,6 @@ static int tx_dchan(xpd_t *xpd)
 			te_activation(xpd, 1);
 		else
 			nt_activation(xpd, 1);
-		return 0;
 	}
 	if(debug)
 		dump_dchan_packet(xpd, 1, priv->dchan_tbuf, len);
@@ -565,8 +756,12 @@ static int tx_dchan(xpd_t *xpd)
 			eoframe, priv->dchan_tbuf, len);
 	if(ret < 0)
 		XPD_NOTICE(xpd, "%s: failed sending xframe\n", __FUNCTION__);
-	if(eoframe)
+	if(eoframe) {
+#ifndef	CONFIG_DAHDI_BRI_DCHANS
+		atomic_dec(&priv->hdlc_pending);
+#endif
 		priv->dchan_tx_counter++;
+	}
 	priv->dchan_notx_ticks = 0;
 	return ret;
 }
@@ -690,26 +885,33 @@ static int BRI_card_dahdi_preregistration(xpd_t *xpd, bool on)
 		cur_chan->pvt = xpd;
 		if(i == 2) {	/* D-CHAN */
 			cur_chan->sigcap = BRI_DCHAN_SIGCAP;
-			set_bit(DAHDI_FLAGBIT_BRIDCHAN, &cur_chan->flags);
 			clear_bit(DAHDI_FLAGBIT_HDLC, &cur_chan->flags);
-
+			priv->txframe_begin = 1;
+#ifdef	CONFIG_DAHDI_BRI_DCHANS
+			priv->dchan_r_idx = 0;
+			set_bit(DAHDI_FLAGBIT_BRIDCHAN, &cur_chan->flags);
 			/* Setup big buffers for D-Channel rx/tx */
 			cur_chan->readchunk = priv->dchan_rbuf;
 			cur_chan->writechunk = priv->dchan_tbuf;
-			priv->dchan_r_idx = 0;
-			priv->txframe_begin = 1;
 
 			cur_chan->maxbytes2transmit = MULTIBYTE_MAX_LEN;
 			cur_chan->bytes2transmit = 0;
 			cur_chan->bytes2receive = 0;
-		} else
+#else
+			atomic_set(&priv->hdlc_pending, 0);
+#endif
+		} else {
 			cur_chan->sigcap = BRI_BCHAN_SIGCAP;
+		}
 	}
 	CALL_XMETHOD(card_pcm_recompute, xbus, xpd, 0);
 	xpd->span.spanconfig = bri_spanconfig;
 	xpd->span.chanconfig = bri_chanconfig;
 	xpd->span.startup = bri_startup;
 	xpd->span.shutdown = bri_shutdown;
+#ifndef	CONFIG_DAHDI_BRI_DCHANS
+	xpd->span.hdlc_hard_xmit = bri_hdlc_hard_xmit;
+#endif
 	return 0;
 }
 
@@ -937,13 +1139,15 @@ static int BRI_card_open(xpd_t *xpd, lineno_t pos)
 
 static int BRI_card_close(xpd_t *xpd, lineno_t pos)
 {
+	/* Clear D-Channel pending data */
+#ifdef	CONFIG_DAHDI_BRI_DCHANS
 	struct dahdi_chan	*chan = XPD_CHAN(xpd, pos);
 
-	/* Clear D-Channel pending data */
 	chan->bytes2receive = 0;
 	chan->eofrx = 0;
 	chan->bytes2transmit = 0;
 	chan->eoftx = 0;
+#endif
 	if(pos == 2) {
 		LINE_DBG(SIGNAL, xpd, pos, "ONHOOK the whole span\n");
 		BIT_CLR(xpd->offhook_state, 0);
@@ -1038,7 +1242,9 @@ static int bri_startup(struct dahdi_span *span)
 		 *
 		 * Don't Get Mad, Get Even:  Now we override dahdi :-)
 		 */
+#ifdef	CONFIG_DAHDI_BRI_DCHANS
 		set_bit(DAHDI_FLAGBIT_BRIDCHAN, &dchan->flags);
+#endif
 		clear_bit(DAHDI_FLAGBIT_HDLC, &dchan->flags);
 	}
 	return 0;
@@ -1526,6 +1732,9 @@ static int proc_bri_info_read(char *page, char **start, off_t off, int count, in
 	} else {
 		len += sprintf(page + len, "(dead)\n");
 	}
+#ifndef	CONFIG_DAHDI_BRI_DCHANS
+	len += sprintf(page + len, "hdlc_pending=%d\n", atomic_read(&priv->hdlc_pending));
+#endif
 	len += sprintf(page + len, "dchan_notx_ticks: %d\n", priv->dchan_notx_ticks);
 	len += sprintf(page + len, "dchan_norx_ticks: %d\n", priv->dchan_norx_ticks);
 	len += sprintf(page + len, "LED: %-10s = %d\n", "GREEN", priv->ledstate[GREEN_LED]);
@@ -1587,6 +1796,14 @@ static int __init card_bri_startup(void)
 	if((ret = xpd_driver_register(&bri_driver.driver)) < 0)
 		return ret;
 	INFO("revision %s\n", XPP_VERSION);
+#if	defined(CONFIG_DAHDI_BRI_DCHANS)
+	INFO("FEATURE: WITH BRISTUFF\n");
+#elif	defined(DAHDI_SIG_HARDHDLC)
+	INFO("FEATURE: WITH HARDHDLC\n");
+#else
+#error Cannot build BRI without BRISTUFF or HARDHDLC supprt
+#endif
+
 	xproto_register(&PROTO_TABLE(BRI));
 	return 0;
 }
