@@ -664,8 +664,10 @@ wctc4xxp_poll(struct napi_struct *napi, int budget)
 	if (!skb_queue_len(&wc->captured_packets)) {
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 29)
 		netif_rx_complete(wc->netdev, &wc->napi);
-#else
+#elif LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 30)
 		netif_rx_complete(&wc->napi);
+#else
+		napi_complete(&wc->napi);
 #endif
 	}
 	return count;
@@ -846,8 +848,10 @@ wctc4xxp_net_capture_cmd(struct wcdte *wc, const struct tcb *cmd)
 	netif_rx_schedule(netdev);
 #	elif LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 29)
 	netif_rx_schedule(netdev, &wc->napi);
-#	else
+#	elif LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 30)
 	netif_rx_schedule(&wc->napi);
+#	else
+	napi_schedule(&wc->napi);
 #	endif
 	return;
 }
