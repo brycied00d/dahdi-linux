@@ -222,7 +222,7 @@ struct voicebus {
 #define RX_UNDERRUN			2
 #define IN_DEFERRED_PROCESSING		3
 #define STOP				4
-#define STOPPED				8
+#define STOPPED				5
 
 #if VOICEBUS_DEFERRED == WORKQUEUE
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 18)
@@ -504,24 +504,6 @@ __vb_sdi_sendbits(struct voicebus *vb, u32 bits, int count)
 		__vb_sdi_clk(vb);
 	}
 }
-
-#if 0  /* this function might be useful in the future for debugging. */
-static unsigned int
-__vb_sdi_recvbits(struct voicebus *vb, int count)
-{
-	unsigned int bits = 0;
-	vb->sdi |= CSR9_MMC;
-	__vb_setctl(vb, 0x0048, vb->sdi);
-	while (count--) {
-		bits <<= 1;
-		if (__vb_sdi_clk(vb))
-			bits |= 1;
-		else
-			bits &= ~1;
-	}
-	return bits;
-}
-#endif
 
 static void
 vb_setsdi(struct voicebus *vb, int addr, u16 val)
@@ -1132,26 +1114,10 @@ vb_deferred(struct voicebus *vb)
 #ifdef DBG
 	static int count;
 #endif
-#if 0
-	int stopping = test_bit(STOP, &vb->flags);
-#endif
 	int underrun = test_bit(TX_UNDERRUN, &vb->flags);
 
 
 	start_vb_deferred(vb);
-#if 0
-	if (unlikely(stopping)) {
-
-		while ((vbb = vb_get_completed_txb(vb)))
-			voicebus_free(vb, vbb);
-
-		while ((vbb = vb_get_completed_rxb(vb)))
-			voicebus_free(vb, vbb);
-
-		stop_vb_deferred(vb);
-		return;
-	}
-#endif
 	if (unlikely(underrun)) {
 		/* When we've underrun our FIFO, for some reason we're not
 		 * able to keep enough transmit descriptors pending.  This can
