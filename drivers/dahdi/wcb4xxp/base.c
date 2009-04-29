@@ -114,6 +114,20 @@ struct devtype {
 
 static struct devtype wcb4xxp = { "Wildcard B410P", 0 };
 
+static int echocan_create(struct dahdi_chan *chan, struct dahdi_echocanparams *ecp,
+			   struct dahdi_echocanparam *p, struct dahdi_echocan_state **ec);
+static void echocan_free(struct dahdi_chan *chan, struct dahdi_echocan_state *ec);
+
+static const struct dahdi_echocan_features my_ec_features = {
+	.NLP_automatic = 1,
+	.CED_tx_detect = 1,
+	.CED_rx_detect = 1,
+};
+
+static const struct dahdi_echocan_ops my_ec_ops = {
+	.name = "HWEC",
+	.echocan_free = echocan_free,
+};
 
 #if 0
 static const char *wcb4xxp_rcsdata = "$RCSfile: base.c,v $ $Revision$";
@@ -1884,33 +1898,50 @@ static void b4xxp_update_leds(struct b4xxp *b4)
 	}
 }
 
-static int b4xxp_echocan(struct dahdi_chan *chan, int eclen)
+static int echocan_create(struct dahdi_chan *chan, struct dahdi_echocanparams *ecp,
+			  struct dahdi_echocanparam *p, struct dahdi_echocan_state **ec)
 {
-	struct b4xxp *b4 = chan->pvt;
+	struct b4xxp_span *bspan = chan->span->pvt;
 	int channel;
-	int unit; 
-	
-	if (chan->chanpos != 3) 
-		unit = chan->chanpos - 1;
-	else
-		return 0;
-	
+
+	if (chan->chanpos == 3) {
+		printk(KERN_WARNING "Cannot enable echo canceller on D channel of span %d; failing request\n", chan->span->offset);
+		return -EINVAL;
+	}
+
+	if (ecp->param_count > 0) {
+		printk(KERN_WARNING "wcb4xxp echo canceller does not support parameters; failing request\n");
+		return -EINVAL;
+	}
+
+	*ec = &bspan->ec[chan->chanpos];
+	(*ec)->ops = &my_ec_ops;
+	(*ec)->features = my_ec_features;
+
+	if (DBG_EC)
+		printk("Enabling echo cancellation on chan %d span %d\n", chan->chanpos, chan->span->offset);
+
 	channel = (chan->span->offset * 8) + ((chan->chanpos - 1) * 4) + 1;
 	
-	if (eclen) { /* Enable */
-		if (DBG_EC)
-	        	printk("Enabling echo cancellation on chan %d span %d\n", chan->chanpos, chan->span->offset);
-	        ec_write(b4, unit, channel, 0x7e);
-	} else { /* Disable */
-		if (DBG_EC)
-	        	printk("Disabling echo cancellation on chan %d span %d\n", chan->chanpos, chan->span->offset);
-	        ec_write(b4, unit, channel, 0x01);
-	}
-	
-	return 0;
+	ec_write(bspan->parent, chan->chanpos - 1, channel, 0x7e);
 
+	return 0;
 }
 
+static void echocan_free(struct dahdi_chan *chan, struct dahdi_echocan_state *ec)
+{
+	struct b4xxp_span *bspan = chan->span->pvt;
+	int channel;
+
+	memset(ec, 0, sizeof(*ec));
+
+	if (DBG_EC)
+		printk("Disabling echo cancellation on chan %d span %d\n", chan->chanpos, chan->span->offset);
+
+	channel = (chan->span->offset * 8) + ((chan->chanpos - 1) * 4) + 1;
+
+	ec_write(bspan->parent, chan->chanpos - 1, channel, 0x01);
+}
 
 /*
  * Filesystem and DAHDI interfaces
@@ -2140,7 +2171,7 @@ static void init_spans(struct b4xxp *b4)
 		bspan->span.ioctl = b4xxp_ioctl;
 		bspan->span.hdlc_hard_xmit = b4xxp_hdlc_hard_xmit;
 		if (vpmsupport)
-			bspan->span.echocan = b4xxp_echocan;
+			bspan->span.echocan_create = echocan_create;
 
 /* HDLC stuff */
 		bspan->sigchan = NULL;

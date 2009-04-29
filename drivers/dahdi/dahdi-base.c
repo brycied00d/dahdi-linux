@@ -47,21 +47,11 @@
 #include <linux/moduleparam.h>
 #include <linux/list.h>
 
+#include <linux/ppp_defs.h>
+
 #include <asm/atomic.h>
 
 #define module_printk(level, fmt, args...) printk(level "%s: " fmt, THIS_MODULE->name, ## args)
-
-#ifndef CONFIG_OLD_HDLC_API
-#define NEW_HDLC_INTERFACE
-#endif
-
-#define __ECHO_STATE_MUTE			(1 << 8)
-#define ECHO_STATE_IDLE				(0)
-#define ECHO_STATE_PRETRAINING		(1 | (__ECHO_STATE_MUTE))
-#define ECHO_STATE_STARTTRAINING	(2 | (__ECHO_STATE_MUTE))
-#define ECHO_STATE_AWAITINGECHO		(3 | (__ECHO_STATE_MUTE))
-#define ECHO_STATE_TRAINING			(4 | (__ECHO_STATE_MUTE))
-#define ECHO_STATE_ACTIVE			(5)
 
 /* #define BUF_MUNGE */
 
@@ -71,16 +61,18 @@
 #include <dahdi/kernel.h>
 #include "ecdis.h"
 
-#ifdef CONFIG_DAHDI_NET
-#include <linux/netdevice.h>
-#endif /* CONFIG_DAHDI_NET */
-
-#include <linux/ppp_defs.h>
+#ifndef CONFIG_OLD_HDLC_API
+#define NEW_HDLC_INTERFACE
+#endif
 
 #ifdef CONFIG_DAHDI_PPP
 #include <linux/netdevice.h>
 #include <linux/if.h>
 #include <linux/if_ppp.h>
+#endif
+
+#ifdef CONFIG_DAHDI_NET
+#include <linux/netdevice.h>
 #endif
 
 #include "hpec/hpec_user.h"
@@ -143,8 +135,8 @@ EXPORT_SYMBOL(dahdi_alarm_channel);
 EXPORT_SYMBOL(dahdi_register_chardev);
 EXPORT_SYMBOL(dahdi_unregister_chardev);
 
-EXPORT_SYMBOL(dahdi_register_echocan);
-EXPORT_SYMBOL(dahdi_unregister_echocan);
+EXPORT_SYMBOL(dahdi_register_echocan_factory);
+EXPORT_SYMBOL(dahdi_unregister_echocan_factory);
 
 EXPORT_SYMBOL(dahdi_set_hpec_ioctl);
 
@@ -378,62 +370,62 @@ static struct dahdi_zone *tone_zones[DAHDI_TONE_ZONE_MAX];
 #define NUM_SIGS	10
 
 #ifdef DEFINE_RWLOCK
-static DEFINE_RWLOCK(echocan_list_lock);
+static DEFINE_RWLOCK(ecfactory_list_lock);
 #else
-static rwlock_t echocan_list_lock = RW_LOCK_UNLOCKED;
+static rwlock_t ecfactory_list_lock = __RW_LOCK_UNLOCKED();
 #endif
 
-static LIST_HEAD(echocan_list);
+static LIST_HEAD(ecfactory_list);
 
-struct echocan {
-	const struct dahdi_echocan *ec;
+struct ecfactory {
+	const struct dahdi_echocan_factory *ec;
 	struct module *owner;
 	struct list_head list;
 };
 
-int dahdi_register_echocan(const struct dahdi_echocan *ec)
+int dahdi_register_echocan_factory(const struct dahdi_echocan_factory *ec)
 {
-	struct echocan *cur;
+	struct ecfactory *cur;
 
-	write_lock(&echocan_list_lock);
+	write_lock(&ecfactory_list_lock);
 
 	/* make sure it isn't already registered */
-	list_for_each_entry(cur, &echocan_list, list) {
+	list_for_each_entry(cur, &ecfactory_list, list) {
 		if (cur->ec == ec) {
-			write_unlock(&echocan_list_lock);
+			write_unlock(&ecfactory_list_lock);
 			return -EPERM;
 		}
 	}
 
 	if (!(cur = kzalloc(sizeof(*cur), GFP_KERNEL))) {
-		write_unlock(&echocan_list_lock);
+		write_unlock(&ecfactory_list_lock);
 		return -ENOMEM;
 	}
 
 	cur->ec = ec;
 	INIT_LIST_HEAD(&cur->list);
 
-	list_add_tail(&cur->list, &echocan_list);
+	list_add_tail(&cur->list, &ecfactory_list);
 
-	write_unlock(&echocan_list_lock);
+	write_unlock(&ecfactory_list_lock);
 
 	return 0;
 }
 
-void dahdi_unregister_echocan(const struct dahdi_echocan *ec)
+void dahdi_unregister_echocan_factory(const struct dahdi_echocan_factory *ec)
 {
-	struct echocan *cur, *next;
+	struct ecfactory *cur, *next;
 
-	write_lock(&echocan_list_lock);
+	write_lock(&ecfactory_list_lock);
 
-	list_for_each_entry_safe(cur, next, &echocan_list, list) {
+	list_for_each_entry_safe(cur, next, &ecfactory_list, list) {
 		if (cur->ec == ec) {
 			list_del(&cur->list);
 			break;
 		}
 	}
 
-	write_unlock(&echocan_list_lock);
+	write_unlock(&ecfactory_list_lock);
 }
 
 static inline void rotate_sums(void)
@@ -663,8 +655,12 @@ static int dahdi_proc_read(char *page, char **start, off_t off, int count, int *
 				chan->chan_alarms);
 
 		if (chan->ec_factory)
-			len += snprintf(page+len, count-len, " (EC: %s) ",
+			len += snprintf(page+len, count-len, "(SWEC: %s) ",
 					chan->ec_factory->name);
+
+		if (chan->ec_state)
+			len += snprintf(page+len, count-len, "(EC: %s) ",
+					chan->ec_state->ops->name);
 
 		len += snprintf(page+len, count-len, "\n");
 
@@ -1080,28 +1076,9 @@ static void reset_conf(struct dahdi_chan *chan)
 }
 
 
-static inline int hw_echocancel_off(struct dahdi_chan *chan)
+static const struct dahdi_echocan_factory *find_echocan(const char *name)
 {
-	int ret = 0;
-
-	if (!chan->span)
-		return -ENODEV;
-
-	if (chan->span->echocan) {
-		ret = chan->span->echocan(chan, 0);
-	} else if (chan->span->echocan_with_params) {
-		struct dahdi_echocanparams ecp = {
-			.tap_length = 0,
-		};
-		ret = chan->span->echocan_with_params(chan, &ecp, NULL);
-	}
-
-	return ret;
-}
-
-static const struct dahdi_echocan *find_echocan(const char *name)
-{
-	struct echocan *cur;
+	struct ecfactory *cur;
 	char name_upper[strlen(name) + 1];
 	char *c;
 	const char *d;
@@ -1115,26 +1092,26 @@ static const struct dahdi_echocan *find_echocan(const char *name)
 	*c = '\0';
 
 retry:
-	read_lock(&echocan_list_lock);
+	read_lock(&ecfactory_list_lock);
 
-	list_for_each_entry(cur, &echocan_list, list) {
+	list_for_each_entry(cur, &ecfactory_list, list) {
 		if (!strcmp(name_upper, cur->ec->name)) {
 #ifdef USE_ECHOCAN_REFCOUNT
 			if (try_module_get(cur->owner)) {
-				read_unlock(&echocan_list_lock);
+				read_unlock(&ecfactory_list_lock);
 				return cur->ec;
 			} else {
-				read_unlock(&echocan_list_lock);
+				read_unlock(&ecfactory_list_lock);
 				return NULL;
 			}
 #else
-			read_unlock(&echocan_list_lock);
+			read_unlock(&ecfactory_list_lock);
 			return cur->ec;
 #endif
 		}
 	}
 
-	read_unlock(&echocan_list_lock);
+	read_unlock(&ecfactory_list_lock);
 
 	if (tried_once) {
 		return NULL;
@@ -1154,10 +1131,11 @@ retry:
 	goto retry;
 }
 
-static void release_echocan(const struct dahdi_echocan *ec)
+static void release_echocan(const struct dahdi_echocan_factory *ec)
 {
 #ifdef USE_ECHOCAN_REFCOUNT
-	module_put(ec->owner);
+	if (ec)
+		module_put(ec->owner);
 #endif
 }
 
@@ -1173,8 +1151,8 @@ static void close_channel(struct dahdi_chan *chan)
 {
 	unsigned long flags;
 	void *rxgain = NULL;
-	struct echo_can_state *ec_state;
-	const struct dahdi_echocan *ec_current;
+	struct dahdi_echocan_state *ec_state;
+	const struct dahdi_echocan_factory *ec_current;
 	int oldconf;
 	short *readchunkpreec;
 #ifdef CONFIG_DAHDI_PPP
@@ -1252,13 +1230,11 @@ static void close_channel(struct dahdi_chan *chan)
 		chan->span->dacs(chan, NULL);
 
 	if (ec_state) {
-		ec_current->echo_can_free(ec_state);
+		ec_state->ops->echocan_free(chan, ec_state);
 		release_echocan(ec_current);
 	}
 
 	spin_unlock_irqrestore(&chan->lock, flags);
-
-	hw_echocancel_off(chan);
 
 	if (rxgain)
 		kfree(rxgain);
@@ -2449,8 +2425,8 @@ static int initialize_channel(struct dahdi_chan *chan)
 	int res;
 	unsigned long flags;
 	void *rxgain=NULL;
-	struct echo_can_state *ec_state;
-	const struct dahdi_echocan *ec_current;
+	struct dahdi_echocan_state *ec_state;
+	const struct dahdi_echocan_factory *ec_current;
 
 	if ((res = dahdi_reallocbufs(chan, DAHDI_DEFAULT_BLOCKSIZE, DAHDI_DEFAULT_NUM_BUFS)))
 		return res;
@@ -2464,10 +2440,6 @@ static int initialize_channel(struct dahdi_chan *chan)
 	chan->ec_state = NULL;
 	ec_current = chan->ec_current;
 	chan->ec_current = NULL;
-	chan->echocancel = 0;
-	chan->echostate = ECHO_STATE_IDLE;
-	chan->echolastupdate = 0;
-	chan->echotimer = 0;
 
 	chan->txdisable = 0;
 	chan->rxdisable = 0;
@@ -2562,15 +2534,13 @@ static int initialize_channel(struct dahdi_chan *chan)
 	}
 
 	if (ec_state) {
-		ec_current->echo_can_free(ec_state);
+		ec_state->ops->echocan_free(chan, ec_state);
 		release_echocan(ec_current);
 	}
 
 	spin_unlock_irqrestore(&chan->lock, flags);
 
 	set_tone_zone(chan, -1);
-
-	hw_echocancel_off(chan);
 
 	if (rxgain)
 		kfree(rxgain);
@@ -3437,7 +3407,6 @@ static int dahdi_common_ioctl(struct inode *node, struct file *file, unsigned in
 	struct dahdi_chan *chan;
 	unsigned long flags;
 	unsigned char *txgain, *rxgain;
-	struct dahdi_chan *mychan;
 	int i,j;
 	int return_master = 0;
 	size_t size_to_copy;
@@ -3678,7 +3647,14 @@ static int dahdi_common_ioctl(struct inode *node, struct file *file, unsigned in
 		break;
 	case DAHDI_CHANDIAG_V1: /* Intentional drop through. */
 	case DAHDI_CHANDIAG:
-		get_user(j, (int *)data); /* get channel number from user */
+	{
+		/* there really is no need to initialize this structure because when it is used it has
+		 * already been completely overwritten, but apparently the compiler cannot figure that
+		 * out and warns about uninitialized usage... so initialize it.
+		 */
+		struct dahdi_echocan_state ec_state = { .ops = NULL, };
+
+		get_user(j, (int *) data); /* get channel number from user */
 		/* make sure its a valid channel number */
 		if ((j < 1) || (j >= maxchans))
 			return -EINVAL;
@@ -3686,54 +3662,52 @@ static int dahdi_common_ioctl(struct inode *node, struct file *file, unsigned in
 		if (!chans[j])
 			return -EINVAL;
 
-		if (!(mychan = kmalloc(sizeof(*mychan), GFP_KERNEL)))
+		chan = kmalloc(sizeof(*chan), GFP_KERNEL);
+		if (!chan)
 			return -ENOMEM;
 
 		/* lock channel */
 		spin_lock_irqsave(&chans[j]->lock, flags);
 		/* make static copy of channel */
-		memcpy(mychan, chans[j], sizeof(*mychan));
+		*chan = *chans[j];
+		if (chan->ec_state) {
+			ec_state = *chan->ec_state;
+		}
 		/* release it. */
 		spin_unlock_irqrestore(&chans[j]->lock, flags);
 
 		module_printk(KERN_INFO, "Dump of DAHDI Channel %d (%s,%d,%d):\n\n",j,
-			mychan->name,mychan->channo,mychan->chanpos);
-		module_printk(KERN_INFO, "flags: %x hex, writechunk: %08lx, readchunk: %08lx\n",
-			(unsigned int) mychan->flags, (long) mychan->writechunk, (long) mychan->readchunk);
-		module_printk(KERN_INFO, "rxgain: %08lx, txgain: %08lx, gainalloc: %d\n",
-			(long) mychan->rxgain, (long)mychan->txgain, mychan->gainalloc);
-		module_printk(KERN_INFO, "span: %08lx, sig: %x hex, sigcap: %x hex\n",
-			(long)mychan->span, mychan->sig, mychan->sigcap);
+			      chan->name, chan->channo, chan->chanpos);
+		module_printk(KERN_INFO, "flags: %x hex, writechunk: %p, readchunk: %p\n",
+			      (unsigned int) chan->flags, chan->writechunk, chan->readchunk);
+		module_printk(KERN_INFO, "rxgain: %p, txgain: %p, gainalloc: %d\n",
+			      chan->rxgain, chan->txgain, chan->gainalloc);
+		module_printk(KERN_INFO, "span: %p, sig: %x hex, sigcap: %x hex\n",
+			      chan->span, chan->sig, chan->sigcap);
 		module_printk(KERN_INFO, "inreadbuf: %d, outreadbuf: %d, inwritebuf: %d, outwritebuf: %d\n",
-			mychan->inreadbuf, mychan->outreadbuf, mychan->inwritebuf, mychan->outwritebuf);
+			      chan->inreadbuf, chan->outreadbuf, chan->inwritebuf, chan->outwritebuf);
 		module_printk(KERN_INFO, "blocksize: %d, numbufs: %d, txbufpolicy: %d, txbufpolicy: %d\n",
-			mychan->blocksize, mychan->numbufs, mychan->txbufpolicy, mychan->rxbufpolicy);
+			      chan->blocksize, chan->numbufs, chan->txbufpolicy, chan->rxbufpolicy);
 		module_printk(KERN_INFO, "txdisable: %d, rxdisable: %d, iomask: %d\n",
-			mychan->txdisable, mychan->rxdisable, mychan->iomask);
-		module_printk(KERN_INFO, "curzone: %08lx, tonezone: %d, curtone: %08lx, tonep: %d\n",
-			(long) mychan->curzone, mychan->tonezone, (long) mychan->curtone, mychan->tonep);
+			      chan->txdisable, chan->rxdisable, chan->iomask);
+		module_printk(KERN_INFO, "curzone: %p, tonezone: %d, curtone: %p, tonep: %d\n",
+			      chan->curzone, chan->tonezone, chan->curtone, chan->tonep);
 		module_printk(KERN_INFO, "digitmode: %d, txdialbuf: %s, dialing: %d, aftdialtimer: %d, cadpos. %d\n",
-			mychan->digitmode, mychan->txdialbuf, mychan->dialing,
-				mychan->afterdialingtimer, mychan->cadencepos);
+			      chan->digitmode, chan->txdialbuf, chan->dialing,
+			      chan->afterdialingtimer, chan->cadencepos);
 		module_printk(KERN_INFO, "confna: %d, confn: %d, confmode: %d, confmute: %d\n",
-			mychan->confna, mychan->_confn, mychan->confmode, mychan->confmute);
-		module_printk(KERN_INFO, "ec: %08lx, echocancel: %d, deflaw: %d, xlaw: %08lx\n",
-			(long) mychan->ec_state, mychan->echocancel, mychan->deflaw, (long) mychan->xlaw);
-		module_printk(KERN_INFO, "echostate: %02x, echotimer: %d, echolastupdate: %d\n",
-			(int) mychan->echostate, mychan->echotimer, mychan->echolastupdate);
-		module_printk(KERN_INFO, "itimer: %d, otimer: %d, ringdebtimer: %d\n\n",
-			mychan->itimer, mychan->otimer, mychan->ringdebtimer);
-#if 0
-		if (mychan->ec_state) {
-			int x;
-			/* Dump the echo canceller parameters */
-			for (x=0;x<mychan->ec_state->taps;x++) {
-				module_printk(KERN_INFO, "tap %d: %d\n", x, mychan->ec_state->fir_taps[x]);
-			}
+			      chan->confna, chan->_confn, chan->confmode, chan->confmute);
+		module_printk(KERN_INFO, "ec: %p, deflaw: %d, xlaw: %p\n",
+			      chan->ec_state, chan->deflaw, chan->xlaw);
+		if (chan->ec_state) {
+			module_printk(KERN_INFO, "echostate: %02x, echotimer: %d, echolastupdate: %d\n",
+				      ec_state.status.mode, ec_state.status.pretrain_timer, ec_state.status.last_train_tap);
 		}
-#endif
-		kfree(mychan);
+		module_printk(KERN_INFO, "itimer: %d, otimer: %d, ringdebtimer: %d\n\n",
+			      chan->itimer, chan->otimer, chan->ringdebtimer);
+		kfree(chan);
 		break;
+	}
 	default:
 		return -ENOTTY;
 	}
@@ -3851,7 +3825,7 @@ static int dahdi_ctl_ioctl(struct inode *inode, struct file *file, unsigned int 
 	case DAHDI_ATTACH_ECHOCAN:
 	{
 		struct dahdi_attach_echocan ae;
-		const struct dahdi_echocan *new = NULL, *old;
+		const struct dahdi_echocan_factory *new = NULL, *old;
 
 		if (copy_from_user(&ae, (struct dahdi_attach_echocan *) data, sizeof(ae))) {
 			return -EFAULT;
@@ -4172,19 +4146,19 @@ static int dahdi_ctl_ioctl(struct inode *inode, struct file *file, unsigned int 
 	case DAHDI_GETVERSION:
 	{
 		struct dahdi_versioninfo vi;
-		struct echocan *cur;
+		struct ecfactory *cur;
 		size_t space = sizeof(vi.echo_canceller) - 1;
 
 		memset(&vi, 0, sizeof(vi));
 		dahdi_copy_string(vi.version, DAHDI_VERSION, sizeof(vi.version));
-		read_lock(&echocan_list_lock);
-		list_for_each_entry(cur, &echocan_list, list) {
+		read_lock(&ecfactory_list_lock);
+		list_for_each_entry(cur, &ecfactory_list, list) {
 			strncat(vi.echo_canceller + strlen(vi.echo_canceller), cur->ec->name, space);
 			space -= strlen(cur->ec->name);
 			if (space < 1) {
 				break;
 			}
-			if (cur->list.next && (cur->list.next != &echocan_list)) {
+			if (cur->list.next && (cur->list.next != &ecfactory_list)) {
 				strncat(vi.echo_canceller + strlen(vi.echo_canceller), ", ", space);
 				space -= 2;
 				if (space < 1) {
@@ -4192,7 +4166,7 @@ static int dahdi_ctl_ioctl(struct inode *inode, struct file *file, unsigned int 
 				}
 			}
 		}
-		read_unlock(&echocan_list_lock);
+		read_unlock(&ecfactory_list_lock);
 		if (copy_to_user((struct dahdi_versioninfo *) data, &vi, sizeof(vi)))
 			return -EFAULT;
 		break;
@@ -4854,8 +4828,8 @@ static void do_ppp_calls(unsigned long data)
 
 static int ioctl_echocancel(struct dahdi_chan *chan, struct dahdi_echocanparams *ecp, void *data)
 {
-	struct echo_can_state *ec = NULL, *ec_state;
-	const struct dahdi_echocan *ec_current;
+	struct dahdi_echocan_state *ec = NULL, *ec_state;
+	const struct dahdi_echocan_factory *ec_current;
 	struct dahdi_echocanparam *params;
 	int ret;
 	unsigned long flags;
@@ -4870,25 +4844,14 @@ static int ioctl_echocancel(struct dahdi_chan *chan, struct dahdi_echocanparams 
 		chan->ec_state = NULL;
 		ec_current = chan->ec_current;
 		chan->ec_current = NULL;
-		chan->echocancel = 0;
-		chan->echostate = ECHO_STATE_IDLE;
-		chan->echolastupdate = 0;
-		chan->echotimer = 0;
 		spin_unlock_irqrestore(&chan->lock, flags);
 		if (ec_state) {
-			ec_current->echo_can_free(ec_state);
+			ec_state->ops->echocan_free(chan, ec_state);
 			release_echocan(ec_current);
 		}
-		hw_echocancel_off(chan);
 
 		return 0;
 	}
-
-	/* if parameters were supplied and this channel's span provides an echocan,
-	   but not one that takes params, then we must punt here and return an error */
-	if (ecp->param_count && chan->span && chan->span->echocan &&
-	    !chan->span->echocan_with_params)
-		return -EINVAL;
 
 	params = kmalloc(sizeof(params[0]) * DAHDI_MAX_ECHOCANPARAMS, GFP_KERNEL);
 
@@ -4902,6 +4865,7 @@ static int ioctl_echocancel(struct dahdi_chan *chan, struct dahdi_echocanparams 
 		goto exit_with_free;
 	}
 
+	/* free any echocan that may be on the channel already */
 	spin_lock_irqsave(&chan->lock, flags);
 	ec_state = chan->ec_state;
 	chan->ec_state = NULL;
@@ -4909,34 +4873,31 @@ static int ioctl_echocancel(struct dahdi_chan *chan, struct dahdi_echocanparams 
 	chan->ec_current = NULL;
 	spin_unlock_irqrestore(&chan->lock, flags);
 	if (ec_state) {
-		ec_current->echo_can_free(ec_state);
+		ec_state->ops->echocan_free(chan, ec_state);
 		release_echocan(ec_current);
 	}
 
+	switch (ecp->tap_length) {
+	case 32:
+	case 64:
+	case 128:
+	case 256:
+	case 512:
+	case 1024:
+		break;
+	default:
+		ecp->tap_length = deftaps;
+	}
+
 	ret = -ENODEV;
+	ec_current = NULL;
 
 	/* attempt to use the span's echo canceler; fall back to built-in
 	   if it fails (but not if an error occurs) */
-	if (chan->span) {
-		if (chan->span->echocan_with_params)
-			ret = chan->span->echocan_with_params(chan, ecp, params);
-		else if (chan->span->echocan)
-			ret = chan->span->echocan(chan, ecp->tap_length);
-	}
+	if (chan->span && chan->span->echocan_create)
+		ret = chan->span->echocan_create(chan, ecp, params, &ec);
 
 	if ((ret == -ENODEV) && chan->ec_factory) {
-		switch (ecp->tap_length) {
-		case 32:
-		case 64:
-		case 128:
-		case 256:
-		case 512:
-		case 1024:
-			break;
-		default:
-			ecp->tap_length = deftaps;
-		}
-
 #ifdef USE_ECHOCAN_REFCOUNT
 		/* try to get another reference to the module providing
 		   this channel's echo canceler */
@@ -4950,21 +4911,32 @@ static int ioctl_echocancel(struct dahdi_chan *chan, struct dahdi_echocanparams 
 		   an echo canceler instance if possible */
 		ec_current = chan->ec_factory;
 
-		if ((ret = ec_current->echo_can_create(ecp, params, &ec))) {
+		ret = ec_current->echocan_create(chan, ecp, params, &ec);
+		if (ret) {
 			release_echocan(ec_current);
 
 			goto exit_with_free;
 		}
+		if (!ec) {
+			module_printk(KERN_ERR, "%s failed to allocate an " \
+				      "dahdi_echocan_state instance.\n",
+				      ec_current->name);
+			ret = -EFAULT;
+			goto exit_with_free;
+		}
+	}
 
+	if (ec) {
 		spin_lock_irqsave(&chan->lock, flags);
-		chan->echocancel = ecp->tap_length;
 		chan->ec_current = ec_current;
 		chan->ec_state = ec;
-		chan->echostate = ECHO_STATE_IDLE;
-		chan->echolastupdate = 0;
-		chan->echotimer = 0;
-		echo_can_disable_detector_init(&chan->txecdis);
-		echo_can_disable_detector_init(&chan->rxecdis);
+		ec->status.mode = ECHO_MODE_ACTIVE;
+		if (!ec->features.CED_tx_detect) {
+			echo_can_disable_detector_init(&chan->ec_state->txecdis);
+		}
+		if (!ec->features.CED_rx_detect) {
+			echo_can_disable_detector_init(&chan->ec_state->rxecdis);
+		}
 		spin_unlock_irqrestore(&chan->lock, flags);
 	}
 
@@ -4972,6 +4944,56 @@ exit_with_free:
 	kfree(params);
 
 	return ret;
+}
+
+static void set_echocan_fax_mode(struct dahdi_chan *chan, unsigned int channo, const char *reason, unsigned int enable)
+{
+	if (enable) {
+		if (!chan->ec_state)
+			module_printk(KERN_NOTICE, "Ignoring FAX mode request because of %s for channel %d with no echo canceller\n", reason, channo);
+		else if (chan->ec_state->status.mode == ECHO_MODE_FAX)
+			module_printk(KERN_NOTICE, "Ignoring FAX mode request because of %s for echo canceller already in FAX mode on channel %d\n", reason, channo);
+		else if (chan->ec_state->status.mode != ECHO_MODE_ACTIVE)
+			module_printk(KERN_NOTICE, "Ignoring FAX mode request because of %s for echo canceller not in active mode on channel %d\n", reason, channo);
+		else if (chan->ec_state->features.NLP_automatic) {
+			/* for echocans that automatically do the right thing, just
+			 * mark it as being in FAX mode without making any
+			 * changes, as none are necessary.
+			*/
+			chan->ec_state->status.mode = ECHO_MODE_FAX;
+		} else if (chan->ec_state->features.NLP_toggle) {
+			module_printk(KERN_NOTICE, "Disabled echo canceller NLP because of %s on channel %d\n", reason, channo);
+			dahdi_qevent_nolock(chan, DAHDI_EVENT_EC_NLP_DISABLED);
+			chan->ec_state->ops->echocan_NLP_toggle(chan->ec_state, 0);
+			chan->ec_state->status.mode = ECHO_MODE_FAX;
+		} else {
+			module_printk(KERN_NOTICE, "Idled echo canceller because of %s on channel %d\n", reason, channo);
+			chan->ec_state->status.mode = ECHO_MODE_IDLE;
+		}
+	} else {
+		if (!chan->ec_state)
+			module_printk(KERN_NOTICE, "Ignoring voice mode request because of %s for channel %d with no echo canceller\n", reason, channo);
+		else if (chan->ec_state->status.mode == ECHO_MODE_ACTIVE)
+			module_printk(KERN_NOTICE, "Ignoring voice mode request because of %s for echo canceller already in voice mode on channel %d\n", reason, channo);
+		else if ((chan->ec_state->status.mode != ECHO_MODE_FAX) &&
+			 (chan->ec_state->status.mode != ECHO_MODE_IDLE))
+			module_printk(KERN_NOTICE, "Ignoring voice mode request because of %s for echo canceller not in FAX or idle mode on channel %d\n", reason, channo);
+		else if (chan->ec_state->features.NLP_automatic) {
+			/* for echocans that automatically do the right thing, just
+			 * mark it as being in active mode without making any
+			 * changes, as none are necessary.
+			*/
+			chan->ec_state->status.mode = ECHO_MODE_ACTIVE;
+		} else if (chan->ec_state->features.NLP_toggle) {
+			module_printk(KERN_NOTICE, "Enabled echo canceller NLP because of %s on channel %d\n", reason, channo);
+			dahdi_qevent_nolock(chan, DAHDI_EVENT_EC_NLP_ENABLED);
+			chan->ec_state->ops->echocan_NLP_toggle(chan->ec_state, 1);
+			chan->ec_state->status.mode = ECHO_MODE_ACTIVE;
+		} else {
+			module_printk(KERN_NOTICE, "Activated echo canceller because of %s on channel %d\n", reason, channo);
+			chan->ec_state->status.mode = ECHO_MODE_ACTIVE;
+		}
+	}
 }
 
 static int dahdi_chan_ioctl(struct inode *inode, struct file *file, unsigned int cmd, unsigned long data, int unit)
@@ -5020,8 +5042,8 @@ static int dahdi_chan_ioctl(struct inode *inode, struct file *file, unsigned int
 			/* Coming out of audio mode, also clear all
 			   conferencing and gain related info as well
 			   as echo canceller */
-			struct echo_can_state *ec_state;
-			const struct dahdi_echocan *ec_current;
+			struct dahdi_echocan_state *ec_state;
+			const struct dahdi_echocan_factory *ec_current;
 
 			spin_lock_irqsave(&chan->lock, flags);
 			chan->flags &= ~DAHDI_FLAG_AUDIO;
@@ -5054,12 +5076,9 @@ static int dahdi_chan_ioctl(struct inode *inode, struct file *file, unsigned int
 			spin_unlock_irqrestore(&chan->lock, flags);
 
 			if (ec_state) {
-				ec_current->echo_can_free(ec_state);
+				ec_state->ops->echocan_free(chan, ec_state);
 				release_echocan(ec_current);
 			}
-
-			/* Disable any native echo cancellation as well */
-			hw_echocancel_off(chan);
 
 			if (rxgain)
 				kfree(rxgain);
@@ -5074,8 +5093,8 @@ static int dahdi_chan_ioctl(struct inode *inode, struct file *file, unsigned int
 			if (!chan->ppp) {
 				chan->ppp = kzalloc(sizeof(struct ppp_channel), GFP_KERNEL);
 				if (chan->ppp) {
-					struct echo_can_state *tec;
-					const struct dahdi_echocan *ec_current;
+					struct dahdi_echocan_state *tec;
+					const struct dahdi_echocan_factory *ec_current;
 
 					chan->ppp->private = chan;
 					chan->ppp->ops = &ztppp_ops;
@@ -5100,10 +5119,6 @@ static int dahdi_chan_ioctl(struct inode *inode, struct file *file, unsigned int
 					chan->ec_state = NULL;
 					ec_current = chan->ec_current;
 					chan->ec_current = NULL;
-					chan->echocancel = 0;
-					chan->echostate = ECHO_STATE_IDLE;
-					chan->echolastupdate = 0;
-					chan->echotimer = 0;
 					/* Make sure there's no gain */
 					if (chan->gainalloc)
 						kfree(chan->rxgain);
@@ -5112,10 +5127,9 @@ static int dahdi_chan_ioctl(struct inode *inode, struct file *file, unsigned int
 					chan->gainalloc = 0;
 					chan->flags &= ~DAHDI_FLAG_AUDIO;
 					chan->flags |= (DAHDI_FLAG_PPP | DAHDI_FLAG_HDLC | DAHDI_FLAG_FCS);
-					hw_echocancel_off(chan);
 
 					if (tec) {
-						ec_current->echo_can_free(tec);
+						tec->ops->echocan_free(chan, tec);
 						release_echocan(ec_current);
 					}
 				} else
@@ -5201,21 +5215,31 @@ static int dahdi_chan_ioctl(struct inode *inode, struct file *file, unsigned int
 		j <<= 3;
 		if (chan->ec_state) {
 			/* Start pretraining stage */
-			chan->echostate = ECHO_STATE_PRETRAINING;
-			chan->echotimer = j;
+			spin_lock_irqsave(&chan->lock, flags);
+			chan->ec_state->status.mode = ECHO_MODE_PRETRAINING;
+			chan->ec_state->status.pretrain_timer = j;
+			spin_unlock_irqrestore(&chan->lock, flags);
 		} else
 			return -EINVAL;
+		break;
+	case DAHDI_ECHOCANCEL_FAX_MODE:
+		if (!chan->ec_state) {
+			return -EINVAL;
+		} else {
+			get_user(j, (int *) data);
+			spin_lock_irqsave(&chan->lock, flags);
+			set_echocan_fax_mode(chan, chan->channo, "ioctl", j ? 1 : 0);
+			spin_unlock_irqrestore(&chan->lock, flags);
+		}
 		break;
 	case DAHDI_SETTXBITS:
 		if (chan->sig != DAHDI_SIG_CAS)
 			return -EINVAL;
 		get_user(j,(int *)data);
 		dahdi_cas_setbits(chan, j);
-		rv = 0;
 		break;
 	case DAHDI_GETRXBITS:
 		put_user(chan->rxsig, (int *)data);
-		rv = 0;
 		break;
 	case DAHDI_LOOPBACK:
 		get_user(j, (int *)data);
@@ -5225,7 +5249,6 @@ static int dahdi_chan_ioctl(struct inode *inode, struct file *file, unsigned int
 		else
 			chan->flags &= ~DAHDI_FLAG_LOOPED;
 		spin_unlock_irqrestore(&chan->lock, flags);
-		rv = 0;
 		break;
 	case DAHDI_HOOK:
 		get_user(j,(int *)data);
@@ -5286,7 +5309,6 @@ static int dahdi_chan_ioctl(struct inode *inode, struct file *file, unsigned int
 				rv = schluffen(&chan->txstateq);
 				if (rv) return rv;
 #endif
-				rv = 0;
 				break;
 			case DAHDI_WINK:
 				spin_lock_irqsave(&chan->lock, flags);
@@ -5464,13 +5486,6 @@ int dahdi_register(struct dahdi_span *span, int prefmaster)
 		module_printk(KERN_NOTICE, "Span %s didn't specify default law.  "
 				"Assuming mulaw, please fix driver!\n", span->name);
 		span->deflaw = DAHDI_LAW_MULAW;
-	}
-
-	if (span->echocan && span->echocan_with_params) {
-		module_printk(KERN_NOTICE, "Span %s implements both echocan "
-				"and echocan_with_params functions, preserving only "
-				"echocan_with_params, please fix driver!\n", span->name);
-		span->echocan = NULL;
 	}
 
 	for (x = 0; x < span->channels; x++) {
@@ -5741,26 +5756,17 @@ static inline void __dahdi_process_getaudio_chunk(struct dahdi_chan *ss, unsigne
 	/* Okay, now we've got something to transmit */
 	for (x=0;x<DAHDI_CHUNKSIZE;x++)
 		getlin[x] = DAHDI_XLAW(txb[x], ms);
-#ifndef NO_ECHOCAN_DISABLE
-	if (ms->ec_state) {
-		for (x=0;x<DAHDI_CHUNKSIZE;x++) {
-			/* Check for echo cancel disabling tone */
-			if (echo_can_disable_detector_update(&ms->txecdis, getlin[x])) {
-				module_printk(KERN_NOTICE, "Disabled echo canceller because of tone (tx) on channel %d\n", ss->channo);
-				ms->echocancel = 0;
-				ms->echostate = ECHO_STATE_IDLE;
-				ms->echolastupdate = 0;
-				ms->echotimer = 0;
-				ms->ec_current->echo_can_free(ms->ec_state);
-				ms->ec_state = NULL;
-				release_echocan(ms->ec_current);
-				ms->ec_current = NULL;
-				__qevent(ss, DAHDI_EVENT_EC_DISABLED);
+
+	if (ms->ec_state && (ms->ec_state->status.mode == ECHO_MODE_ACTIVE) && !ms->ec_state->features.CED_tx_detect) {
+		for (x = 0; x < DAHDI_CHUNKSIZE; x++) {
+			if (echo_can_disable_detector_update(&ms->ec_state->txecdis, getlin[x])) {
+				set_echocan_fax_mode(ms, ss->channo, "CED tx detected", 1);
+				dahdi_qevent_nolock(ms, DAHDI_EVENT_TX_CED_DETECTED);
 				break;
 			}
 		}
 	}
-#endif
+
 	if ((!ms->confmute && !ms->dialing) || (ms->flags & DAHDI_FLAG_PSEUDO)) {
 		/* Handle conferencing on non-clear channel and non-HDLC channels */
 		switch(ms->confmode & DAHDI_CONF_MODE_MASK) {
@@ -5945,13 +5951,13 @@ static inline void __dahdi_process_getaudio_chunk(struct dahdi_chan *ss, unsigne
 			break;
 		}
 	}
-	if (ms->confmute || (ms->echostate & __ECHO_STATE_MUTE)) {
+	if (ms->confmute || (ms->ec_state && (ms->ec_state->status.mode) & __ECHO_MODE_MUTE)) {
 		txb[0] = DAHDI_LIN2X(0, ms);
 		memset(txb + 1, txb[0], DAHDI_CHUNKSIZE - 1);
-		if (ms->echostate == ECHO_STATE_STARTTRAINING) {
+		if (ms->ec_state && (ms->ec_state->status.mode == ECHO_MODE_STARTTRAINING)) {
 			/* Transmit impulse now */
 			txb[0] = DAHDI_LIN2X(16384, ms);
-			ms->echostate = ECHO_STATE_AWAITINGECHO;
+			ms->ec_state->status.mode = ECHO_MODE_AWAITINGECHO;
 		}
 	}
 	/* save value from last chunk */
@@ -6545,6 +6551,47 @@ void dahdi_rbsbits(struct dahdi_chan *chan, int cursig)
 	spin_unlock_irqrestore(&chan->lock, flags);
 }
 
+static void process_echocan_events(struct dahdi_chan *chan)
+{
+	union dahdi_echocan_events events = chan->ec_state->events;
+
+	if (events.CED_tx_detected) {
+		dahdi_qevent_nolock(chan, DAHDI_EVENT_TX_CED_DETECTED);
+		if (chan->ec_state) {
+			if (chan->ec_state->status.mode == ECHO_MODE_ACTIVE)
+				set_echocan_fax_mode(chan, chan->channo, "CED tx detected", 1);
+			else
+				module_printk(KERN_NOTICE, "Detected CED tone (tx) on channel %d\n", chan->channo);
+		}
+	}
+
+	if (events.CED_rx_detected) {
+		dahdi_qevent_nolock(chan, DAHDI_EVENT_RX_CED_DETECTED);
+		if (chan->ec_state) {
+			if (chan->ec_state->status.mode == ECHO_MODE_ACTIVE)
+				set_echocan_fax_mode(chan, chan->channo, "CED rx detected", 1);
+			else
+				module_printk(KERN_NOTICE, "Detected CED tone (rx) on channel %d\n", chan->channo);
+		}
+	}
+
+	if (events.CNG_tx_detected)
+		dahdi_qevent_nolock(chan, DAHDI_EVENT_TX_CNG_DETECTED);
+
+	if (events.CNG_rx_detected)
+		dahdi_qevent_nolock(chan, DAHDI_EVENT_RX_CNG_DETECTED);
+
+	if (events.NLP_auto_disabled) {
+		dahdi_qevent_nolock(chan, DAHDI_EVENT_EC_NLP_DISABLED);
+		chan->ec_state->status.mode = ECHO_MODE_FAX;
+	}
+
+	if (events.NLP_auto_enabled) {
+		dahdi_qevent_nolock(chan, DAHDI_EVENT_EC_NLP_ENABLED);
+		chan->ec_state->status.mode = ECHO_MODE_ACTIVE;
+	}
+}
+
 static inline void __dahdi_ec_chunk(struct dahdi_chan *ss, unsigned char *rxchunk, const unsigned char *txchunk)
 {
 	short rxlin, txlin;
@@ -6565,41 +6612,52 @@ static inline void __dahdi_ec_chunk(struct dahdi_chan *ss, unsigned char *rxchun
 #if defined(CONFIG_DAHDI_MMX) || defined(ECHO_CAN_FP)
 		dahdi_kernel_fpu_begin();
 #endif
-		if (ss->echostate & __ECHO_STATE_MUTE) {
+		if (ss->ec_state->status.mode & __ECHO_MODE_MUTE) {
 			/* Special stuff for training the echo can */
 			for (x=0;x<DAHDI_CHUNKSIZE;x++) {
 				rxlin = DAHDI_XLAW(rxchunk[x], ss);
 				txlin = DAHDI_XLAW(txchunk[x], ss);
-				if (ss->echostate == ECHO_STATE_PRETRAINING) {
-					if (--ss->echotimer <= 0) {
-						ss->echotimer = 0;
-						ss->echostate = ECHO_STATE_STARTTRAINING;
+				if (ss->ec_state->status.mode == ECHO_MODE_PRETRAINING) {
+					if (--ss->ec_state->status.pretrain_timer <= 0) {
+						ss->ec_state->status.pretrain_timer = 0;
+						ss->ec_state->status.mode = ECHO_MODE_STARTTRAINING;
 					}
 				}
-				if ((ss->echostate == ECHO_STATE_AWAITINGECHO) && (txlin > 8000)) {
-					ss->echolastupdate = 0;
-					ss->echostate = ECHO_STATE_TRAINING;
+				if ((ss->ec_state->status.mode == ECHO_MODE_AWAITINGECHO) && (txlin > 8000)) {
+					ss->ec_state->status.last_train_tap = 0;
+					ss->ec_state->status.mode = ECHO_MODE_TRAINING;
 				}
-				if (ss->echostate == ECHO_STATE_TRAINING) {
-					if (ss->ec_current->echo_can_traintap(ss->ec_state, ss->echolastupdate++, rxlin)) {
+				if (ss->ec_state->status.mode == ECHO_MODE_TRAINING) {
+					if (ss->ec_state->ops->echocan_traintap(ss->ec_state, ss->ec_state->status.last_train_tap++, rxlin)) {
 #if 0
-						module_printk(KERN_NOTICE, "Finished training (%d taps trained)!\n", ss->echolastupdate);
+						module_printk(KERN_NOTICE, "Finished training (%d taps trained)!\n", ss->ec_state->status.last_train_tap);
 #endif
-						ss->echostate = ECHO_STATE_ACTIVE;
+						ss->ec_state->status.mode = ECHO_MODE_ACTIVE;
 					}
 				}
 				rxlin = 0;
 				rxchunk[x] = DAHDI_LIN2X((int)rxlin, ss);
 			}
-		} else {
-			short rxlins[DAHDI_CHUNKSIZE], txlins[DAHDI_CHUNKSIZE];
-			for (x = 0; x < DAHDI_CHUNKSIZE; x++) {
-				rxlins[x] = DAHDI_XLAW(rxchunk[x], ss);
-				txlins[x] = DAHDI_XLAW(txchunk[x], ss);
-			}
-			ss->ec_current->echo_can_array_update(ss->ec_state, rxlins, txlins);
-			for (x = 0; x < DAHDI_CHUNKSIZE; x++)
-				rxchunk[x] = DAHDI_LIN2X((int) rxlins[x], ss);
+		} else if (ss->ec_state->status.mode != ECHO_MODE_IDLE) {
+			ss->ec_state->events.all = 0;
+
+			if (ss->ec_state->ops->echocan_process) {
+				short rxlins[DAHDI_CHUNKSIZE], txlins[DAHDI_CHUNKSIZE];
+
+				for (x = 0; x < DAHDI_CHUNKSIZE; x++) {
+					rxlins[x] = DAHDI_XLAW(rxchunk[x], ss);
+					txlins[x] = DAHDI_XLAW(txchunk[x], ss);
+				}
+				ss->ec_state->ops->echocan_process(ss->ec_state, rxlins, txlins, DAHDI_CHUNKSIZE);
+
+				for (x = 0; x < DAHDI_CHUNKSIZE; x++)
+					rxchunk[x] = DAHDI_LIN2X((int) rxlins[x], ss);
+			} else if (ss->ec_state->ops->echocan_events)
+				ss->ec_state->ops->echocan_events(ss->ec_state);
+
+			if (ss->ec_state->events.all)
+				process_echocan_events(ss);
+
 		}
 #if defined(CONFIG_DAHDI_MMX) || defined(ECHO_CAN_FP)
 		kernel_fpu_end();
@@ -6692,24 +6750,16 @@ static inline void __dahdi_process_putaudio_chunk(struct dahdi_chan *ss, unsigne
 		putlin[x] = DAHDI_XLAW(rxb[x], ms);
 	}
 
-#ifndef NO_ECHOCAN_DISABLE
-	if (ms->ec_state) {
-		for (x=0;x<DAHDI_CHUNKSIZE;x++) {
-			if (echo_can_disable_detector_update(&ms->rxecdis, putlin[x])) {
-				module_printk(KERN_NOTICE, "Disabled echo canceller because of tone (rx) on channel %d\n", ss->channo);
-				ms->echocancel = 0;
-				ms->echostate = ECHO_STATE_IDLE;
-				ms->echolastupdate = 0;
-				ms->echotimer = 0;
-				ms->ec_current->echo_can_free(ms->ec_state);
-				ms->ec_state = NULL;
-				release_echocan(ms->ec_current);
-				ms->ec_current = NULL;
+	if (ms->ec_state && (ms->ec_state->status.mode == ECHO_MODE_ACTIVE) && !ms->ec_state->features.CED_rx_detect) {
+		for (x = 0; x < DAHDI_CHUNKSIZE; x++) {
+			if (echo_can_disable_detector_update(&ms->ec_state->rxecdis, putlin[x])) {
+				set_echocan_fax_mode(ms, ss->channo, "CED rx detected", 1);
+				dahdi_qevent_nolock(ms, DAHDI_EVENT_RX_CED_DETECTED);
 				break;
 			}
 		}
 	}
-#endif
+
 	/* if doing rx tone decoding */
 	if (ms->rxp1 && ms->rxp2 && ms->rxp3)
 	{

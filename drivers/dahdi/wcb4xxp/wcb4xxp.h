@@ -411,6 +411,7 @@ struct b4xxp_span {
 
 	struct dahdi_span span;			/* zaptel span info for this span */
 	struct dahdi_chan *chans[WCB4XXP_CHANNELS_PER_SPAN]; /* Individual channels */
+	struct dahdi_echocan_state ec[WCB4XXP_CHANNELS_PER_SPAN]; /* echocan state for each channel */
 	struct dahdi_chan _chans[WCB4XXP_CHANNELS_PER_SPAN]; /* Backing memory */
 };
 

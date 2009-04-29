@@ -39,6 +39,8 @@ static int adt_lec_parse_params(struct adt_lec_params *params,
 	unsigned int x;
 	char *c;
 
+	params->tap_length = ecp->tap_length;
+
 	for (x = 0; x < ecp->param_count; x++) {
 		for (c = p[x].name; *c; c++)
 			*c = tolower(*c);
