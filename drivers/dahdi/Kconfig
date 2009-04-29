@@ -123,9 +123,24 @@ config DAHDI_WCTC4XXP
 
 	  If unsure, say Y.
 
+config DAHDI_VOICEBUS
+	tristate "VoiceBus(tm) Interface Library"
+	depends on PCI
+	default DAHDI
+	---help---
+	   This driver provides the common interface for telephony cards that
+	   use the VoiceBus(tm) interface.  It also contains common supporting
+	   libraries for the VPMADT032 hardware echo cancelation module that
+	   is available for the VoiceBus cards.
+
+	   To compile this driver as a module, choose M here: the module will
+	   be called voicebus.
+
+	   If unsure, say Y.
+
 config DAHDI_WCTDM24XXP
 	tristate "Digium Wildcard VoiceBus analog card Support"
-	depends on DAHDI && PCI
+	depends on DAHDI && DAHDI_VOICEBUS
 	default DAHDI
 	---help---
 	  This driver provides support for the following Digium
@@ -145,7 +160,7 @@ config DAHDI_WCTDM24XXP
 
 config DAHDI_WCTE12XP
 	tristate "Digium Wildcard VoiceBus digital card Support"
-	depends on DAHDI && PCI
+	depends on DAHDI && DAHDI_VOICEBUS
 	default DAHDI
 	---help---
 	  This driver provides support for the following Digium

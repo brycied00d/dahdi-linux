@@ -16,7 +16,7 @@
  *   06/15/05 - Initial release.
  *
  * This program has been released under the terms of the GPL version 2 by
- * permission of Adaptive Digital Technologies, Inc. 
+ * permission of Adaptive Digital Technologies, Inc.
  *
  */
 
@@ -36,31 +36,120 @@
 #ifndef _GPAKCUST_H  /* prevent multiple inclusion */
 #define _GPAKCUST_H
 
-#include "wctdm24xxp.h"
-#ifdef VPM150M_SUPPORT
 #include <linux/device.h>
-#include <linux/firmware.h>
-#endif
+#include <linux/completion.h>
+#include <linux/workqueue.h>
+
 #include "gpakenum.h"
+#include "adt_lec.h"
 
-
-struct wctdm_firmware {
-	const struct firmware *fw;
-	unsigned int offset;
-};
+#define DEBUG_ECHOCAN (1 << 1)
 
 /* Host and DSP system dependent related definitions. */
-#define MAX_DSP_CORES 128                 /* maximum number of DSP cores */
-//#define MAX_CONFS 1                     /* maximum number of conferences */
-//#define MAX_PKT_CHANNELS 8              /* maximum number of packet channels */
-#define MAX_CHANNELS 32                  /* maximum number of channels */
-#define MAX_WAIT_LOOPS 50               /* max number of wait delay loops */
-#define DSP_IFBLK_ADDRESS 0x0100        /* DSP address of I/F block pointer */
-#define DOWNLOAD_BLOCK_SIZE 512	        /* download block size (DSP words) */
-//#define MAX_CIDPAYLOAD_BYTES 512        /* max size of a CID payload (octets) */
-typedef unsigned short DSP_WORD;    /* 16 bit DSP word */
-typedef unsigned int DSP_ADDRESS;  /* 32 bit DSP address */
-typedef struct wctdm_firmware* GPAK_FILE_ID; /* G.PAK Download file identifier */
+#define MAX_DSP_CORES		128	/* maximum number of DSP cores */
+#define MAX_CHANNELS		32	/* maximum number of channels */
+#define MAX_WAIT_LOOPS		50	/* max number of wait delay loops */
+#define DSP_IFBLK_ADDRESS	0x0100	/* DSP address of I/F block pointer */
+#define DOWNLOAD_BLOCK_SIZE	512	/* download block size (DSP words) */
+
+#define VPM150M_MAX_COMMANDS		8
+
+#define __VPM150M_RWPAGE	(1 << 4)
+#define __VPM150M_RD		(1 << 3)
+#define __VPM150M_WR		(1 << 2)
+#define __VPM150M_FIN		(1 << 1)
+#define __VPM150M_TX		(1 << 0)
+#define __VPM150M_RWPAGE	(1 << 4)
+#define __VPM150M_RD		(1 << 3)
+#define __VPM150M_WR		(1 << 2)
+#define __VPM150M_FIN		(1 << 1)
+#define __VPM150M_TX		(1 << 0)
+
+/* Some Bit ops for different operations */
+#define VPM150M_SPIRESET		0
+#define VPM150M_HPIRESET		1
+#define VPM150M_SWRESET			2
+#define VPM150M_DTMFDETECT		3
+#define VPM150M_ACTIVE			4
+
+
+struct vpmadt032_cmd {
+	struct list_head node;
+	__le32  address;
+	__le16	data;
+	u8	desc;
+	u8	txident;
+	struct completion complete;
+};
+
+/* Contains the options used when initializing the vpmadt032 module */
+struct vpmadt032_options {
+	int vpmnlptype;
+	int vpmnlpthresh;
+	int vpmnlpmaxsupp;
+	u32 debug;
+	u32 channels;
+};
+
+struct GpakChannelConfig;
+
+#define MAX_CHANNELS_PER_SPAN 32
+struct vpmadt032 {
+	void *context;
+	const struct dahdi_span *span;
+	struct work_struct work;
+	int dspid;
+	struct semaphore sem;
+	unsigned long control;
+	unsigned char curpage;
+	unsigned short version;
+	struct adt_lec_params curecstate[MAX_CHANNELS_PER_SPAN];
+	struct adt_lec_params desiredecstate[MAX_CHANNELS_PER_SPAN];
+	spinlock_t list_lock;
+	/* Commands that are ready to be used. */
+	struct list_head free_cmds;
+	/* Commands that are waiting to be processed. */
+	struct list_head pending_cmds;
+	/* Commands that are currently in progress by the VPM module */
+	struct list_head active_cmds;
+	unsigned char curtone[MAX_CHANNELS_PER_SPAN];
+	struct vpmadt032_options options;
+	void (*setchanconfig_from_state)(struct vpmadt032 *vpm, int channel, struct GpakChannelConfig *chanconfig);
+};
+
+struct voicebus;
+struct dahdi_echocanparams;
+struct dahdi_echocanparam;
+
+char vpmadt032tone_to_zaptone(GpakToneCodes_t tone);
+int vpmadt032_init(struct vpmadt032 *vpm, struct voicebus *vb);
+struct vpmadt032 *vpmadt032_alloc(struct vpmadt032_options *options);
+void vpmadt032_free(struct vpmadt032 *vpm);
+int vpmadt032_echocan_with_params(struct vpmadt032 *vpm, int channo,
+	struct dahdi_echocanparams *ecp, struct dahdi_echocanparam *p);
+
+/* If there is a command ready to go to the VPMADT032, return it, otherwise NULL */
+static inline struct vpmadt032_cmd *vpmadt032_get_ready_cmd(struct vpmadt032 *vpm)
+{
+	unsigned long flags;
+	struct vpmadt032_cmd *cmd;
+
+	spin_lock_irqsave(&vpm->list_lock, flags);
+	if (list_empty(&vpm->pending_cmds)) {
+		spin_unlock_irqrestore(&vpm->list_lock, flags);
+		return NULL;
+	}
+	cmd = list_entry(vpm->pending_cmds.next, struct vpmadt032_cmd, node);
+	list_move_tail(&cmd->node, &vpm->active_cmds);
+	spin_unlock_irqrestore(&vpm->list_lock, flags);
+	return cmd;
+}
+
+int vpmadt032_module_init(void);
+
+typedef __u16 DSP_WORD;			/* 16 bit DSP word */
+typedef __u32 DSP_ADDRESS;		/* 32 bit DSP address */
+typedef __u32 GPAK_FILE_ID;		/* G.PAK Download file identifier */
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
  * gpakReadDspMemory - Read DSP memory.
@@ -74,7 +163,7 @@ typedef struct wctdm_firmware* GPAK_FILE_ID; /* G.PAK Download file identifier *
  *
  */
 extern void gpakReadDspMemory(
-    unsigned short int DspId,   /* DSP Identifier (0 to MAX_DSP_CORES-1) */
+    unsigned short int  DspId,  /* DSP Identifier (0 to MAX_DSP_CORES-1) */
     DSP_ADDRESS DspAddress,     /* DSP's memory address of first word */
     unsigned int NumWords,      /* number of contiguous words to read */
     DSP_WORD *pWordValues       /* pointer to array of word values variable */
@@ -129,7 +218,6 @@ extern void gpakLockAccess(
     unsigned short int DspId      /* DSP Identifier (0 to MAX_DSP_CORES-1) */
     );
 
-
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
  * gpakUnlockAccess - Unlock access to the specified DSP.
  *
@@ -143,7 +231,6 @@ extern void gpakLockAccess(
 extern void gpakUnlockAccess(
     unsigned short int DspId       /* DSP Identifier (0 to MAX_DSP_CORES-1) */
     );
-
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
  * gpakReadFile - Read a block of bytes from a G.PAK Download file.
@@ -164,16 +251,6 @@ extern int gpakReadFile(
     unsigned int NumBytes       /* number of bytes to read */
     );
 
-
-unsigned char wctdm_vpm150m_getpage(struct wctdm *wc);
-
-int wctdm_vpm150m_setpage(struct wctdm *wc, unsigned short addr);
-
-int wctdm_vpm150m_setreg(struct wctdm *wc, unsigned int len, unsigned int addr, unsigned short *data);
-
-unsigned short wctdm_vpm150m_getreg(struct wctdm *wc, unsigned int len, unsigned int addr, unsigned short *data);
-
-char vpm150mtone_to_zaptone(GpakToneCodes_t tone);
 
 #endif  /* prevent multiple inclusion */
 

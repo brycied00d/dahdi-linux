@@ -14,23 +14,6 @@
  * Revision History:
  *   06/15/05 - Initial release.
  *   11/15/2006  - 24 TDM-TDM Channels EC release
- *
- * This program has been released under the terms of the GPL version 2 by
- * permission of Adaptive Digital Technologies, Inc.
- *
- */
-
-/*
- * See http://www.asterisk.org for more information about
- * the Asterisk project. Please do not directly contact
- * any of the maintainers of this project for assistance;
- * the project provides a web site, mailing lists and IRC
- * channels for your use.
- *
- * This program is free software, distributed under the terms of
- * the GNU General Public License Version 2 as published by the
- * Free Software Foundation. See the LICENSE file included with
- * this program for more details.
  */
 
 #ifndef _GPAKAPI_H  /* prevent multiple inclusion */
@@ -67,6 +50,7 @@ typedef struct
     short int EcanAdaptEnable;     // Echo Can Adapt Enable flag 
     short int EcanG165DetEnable;   // Echo Can G165 Detect Enable flag 
     short int EcanDblTalkThresh;   // Echo Can Double Talk threshold 
+	short int EcanMaxDoubleTalkThres; // Maximum double-talk threshold
     short int EcanNlpThreshold;    // Echo Can NLP threshold 
     short int EcanNlpConv;  // Dynamic NLP control, NLP limit when EC about to converged
     short int EcanNlpUnConv;// Dynamic NLP control, NLP limit when EC not converged yet
@@ -76,10 +60,13 @@ typedef struct
     short int EcanCrossCorrLimit;  // Echo Can Cross Correlation limit 
     short int EcanNumFirSegments;  // Echo Can Num FIR Segments 
     short int EcanFirSegmentLen;   // Echo Can FIR Segment Length 
+    short int EcanTandemOperationEnable;   //Enable tandem operation 
+    short int EcanMixedFourWireMode; 	// Handle possible 4-wire (echo-free) lines
+	short int EcanReconvergenceCheckEnable; 	// Handle possible 4-wire (echo-free) lines
 } GpakEcanParms_t;
 
 /* Definition of a Channel Configuration information structure. */
-typedef struct
+typedef struct GpakChannelConfig
 {
     GpakSerialPort_t    PcmInPortA;         // A side PCM Input Serial Port Id 
     unsigned short int  PcmInSlotA;         // A side PCM Input Time Slot 
@@ -106,7 +93,7 @@ typedef struct
 
 
 /* Definition of a Serial Port Configuration Structure */
-typedef struct
+typedef struct GpakPortConfig
 {
     GpakSlotCfg_t SlotsSelect1;         // port 1 Slot selection
     unsigned short int FirstBlockNum1;  // port 1 first group Block Number
@@ -302,7 +289,7 @@ typedef enum
  */
 extern gpakConfigPortStatus_t gpakConfigurePorts(
     unsigned short int DspId,           // DSP identifier
-    GpakPortConfig_t   *pPortConfig,     // pointer to Port Config info
+    const GpakPortConfig_t   *pPortConfig,     // pointer to Port Config info
     GPAK_PortConfigStat_t *pStatus      // pointer to Port Config Status
     );
 

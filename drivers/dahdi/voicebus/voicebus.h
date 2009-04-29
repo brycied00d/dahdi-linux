@@ -6,7 +6,7 @@
  * Matthew Fredrickson <creslin@digium.com>, and
  * Michael Spiceland <mspiceland@digium.com>
  * 
- * Copyright (C) 2007-2008 Digium, Inc.
+ * Copyright (C) 2007-2009 Digium, Inc.
  *
  * All rights reserved.
  *
@@ -43,6 +43,12 @@ int voicebus_init(struct pci_dev* pdev, u32 framesize,
 		  void *context, 
 		  u32 debuglevel,
 		  struct voicebus **vb_p);
+void voicebus_get_handlers(struct voicebus *vb, void **handle_receive,
+	void **handle_transmit, void **context);
+void voicebus_set_handlers(struct voicebus *vb,
+	void (*handle_receive)(void *buffer, void *context),
+	void (*handle_transmit)(void *buffer, void *context),
+	void *context);
 void voicebus_release(struct voicebus *vb);
 int voicebus_start(struct voicebus *vb);
 int voicebus_stop(struct voicebus *vb);

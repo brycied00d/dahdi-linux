@@ -8,7 +8,7 @@
  *            Matthew Fredrickson <creslin@digium.com>
  *            William Meadows <wmeadows@digium.com>
  *
- * Copyright (C) 2007, Digium, Inc.
+ * Copyright (C) 2007-2009, Digium, Inc.
  *
  * All rights reserved.
  *
@@ -130,13 +130,11 @@ struct t1 {
 	unsigned long ctlreg;
 	struct voicebus* vb;
 	atomic_t txints;
-#ifdef VPM_SUPPORT
-	int vpm;
-	struct vpm150m *vpm150m;
+	int vpm100;
+	struct vpmadt032 *vpmadt032;
 	unsigned long dtmfactive;
 	unsigned long dtmfmask;
 	unsigned long dtmfmutemask;
-#endif
 
 	spinlock_t cmd_list_lock;
 	struct list_head pending_cmds;

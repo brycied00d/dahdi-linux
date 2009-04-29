@@ -1,7 +1,7 @@
 #
 # Makefile for DAHDI Linux kernel modules
 #
-# Copyright (C) 2001-2008 Digium, Inc.
+# Copyright (C) 2001-2009 Digium, Inc.
 #
 #
 
@@ -98,7 +98,7 @@ include/dahdi/version.h: FORCE
 	fi
 	@rm -f $@.tmp
 
-prereq: include/dahdi/version.h
+prereq: include/dahdi/version.h firmware-loaders
 
 stackcheck: checkstack modules
 	./checkstack kernel/*.ko kernel/*/*.ko
@@ -130,6 +130,9 @@ endif
 
 uninstall-firmware:
 	$(MAKE) -C drivers/dahdi/firmware hotplug-uninstall DESTDIR=$(DESTDIR)
+
+firmware-loaders:
+	$(MAKE) -C drivers/dahdi/firmware firmware-loaders
 
 install-include:
 	for hdr in $(INST_HEADERS); do \
@@ -233,6 +236,7 @@ distclean: dist-clean
 dist-clean: clean
 	@rm -f include/dahdi/version.h
 	@$(MAKE) -C drivers/dahdi/firmware dist-clean
+	@rm -f drivers/dahdi/vpmadt032_loader/*.o_shipped
 
 firmware-download:
 	@$(MAKE) -C drivers/dahdi/firmware all
@@ -245,6 +249,6 @@ docs: $(GENERATED_DOCS)
 README.html: README
 	$(ASCIIDOC_CMD) -o $@ $<
 
-.PHONY: distclean dist-clean clean all install devices modules stackcheck install-udev update install-modules install-include uninstall-modules firmware-download install-xpp-firm
+.PHONY: distclean dist-clean clean all install devices modules stackcheck install-udev update install-modules install-include uninstall-modules firmware-download install-xpp-firm firmware-loaders
 
 FORCE:
