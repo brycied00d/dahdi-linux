@@ -142,8 +142,33 @@ typedef struct {
 	short *buf_d;			
 } echo_can_cb_s;
 
-/* Echo canceller definition */
-struct echo_can_state {
+static int echo_can_create(struct dahdi_chan *chan, struct dahdi_echocanparams *ecp,
+			   struct dahdi_echocanparam *p, struct dahdi_echocan_state **ec);
+static void echo_can_free(struct dahdi_chan *chan, struct dahdi_echocan_state *ec);
+static void echo_can_process(struct dahdi_echocan_state *ec, short *isig, const short *iref, u32 size);
+static int echo_can_traintap(struct dahdi_echocan_state *ec, int pos, short val);
+static void echocan_NLP_toggle(struct dahdi_echocan_state *ec, unsigned int enable);
+
+static const struct dahdi_echocan_factory my_factory = {
+	.name = "KB1",
+	.owner = THIS_MODULE,
+	.echocan_create = echo_can_create,
+};
+
+static const struct dahdi_echocan_features my_features = {
+	.NLP_toggle = 1,
+};
+
+static const struct dahdi_echocan_ops my_ops = {
+	.name = "KB1",
+	.echocan_free = echo_can_free,
+	.echocan_process = echo_can_process,
+	.echocan_traintap = echo_can_traintap,
+	.echocan_NLP_toggle = echocan_NLP_toggle,
+};
+
+struct ec_pvt {
+	struct dahdi_echocan_state dahdi;
 	/* an arbitrary ID for this echo can - this really should be settable from the calling channel... */
 	int id;
 
@@ -208,7 +233,10 @@ struct echo_can_state {
 	int avg_Lu_i_ok;
 #endif 
 	unsigned int aggressive:1;
+	int use_nlp;
 };
+
+#define dahdi_to_pvt(a) container_of(a, struct ec_pvt, dahdi)
 
 static inline void init_cb_s(echo_can_cb_s *cb, int len, void *where)
 {
@@ -236,77 +264,79 @@ static inline short get_cc_s(echo_can_cb_s *cb, int pos)
 	return cb->buf_d[cb->idx_d + pos];
 }
 
-static inline void init_cc(struct echo_can_state *ec, int N, int maxy, int maxu) 
+static inline void init_cc(struct ec_pvt *pvt, int N, int maxy, int maxu)
 {
-
-	void *ptr = ec;
+	void *ptr = pvt;
 	unsigned long tmp;
+
 	/* Double-word align past end of state */
-	ptr += sizeof(struct echo_can_state);
+	ptr += sizeof(*pvt);
 	tmp = (unsigned long)ptr;
 	tmp += 3;
 	tmp &= ~3L;
 	ptr = (void *)tmp;
 
 	/* Reset parameters */
-	ec->N_d = N;
-	ec->beta2_i = DEFAULT_BETA1_I;
+	pvt->N_d = N;
+	pvt->beta2_i = DEFAULT_BETA1_I;
   
 	/* Allocate coefficient memory */
-	ec->a_i = ptr;
-	ptr += (sizeof(int) * ec->N_d);
-	ec->a_s = ptr;
-	ptr += (sizeof(short) * ec->N_d);
+	pvt->a_i = ptr;
+	ptr += (sizeof(int) * pvt->N_d);
+	pvt->a_s = ptr;
+	ptr += (sizeof(short) * pvt->N_d);
 
 	/* Reset Y circular buffer (short version) */
-	init_cb_s(&ec->y_s, maxy, ptr);
+	init_cb_s(&pvt->y_s, maxy, ptr);
 	ptr += (sizeof(short) * (maxy) * 2);
   
 	/* Reset Sigma circular buffer (short version for FIR filter) */
-	init_cb_s(&ec->s_s, (1 << DEFAULT_ALPHA_ST_I), ptr);
+	init_cb_s(&pvt->s_s, (1 << DEFAULT_ALPHA_ST_I), ptr);
 	ptr += (sizeof(short) * (1 << DEFAULT_ALPHA_ST_I) * 2);
 
-	init_cb_s(&ec->u_s, maxu, ptr);
+	init_cb_s(&pvt->u_s, maxu, ptr);
 	ptr += (sizeof(short) * maxu * 2);
 
 	/* Allocate a buffer for the reference signal power computation */
-	init_cb_s(&ec->y_tilde_s, ec->N_d, ptr);
+	init_cb_s(&pvt->y_tilde_s, pvt->N_d, ptr);
 
 	/* Reset the absolute time index */
-	ec->i_d = (int)0;
+	pvt->i_d = (int)0;
   
 	/* Reset the power computations (for y and u) */
-	ec->Ly_i = DEFAULT_CUTOFF_I;
-	ec->Lu_i = DEFAULT_CUTOFF_I;
+	pvt->Ly_i = DEFAULT_CUTOFF_I;
+	pvt->Lu_i = DEFAULT_CUTOFF_I;
 
 #ifdef MEC2_STATS
 	/* set the identity */
-	ec->id = (int)&ptr;
+	pvt->id = (int)&ptr;
   
 	/* Reset performance stats */
-	ec->cntr_nearend_speech_frames = (int)0;
-	ec->cntr_residualcorrected_frames = (int)0;
-	ec->cntr_residualcorrected_framesskipped = (int)0;
-	ec->cntr_coeff_updates = (int)0;
-	ec->cntr_coeff_missedupdates = (int)0;
+	pvt->cntr_nearend_speech_frames = (int)0;
+	pvt->cntr_residualcorrected_frames = (int)0;
+	pvt->cntr_residualcorrected_framesskipped = (int)0;
+	pvt->cntr_coeff_updates = (int)0;
+	pvt->cntr_coeff_missedupdates = (int)0;
 
-	ec->avg_Lu_i_toolow = (int)0;
-	ec->avg_Lu_i_ok = (int)0;
+	pvt->avg_Lu_i_toolow = (int)0;
+	pvt->avg_Lu_i_ok = (int)0;
 #endif
 
 	/* Reset the near-end speech detector */
-	ec->s_tilde_i = (int)0;
-	ec->y_tilde_i = (int)0;
-	ec->HCNTR_d = (int)0;
+	pvt->s_tilde_i = (int)0;
+	pvt->y_tilde_i = (int)0;
+	pvt->HCNTR_d = (int)0;
 
 }
 
-static void echo_can_free(struct echo_can_state *ec)
+static void echo_can_free(struct dahdi_chan *chan, struct dahdi_echocan_state *ec)
 {
-	kfree(ec);
+	struct ec_pvt *pvt = dahdi_to_pvt(ec);
+
+	kfree(pvt);
 }
 
-static inline short sample_update(struct echo_can_state *ec, short iref, short isig) 
+static inline short sample_update(struct ec_pvt *pvt, short iref, short isig)
 {
 	/* Declare local variables that are used more than once */
 	/* ... */
@@ -335,17 +365,17 @@ static inline short sample_update(struct echo_can_state *ec, short iref, short i
 	/* Update the Far-end receive signal circular buffers and accumulators */
 	/* ------------------------------------------------------------------- */
 	/* Delete the oldest sample from the power estimate accumulator */
-	ec->y_tilde_i -= abs(get_cc_s(&ec->y_s, (1 << DEFAULT_ALPHA_YT_I) - 1 )) >> DEFAULT_ALPHA_YT_I;
+	pvt->y_tilde_i -= abs(get_cc_s(&pvt->y_s, (1 << DEFAULT_ALPHA_YT_I) - 1)) >> DEFAULT_ALPHA_YT_I;
 	/* Add the new sample to the power estimate accumulator */
-	ec->y_tilde_i += abs(iref) >> DEFAULT_ALPHA_ST_I;
+	pvt->y_tilde_i += abs(iref) >> DEFAULT_ALPHA_ST_I;
 	/* Push a copy of the new sample into its circular buffer */
-	add_cc_s(&ec->y_s, iref);
+	add_cc_s(&pvt->y_s, iref);
  
 
 	/* eq. (2): compute r in fixed-point */
-	rs = CONVOLVE2(ec->a_s, 
-  			ec->y_s.buf_d + ec->y_s.idx_d, 
-  			ec->N_d);
+	rs = CONVOLVE2(pvt->a_s,
+		       pvt->y_s.buf_d + pvt->y_s.idx_d,
+		       pvt->N_d);
 	rs >>= 15;
 
 	/* eq. (3): compute the output value (see figure 3) and the error
@@ -355,27 +385,27 @@ static inline short sample_update(struct echo_can_state *ec, short iref, short i
 	u = isig - rs;
   
 	/* Push a copy of the output value sample into its circular buffer */
-	add_cc_s(&ec->u_s, u);
+	add_cc_s(&pvt->u_s, u);
 
 
 	/* Update the Near-end hybrid signal circular buffers and accumulators */
 	/* ------------------------------------------------------------------- */
 	/* Delete the oldest sample from the power estimate accumulator */
-	ec->s_tilde_i -= abs(get_cc_s(&ec->s_s, (1 << DEFAULT_ALPHA_ST_I) - 1 ));
+	pvt->s_tilde_i -= abs(get_cc_s(&pvt->s_s, (1 << DEFAULT_ALPHA_ST_I) - 1));
 	/* Add the new sample to the power estimate accumulator */
-	ec->s_tilde_i += abs(isig);
+	pvt->s_tilde_i += abs(isig);
 	/* Push a copy of the new sample into it's circular buffer */
-	add_cc_s(&ec->s_s, isig);
+	add_cc_s(&pvt->s_s, isig);
 
 
 	/* Push a copy of the current short-time average of the far-end receive signal into it's circular buffer */
-	add_cc_s(&ec->y_tilde_s, ec->y_tilde_i);		
+	add_cc_s(&pvt->y_tilde_s, pvt->y_tilde_i);
 
 	/* flow B on pg. 428 */
   
 	/* If the hangover timer isn't running then compute the new convergence factor, otherwise set Py_i to 32768 */
-	if (!ec->HCNTR_d) {
-		Py_i = (ec->Ly_i >> DEFAULT_SIGMA_LY_I) * (ec->Ly_i >> DEFAULT_SIGMA_LY_I);
+	if (!pvt->HCNTR_d) {
+		Py_i = (pvt->Ly_i >> DEFAULT_SIGMA_LY_I) * (pvt->Ly_i >> DEFAULT_SIGMA_LY_I);
 		Py_i >>= 15;
 	} else {
 	  	Py_i = (1 << 15);
@@ -389,107 +419,107 @@ static inline short sample_update(struct echo_can_state *ec, short iref, short i
 	 * Still needs conversion!
 	 */
 
-	if (ec->start_speech_d != 0 ){
-		if ( ec->i_d > (DEFAULT_T0 + ec->start_speech_d)*(SAMPLE_FREQ) ){
-			ec->beta2_d = max_cc_float(MIN_BETA, DEFAULT_BETA1 * exp((-1/DEFAULT_TAU)*((ec->i_d/(float)SAMPLE_FREQ) - DEFAULT_T0 - ec->start_speech_d)));
+	if (pvt->start_speech_d != 0) {
+		if (pvt->i_d > (DEFAULT_T0 + pvt->start_speech_d)*(SAMPLE_FREQ)) {
+			pvt->beta2_d = max_cc_float(MIN_BETA, DEFAULT_BETA1 * exp((-1/DEFAULT_TAU)*((pvt->i_d/(float)SAMPLE_FREQ) - DEFAULT_T0 - pvt->start_speech_d)));
 		}
 	} else {
-		ec->beta2_d = DEFAULT_BETA1;
+		pvt->beta2_d = DEFAULT_BETA1;
 	}
 #endif
   
 	/* Fixed point, inverted */
-	ec->beta2_i = DEFAULT_BETA1_I;	
+	pvt->beta2_i = DEFAULT_BETA1_I;
   
 	/* Fixed point version, inverted */
-	two_beta_i = (ec->beta2_i * Py_i) >> 15;	
+	two_beta_i = (pvt->beta2_i * Py_i) >> 15;
 	if (!two_beta_i)
 		two_beta_i++;
 
 	/* Update the Suppressed signal power estimate accumulator */
         /* ------------------------------------------------------- */
         /* Delete the oldest sample from the power estimate accumulator */
-	ec->Lu_i -= abs(get_cc_s(&ec->u_s, (1 << DEFAULT_SIGMA_LU_I) - 1 )) ;
+	pvt->Lu_i -= abs(get_cc_s(&pvt->u_s, (1 << DEFAULT_SIGMA_LU_I) - 1));
         /* Add the new sample to the power estimate accumulator */
-	ec->Lu_i += abs(u);
+	pvt->Lu_i += abs(u);
 
 	/* Update the Far-end reference signal power estimate accumulator */
         /* -------------------------------------------------------------- */
 	/* eq. (10): update power estimate of the reference */
         /* Delete the oldest sample from the power estimate accumulator */
-	ec->Ly_i -= abs(get_cc_s(&ec->y_s, (1 << DEFAULT_SIGMA_LY_I) - 1)) ;
+	pvt->Ly_i -= abs(get_cc_s(&pvt->y_s, (1 << DEFAULT_SIGMA_LY_I) - 1)) ;
         /* Add the new sample to the power estimate accumulator */
-	ec->Ly_i += abs(iref);
+	pvt->Ly_i += abs(iref);
 
-	if (ec->Ly_i < DEFAULT_CUTOFF_I)
-		ec->Ly_i = DEFAULT_CUTOFF_I;
+	if (pvt->Ly_i < DEFAULT_CUTOFF_I)
+		pvt->Ly_i = DEFAULT_CUTOFF_I;
 
 
 	/* Update the Peak far-end receive signal detected */
         /* ----------------------------------------------- */
-	if (ec->y_tilde_i > ec->max_y_tilde) {
+	if (pvt->y_tilde_i > pvt->max_y_tilde) {
 		/* New highest y_tilde with full life */
-		ec->max_y_tilde = ec->y_tilde_i;
-		ec->max_y_tilde_pos = ec->N_d - 1;
-	} else if (--ec->max_y_tilde_pos < 0) {
+		pvt->max_y_tilde = pvt->y_tilde_i;
+		pvt->max_y_tilde_pos = pvt->N_d - 1;
+	} else if (--pvt->max_y_tilde_pos < 0) {
 		/* Time to find new max y tilde... */
-		ec->max_y_tilde = MAX16(ec->y_tilde_s.buf_d + ec->y_tilde_s.idx_d, ec->N_d, &ec->max_y_tilde_pos);
+		pvt->max_y_tilde = MAX16(pvt->y_tilde_s.buf_d + pvt->y_tilde_s.idx_d, pvt->N_d, &pvt->max_y_tilde_pos);
 	}
 
 	/* Determine if near end speech was detected in this sample */
 	/* -------------------------------------------------------- */
-	if (((ec->s_tilde_i >> (DEFAULT_ALPHA_ST_I - 1)) > ec->max_y_tilde) 
-	    && (ec->max_y_tilde > 0))  {
+	if (((pvt->s_tilde_i >> (DEFAULT_ALPHA_ST_I - 1)) > pvt->max_y_tilde)
+	    && (pvt->max_y_tilde > 0))  {
 		/* Then start the Hangover counter */
-		ec->HCNTR_d = DEFAULT_HANGT;
+		pvt->HCNTR_d = DEFAULT_HANGT;
 #ifdef MEC2_STATS_DETAILED
-		printk(KERN_INFO "Reset near end speech timer with: s_tilde_i %d, stmnt %d, max_y_tilde %d\n", ec->s_tilde_i, (ec->s_tilde_i >> (DEFAULT_ALPHA_ST_I - 1)), ec->max_y_tilde);
+		printk(KERN_INFO "Reset near end speech timer with: s_tilde_i %d, stmnt %d, max_y_tilde %d\n", pvt->s_tilde_i, (pvt->s_tilde_i >> (DEFAULT_ALPHA_ST_I - 1)), pvt->max_y_tilde);
 #endif
 #ifdef MEC2_STATS
-		++ec->cntr_nearend_speech_frames;
+		++pvt->cntr_nearend_speech_frames;
 #endif
-	} else if (ec->HCNTR_d > (int)0) {
+	} else if (pvt->HCNTR_d > (int)0) {
   		/* otherwise, if it's still non-zero, decrement the Hangover counter by one sample */
 #ifdef MEC2_STATS
-		++ec->cntr_nearend_speech_frames;
+		++pvt->cntr_nearend_speech_frames;
 #endif
-		ec->HCNTR_d--;
+		pvt->HCNTR_d--;
 	} 
 
 	/* Update coefficients if no near-end speech in this sample (ie. HCNTR_d = 0)
 	 * and we have enough signal to bother trying to update.
 	 * --------------------------------------------------------------------------
 	 */
-	if (!ec->HCNTR_d && 				/* no near-end speech present */
-		!(ec->i_d % DEFAULT_M)) {		/* we only update on every DEFAULM_M'th sample from the stream */
-  			if (ec->Lu_i > MIN_UPDATE_THRESH_I) {	/* there is sufficient energy above the noise floor to contain meaningful data */
+	if (!pvt->HCNTR_d && 				/* no near-end speech present */
+	    !(pvt->i_d % DEFAULT_M)) {		/* we only update on every DEFAULM_M'th sample from the stream */
+		if (pvt->Lu_i > MIN_UPDATE_THRESH_I) {	/* there is sufficient energy above the noise floor to contain meaningful data */
   							/* so loop over all the filter coefficients */
 #ifdef MEC2_STATS_DETAILED
-				printk( KERN_INFO "updating coefficients with: ec->Lu_i %9d\n", ec->Lu_i);
+			printk(KERN_INFO "updating coefficients with: pvt->Lu_i %9d\n", pvt->Lu_i);
 #endif
 #ifdef MEC2_STATS
-				ec->avg_Lu_i_ok = ec->avg_Lu_i_ok + ec->Lu_i;  
-				++ec->cntr_coeff_updates;
+			pvt->avg_Lu_i_ok = pvt->avg_Lu_i_ok + pvt->Lu_i;
+			++pvt->cntr_coeff_updates;
 #endif
-				for (k=0; k < ec->N_d; k++) {
-					/* eq. (7): compute an expectation over M_d samples */
-					int grad2;
-					grad2 = CONVOLVE2(ec->u_s.buf_d + ec->u_s.idx_d,
-							  ec->y_s.buf_d + ec->y_s.idx_d + k,
-							  DEFAULT_M);
-					/* eq. (7): update the coefficient */
-					ec->a_i[k] += grad2 / two_beta_i;
-					ec->a_s[k] = ec->a_i[k] >> 16;
-				}
-		 	 } else { 
-#ifdef MEC2_STATS_DETAILED
-				printk( KERN_INFO "insufficient signal to update coefficients ec->Lu_i %5d < %5d\n", ec->Lu_i, MIN_UPDATE_THRESH_I);
-#endif
-#ifdef MEC2_STATS
-				ec->avg_Lu_i_toolow = ec->avg_Lu_i_toolow + ec->Lu_i;  
-				++ec->cntr_coeff_missedupdates;
-#endif
+			for (k = 0; k < pvt->N_d; k++) {
+				/* eq. (7): compute an expectation over M_d samples */
+				int grad2;
+				grad2 = CONVOLVE2(pvt->u_s.buf_d + pvt->u_s.idx_d,
+						  pvt->y_s.buf_d + pvt->y_s.idx_d + k,
+						  DEFAULT_M);
+				/* eq. (7): update the coefficient */
+				pvt->a_i[k] += grad2 / two_beta_i;
+				pvt->a_s[k] = pvt->a_i[k] >> 16;
 			}
+		} else {
+#ifdef MEC2_STATS_DETAILED
+			printk(KERN_INFO "insufficient signal to update coefficients pvt->Lu_i %5d < %5d\n", pvt->Lu_i, MIN_UPDATE_THRESH_I);
+#endif
+#ifdef MEC2_STATS
+			pvt->avg_Lu_i_toolow = pvt->avg_Lu_i_toolow + pvt->Lu_i;
+			++pvt->cntr_coeff_missedupdates;
+#endif
+		}
 	}
   
 	/* paragraph below eq. (15): if no near-end speech in the sample and 
@@ -497,112 +527,116 @@ static inline short sample_update(struct echo_can_state *ec, short iref, short i
 	 * then perform residual error suppression
 	 */
 #ifdef MEC2_STATS_DETAILED
-	if (ec->HCNTR_d == 0)
-		printk( KERN_INFO "possibily correcting frame with ec->Ly_i %9d ec->Lu_i %9d and expression %d\n", ec->Ly_i, ec->Lu_i, (ec->Ly_i/(ec->Lu_i + 1)));
+	if (pvt->HCNTR_d == 0)
+		printk(KERN_INFO "possibly correcting frame with pvt->Ly_i %9d pvt->Lu_i %9d and expression %d\n", pvt->Ly_i, pvt->Lu_i, (pvt->Ly_i/(pvt->Lu_i + 1)));
 #endif
 
 #ifndef NO_ECHO_SUPPRESSOR
-	if (ec->aggressive) {
-		if ((ec->HCNTR_d < AGGRESSIVE_HCNTR) && (ec->Ly_i > (ec->Lu_i << 1))) {
-			for (k=0; k < 2; k++) {
-				u = u * (ec->Lu_i >> DEFAULT_SIGMA_LU_I) / ((ec->Ly_i >> (DEFAULT_SIGMA_LY_I)) + 1);
-			}
-#ifdef MEC2_STATS_DETAILED
-			printk( KERN_INFO "aggresively correcting frame with ec->Ly_i %9d ec->Lu_i %9d expression %d\n", ec->Ly_i, ec->Lu_i, (ec->Ly_i/(ec->Lu_i + 1)));
-#endif
-#ifdef MEC2_STATS
-			++ec->cntr_residualcorrected_frames;
-#endif
-		}
-	} else {
-		if (ec->HCNTR_d == 0) { 
-			if ((ec->Ly_i/(ec->Lu_i + 1)) > DEFAULT_SUPPR_I) {
-				for (k=0; k < 1; k++) {
-					u = u * (ec->Lu_i >> DEFAULT_SIGMA_LU_I) / ((ec->Ly_i >> (DEFAULT_SIGMA_LY_I + 2)) + 1);
+	if (pvt->use_nlp) {
+		if (pvt->aggressive) {
+			if ((pvt->HCNTR_d < AGGRESSIVE_HCNTR) && (pvt->Ly_i > (pvt->Lu_i << 1))) {
+				for (k = 0; k < 2; k++) {
+					u = u * (pvt->Lu_i >> DEFAULT_SIGMA_LU_I) / ((pvt->Ly_i >> (DEFAULT_SIGMA_LY_I)) + 1);
 				}
 #ifdef MEC2_STATS_DETAILED
-				printk( KERN_INFO "correcting frame with ec->Ly_i %9d ec->Lu_i %9d expression %d\n", ec->Ly_i, ec->Lu_i, (ec->Ly_i/(ec->Lu_i + 1)));
+				printk(KERN_INFO "aggresively correcting frame with pvt->Ly_i %9d pvt->Lu_i %9d expression %d\n", pvt->Ly_i, pvt->Lu_i, (pvt->Ly_i/(pvt->Lu_i + 1)));
 #endif
 #ifdef MEC2_STATS
-				++ec->cntr_residualcorrected_frames;
+				++pvt->cntr_residualcorrected_frames;
 #endif
 			}
+		} else {
+			if (pvt->HCNTR_d == 0) {
+				if ((pvt->Ly_i/(pvt->Lu_i + 1)) > DEFAULT_SUPPR_I) {
+					for (k = 0; k < 1; k++) {
+						u = u * (pvt->Lu_i >> DEFAULT_SIGMA_LU_I) / ((pvt->Ly_i >> (DEFAULT_SIGMA_LY_I + 2)) + 1);
+					}
+#ifdef MEC2_STATS_DETAILED
+					printk(KERN_INFO "correcting frame with pvt->Ly_i %9d pvt->Lu_i %9d expression %d\n", pvt->Ly_i, pvt->Lu_i, (pvt->Ly_i/(pvt->Lu_i + 1)));
+#endif
 #ifdef MEC2_STATS
-			else {
-				++ec->cntr_residualcorrected_framesskipped;
-			}
+					++pvt->cntr_residualcorrected_frames;
 #endif
+				}
+#ifdef MEC2_STATS
+				else {
+					++pvt->cntr_residualcorrected_framesskipped;
+				}
+#endif
+			}
 		}
 	}
 #endif  
 
 #if 0
 	/* This will generate a non-linear supression factor, once converted */
-	if ((ec->HCNTR_d == 0) && 
-	   ((ec->Lu_d/ec->Ly_d) < DEFAULT_SUPPR) &&
-	    (ec->Lu_d/ec->Ly_d > EC_MIN_DB_VALUE)) { 
-	    	suppr_factor = (10 / (float)(SUPPR_FLOOR - SUPPR_CEIL)) * log(ec->Lu_d/ec->Ly_d)
-	    			- SUPPR_CEIL / (float)(SUPPR_FLOOR - SUPPR_CEIL);
+	if ((pvt->HCNTR_d == 0) &&
+		((pvt->Lu_d/pvt->Ly_d) < DEFAULT_SUPPR) &&
+		(pvt->Lu_d/pvt->Ly_d > EC_MIN_DB_VALUE)) {
+			suppr_factor = (10 / (float)(SUPPR_FLOOR - SUPPR_CEIL)) * log(pvt->Lu_d/pvt->Ly_d)
+			- SUPPR_CEIL / (float)(SUPPR_FLOOR - SUPPR_CEIL);
 		u_suppr = pow(10.0, (suppr_factor) * RES_SUPR_FACTOR / 10.0) * u_suppr;
 	}
 #endif  
 
 #ifdef MEC2_STATS
 	/* Periodically dump performance stats */
-	if ((ec->i_d % MEC2_STATS) == 0) {
+	if ((pvt->i_d % MEC2_STATS) == 0) {
 		/* make sure to avoid div0's! */
-		if (ec->cntr_coeff_missedupdates > 0)
-			ec->avg_Lu_i_toolow = (int)(ec->avg_Lu_i_toolow / ec->cntr_coeff_missedupdates);
+		if (pvt->cntr_coeff_missedupdates > 0)
+			pvt->avg_Lu_i_toolow = (int)(pvt->avg_Lu_i_toolow / pvt->cntr_coeff_missedupdates);
 		else
-			ec->avg_Lu_i_toolow = -1;
+			pvt->avg_Lu_i_toolow = -1;
 
-		if (ec->cntr_coeff_updates > 0)
-			ec->avg_Lu_i_ok = (ec->avg_Lu_i_ok / ec->cntr_coeff_updates);
+		if (pvt->cntr_coeff_updates > 0)
+			pvt->avg_Lu_i_ok = (pvt->avg_Lu_i_ok / pvt->cntr_coeff_updates);
 		else
-			ec->avg_Lu_i_ok = -1;
+			pvt->avg_Lu_i_ok = -1;
 
 		printk( KERN_INFO "%d: Near end speech: %5d Residuals corrected/skipped: %5d/%5d Coefficients updated ok/low sig: %3d/%3d Lu_i avg ok/low sig %6d/%5d\n", 
-			ec->id,
-			ec->cntr_nearend_speech_frames, 
-			ec->cntr_residualcorrected_frames, ec->cntr_residualcorrected_framesskipped, 
-			ec->cntr_coeff_updates, ec->cntr_coeff_missedupdates, 
-			ec->avg_Lu_i_ok, ec->avg_Lu_i_toolow);
+			pvt->id,
+			pvt->cntr_nearend_speech_frames,
+			pvt->cntr_residualcorrected_frames, pvt->cntr_residualcorrected_framesskipped,
+			pvt->cntr_coeff_updates, pvt->cntr_coeff_missedupdates,
+			pvt->avg_Lu_i_ok, pvt->avg_Lu_i_toolow);
 
-		ec->cntr_nearend_speech_frames = 0;
-		ec->cntr_residualcorrected_frames = 0;
-		ec->cntr_residualcorrected_framesskipped = 0;
-		ec->cntr_coeff_updates = 0;
-		ec->cntr_coeff_missedupdates = 0;
-		ec->avg_Lu_i_ok = 0;
-		ec->avg_Lu_i_toolow = 0;
+		pvt->cntr_nearend_speech_frames = 0;
+		pvt->cntr_residualcorrected_frames = 0;
+		pvt->cntr_residualcorrected_framesskipped = 0;
+		pvt->cntr_coeff_updates = 0;
+		pvt->cntr_coeff_missedupdates = 0;
+		pvt->avg_Lu_i_ok = 0;
+		pvt->avg_Lu_i_toolow = 0;
 	}
 #endif
 
 	/* Increment the sample index and return the corrected sample */
-	ec->i_d++;
+	pvt->i_d++;
 	return u;
 }
 
-static void echo_can_update(struct echo_can_state *ec, short *isig, short *iref)
+static void echo_can_process(struct dahdi_echocan_state *ec, short *isig, const short *iref, u32 size)
 {
-	unsigned int x;
+	struct ec_pvt *pvt = dahdi_to_pvt(ec);
+	u32 x;
 	short result;
 
-	for (x = 0; x < DAHDI_CHUNKSIZE; x++) {
-		result = sample_update(ec, *iref, *isig);
+	for (x = 0; x < size; x++) {
+		result = sample_update(pvt, *iref, *isig);
 		*isig++ = result;
 		++iref;
 	}
 }
 
-static int echo_can_create(struct dahdi_echocanparams *ecp, struct dahdi_echocanparam *p,
-			   struct echo_can_state **ec)
+static int echo_can_create(struct dahdi_chan *chan, struct dahdi_echocanparams *ecp,
+			   struct dahdi_echocanparam *p, struct dahdi_echocan_state **ec)
 {
 	int maxy;
 	int maxu;
 	size_t size;
 	unsigned int x;
 	char *c;
+	struct ec_pvt *pvt;
 
 	maxy = ecp->tap_length + DEFAULT_M;
 	maxu = DEFAULT_M;
@@ -622,75 +656,81 @@ static int echo_can_create(struct dahdi_echocanparams *ecp, struct dahdi_echocan
 		2 * sizeof(short) * (maxu) +			/* u_s */
 		2 * sizeof(short) * ecp->tap_length;		/* y_tilde_s */
 
-	if (!(*ec = kmalloc(size, GFP_KERNEL)))
+	pvt = kzalloc(size, GFP_KERNEL);
+	if (!pvt)
 		return -ENOMEM;
 
-	memset(*ec, 0, size);
+	pvt->dahdi.ops = &my_ops;
 
-	(*ec)->aggressive = aggressive;
+	pvt->aggressive = aggressive;
+	pvt->dahdi.features = my_features;
 
 	for (x = 0; x < ecp->param_count; x++) {
 		for (c = p[x].name; *c; c++)
 			*c = tolower(*c);
 		if (!strcmp(p[x].name, "aggressive")) {
-			(*ec)->aggressive = p[x].value ? 1 : 0;
+			pvt->aggressive = p[x].value ? 1 : 0;
 		} else {
 			printk(KERN_WARNING "Unknown parameter supplied to KB1 echo canceler: '%s'\n", p[x].name);
-			kfree(*ec);
+			kfree(pvt);
 
 			return -EINVAL;
 		}
 	}
 
-	init_cc(*ec, ecp->tap_length, maxy, maxu);
+	init_cc(pvt, ecp->tap_length, maxy, maxu);
+	/* Non-linear processor - a fancy way to say "zap small signals, to avoid
+	   accumulating noise". */
+	pvt->use_nlp = TRUE;
 	
+	*ec = &pvt->dahdi;
 	return 0;
 }
 
-static int echo_can_traintap(struct echo_can_state *ec, int pos, short val)
+static int echo_can_traintap(struct dahdi_echocan_state *ec, int pos, short val)
 {
+	struct ec_pvt *pvt = dahdi_to_pvt(ec);
+
 	/* Set the hangover counter to the length of the can to 
 	 * avoid adjustments occuring immediately after initial forced training 
 	 */
-	ec->HCNTR_d = ec->N_d << 1;
+	pvt->HCNTR_d = pvt->N_d << 1;
 
-	if (pos >= ec->N_d)
+	if (pos >= pvt->N_d)
 		return 1;
 
-	ec->a_i[pos] = val << 17;
-	ec->a_s[pos] = val << 1;
+	pvt->a_i[pos] = val << 17;
+	pvt->a_s[pos] = val << 1;
 
-	if (++pos >= ec->N_d)
+	if (++pos >= pvt->N_d)
 		return 1;
 
 	return 0;
 }
 
-static const struct dahdi_echocan me = {
-	.name = "KB1",
-	.owner = THIS_MODULE,
-	.echo_can_create = echo_can_create,
-	.echo_can_free = echo_can_free,
-	.echo_can_array_update = echo_can_update,
-	.echo_can_traintap = echo_can_traintap,
-};
+static void echocan_NLP_toggle(struct dahdi_echocan_state *ec, unsigned int enable)
+{
+	struct ec_pvt *pvt = dahdi_to_pvt(ec);
+
+	pvt->use_nlp = enable ? 1 : 0;
+}
 
 static int __init mod_init(void)
 {
-	if (dahdi_register_echocan(&me)) {
+	if (dahdi_register_echocan_factory(&my_factory)) {
 		module_printk(KERN_ERR, "could not register with DAHDI core\n");
 
 		return -EPERM;
 	}
 
-	module_printk(KERN_NOTICE, "Registered echo canceler '%s'\n", me.name);
+	module_printk(KERN_NOTICE, "Registered echo canceler '%s'\n", my_factory.name);
 
 	return 0;
 }
 
 static void __exit mod_exit(void)
 {
-	dahdi_unregister_echocan(&me);
+	dahdi_unregister_echocan_factory(&my_factory);
 }
 
 module_param(debug, int, S_IRUGO | S_IWUSR);

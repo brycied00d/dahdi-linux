@@ -36,7 +36,39 @@ static int debug;
 #include "hpec_user.h"
 #include "hpec.h"
 
-static int __attribute__((regparm(0))) __attribute__((format (printf, 1, 2))) logger(const char *format, ...)
+static int echo_can_create(struct dahdi_chan *chan, struct dahdi_echocanparams *ecp,
+			   struct dahdi_echocanparam *p, struct dahdi_echocan_state **ec);
+static void echo_can_free(struct dahdi_chan *chan, struct dahdi_echocan_state *ec);
+static void echo_can_process(struct dahdi_echocan_state *ec, short *isig, const short *iref, __u32 size);
+static int echo_can_traintap(struct dahdi_echocan_state *ec, int pos, short val);
+
+static const struct dahdi_echocan_factory my_factory = {
+	.name = "HPEC",
+	.owner = THIS_MODULE,
+	.echocan_create = echo_can_create,
+};
+
+static const struct dahdi_echocan_features my_features = {
+	.NLP_automatic = 1,
+	.CED_tx_detect = 1,
+	.CED_rx_detect = 1,
+};
+
+static const struct dahdi_echocan_ops my_ops = {
+	.name = "HPEC",
+	.echocan_free = echo_can_free,
+	.echocan_process = echo_can_process,
+	.echocan_traintap = echo_can_traintap,
+};
+
+struct ec_pvt {
+	struct hpec_state *hpec;
+	struct dahdi_echocan_state dahdi;
+};
+
+#define dahdi_to_pvt(a) container_of(a, struct ec_pvt, dahdi)
+
+static int __attribute__((regparm(0), format(printf, 1, 2))) logger(const char *format, ...)
 {
 	int res;
 	va_list args;
@@ -67,37 +99,58 @@ static void memfree(void *ptr)
 	kfree(ptr);
 }
 
-static void echo_can_free(struct echo_can_state *ec)
+static void echo_can_free(struct dahdi_chan *chan, struct dahdi_echocan_state *ec)
 {
-	hpec_channel_free(ec);
+	struct ec_pvt *pvt = dahdi_to_pvt(ec);
+
+	hpec_channel_free(pvt->hpec);
+	kfree(pvt);
 }
 
-static void echo_can_array_update(struct echo_can_state *ec, short *isig, short *iref)
+static void echo_can_process(struct dahdi_echocan_state *ec, short *isig, const short *iref, __u32 size)
 {
-	hpec_channel_update(ec, isig, iref);
+	struct ec_pvt *pvt = dahdi_to_pvt(ec);
+
+	hpec_channel_update(pvt->hpec, isig, iref);
 }
 
 DECLARE_MUTEX(alloc_lock);
 
-static int echo_can_create(struct dahdi_echocanparams *ecp, struct dahdi_echocanparam *p,
-			   struct echo_can_state **ec)
+static int echo_can_create(struct dahdi_chan *chan, struct dahdi_echocanparams *ecp,
+			   struct dahdi_echocanparam *p, struct dahdi_echocan_state **ec)
 {
+	struct ec_pvt *pvt;
+
 	if (ecp->param_count > 0) {
 		printk(KERN_WARNING "HPEC does not support parameters; failing request\n");
 		return -EINVAL;
 	}
 
+	pvt = kzalloc(sizeof(*pvt), GFP_KERNEL);
+	if (!pvt)
+		return -ENOMEM;
+
+	pvt->dahdi.ops = &my_ops;
+	pvt->dahdi.features = my_features;
+
 	if (down_interruptible(&alloc_lock))
 		return -ENOTTY;
 
-	*ec = hpec_channel_alloc(ecp->tap_length);
+	pvt->hpec = hpec_channel_alloc(ecp->tap_length);
 
 	up(&alloc_lock);
 
-	return *ec ? 0 : -ENOTTY;
+	if (!pvt->hpec) {
+		kfree(pvt);
+		*ec = NULL;
+		return -ENOTTY;
+	} else {
+		*ec = &pvt->dahdi;
+		return 0;
+	}
 }
 
-static inline int echo_can_traintap(struct echo_can_state *ec, int pos, short val)
+static int echo_can_traintap(struct dahdi_echocan_state *ec, int pos, short val)
 {
 	return 1;
 }
@@ -135,24 +188,15 @@ static int hpec_license_ioctl(unsigned int cmd, unsigned long data)
 	}
 }
 
-static const struct dahdi_echocan me = {
-	.name = "HPEC",
-	.owner = THIS_MODULE,
-	.echo_can_create = echo_can_create,
-	.echo_can_free = echo_can_free,
-	.echo_can_array_update = echo_can_array_update,
-	.echo_can_traintap = echo_can_traintap,
-};
-
 static int __init mod_init(void)
 {
-	if (dahdi_register_echocan(&me)) {
+	if (dahdi_register_echocan_factory(&my_factory)) {
 		module_printk(KERN_ERR, "could not register with DAHDI core\n");
 
 		return -EPERM;
 	}
 
-	module_printk(KERN_NOTICE, "Registered echo canceler '%s'\n", me.name);
+	module_printk(KERN_NOTICE, "Registered echo canceler '%s'\n", my_factory.name);
 
 	hpec_init(logger, debug, DAHDI_CHUNKSIZE, memalloc, memfree);
 
@@ -163,7 +207,7 @@ static int __init mod_init(void)
 
 static void __exit mod_exit(void)
 {
-	dahdi_unregister_echocan(&me);
+	dahdi_unregister_echocan_factory(&my_factory);
 
 	dahdi_set_hpec_ioctl(NULL);
 

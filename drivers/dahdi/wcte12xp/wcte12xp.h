@@ -127,6 +127,7 @@ struct t1 {
 	unsigned char ec_chunk2[32][DAHDI_CHUNKSIZE];
 	struct dahdi_span span;						/* Span */
 	struct dahdi_chan *chans[32];					/* Channels */
+	struct dahdi_echocan_state *ec[32];				/* Echocan state for channels */
 	unsigned long ctlreg;
 	struct voicebus* vb;
 	atomic_t txints;

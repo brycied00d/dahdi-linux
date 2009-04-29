@@ -40,84 +40,98 @@ static int debug;
 #define module_printk(level, fmt, args...) printk(level "%s: " fmt, THIS_MODULE->name, ## args)
 #define debug_printk(level, fmt, args...) if (debug >= level) printk("%s (%s): " fmt, THIS_MODULE->name, __FUNCTION__, ## args)
 
-struct echo_can_state {
+static int echo_can_create(struct dahdi_chan *chan, struct dahdi_echocanparams *ecp,
+			   struct dahdi_echocanparam *p, struct dahdi_echocan_state **ec);
+static void echo_can_free(struct dahdi_chan *chan, struct dahdi_echocan_state *ec);
+static void echo_can_process(struct dahdi_echocan_state *ec, short *isig, const short *iref, u32 size);
+static int echo_can_traintap(struct dahdi_echocan_state *ec, int pos, short val);
+
+static const struct dahdi_echocan_factory my_factory = {
+	.name = "JPAH",
+	.owner = THIS_MODULE,
+	.echocan_create = echo_can_create,
+};
+
+static const struct dahdi_echocan_ops my_ops = {
+	.name = "JPAH",
+	.echocan_free = echo_can_free,
+	.echocan_process = echo_can_process,
+	.echocan_traintap = echo_can_traintap,
+};
+
+struct ec_pvt {
+	struct dahdi_echocan_state dahdi;
 	int blah;
 };
 
-static int echo_can_create(struct dahdi_echocanparams *ecp, struct dahdi_echocanparam *p,
-			   struct echo_can_state **ec)
+#define dahdi_to_pvt(a) container_of(a, struct ec_pvt, dahdi)
+
+static int echo_can_create(struct dahdi_chan *chan, struct dahdi_echocanparams *ecp,
+			   struct dahdi_echocanparam *p, struct dahdi_echocan_state **ec)
 {
-	unsigned int x;
-	char *c;
+	struct ec_pvt *pvt;
 
-	if ((*ec = kmalloc(sizeof(**ec), GFP_KERNEL))) {
-		memset(ec, 0, sizeof(**ec));
-	}
-
-	for (x = 0; x < ecp->param_count; x++) {
-		for (c = p[x].name; *c; c++)
-			*c = tolower(*c);
-		printk(KERN_WARNING "Unknown parameter supplied to JPAH echo canceler: '%s'\n", p[x].name);
-		kfree(*ec);
-
+	if (ecp->param_count > 0) {
+		printk(KERN_WARNING "JPAH does not support parameters; failing request\n");
 		return -EINVAL;
 	}
 
+	pvt = kzalloc(sizeof(*pvt), GFP_KERNEL);
+	if (!pvt)
+		return -ENOMEM;
+
+	pvt->dahdi.ops = &my_ops;
+
+	*ec = &pvt->dahdi;
 	return 0;
 }
 
-static void echo_can_free(struct echo_can_state *ec)
+static void echo_can_free(struct dahdi_chan *chan, struct dahdi_echocan_state *ec)
 {
-	kfree(ec);
+	struct ec_pvt *pvt = dahdi_to_pvt(ec);
+
+	kfree(pvt);
 }
 
-static void echo_can_update(struct echo_can_state *ec, short *isig, short *iref)
+static void echo_can_process(struct dahdi_echocan_state *ec, short *isig, const short *iref, u32 size)
 {
-	unsigned int x;
+	struct ec_pvt *pvt = dahdi_to_pvt(ec);
+	u32 x;
 
-	for (x = 0; x < DAHDI_CHUNKSIZE; x++) {
-		if (ec->blah < 2) {
-			ec->blah++;
+	for (x = 0; x < size; x++) {
+		if (pvt->blah < 2) {
+			pvt->blah++;
 
 			*isig++ = 0;
 		} else {
-			ec->blah = 0;
+			pvt->blah = 0;
 			
 			isig++;
 		}
 	}
 }
 
-static int echo_can_traintap(struct echo_can_state *ec, int pos, short val)
+static int echo_can_traintap(struct dahdi_echocan_state *ec, int pos, short val)
 {
 	return 0;
 }
 
-static const struct dahdi_echocan me = {
-	.name = "JPAH",
-	.owner = THIS_MODULE,
-	.echo_can_create = echo_can_create,
-	.echo_can_free = echo_can_free,
-	.echo_can_array_update = echo_can_update,
-	.echo_can_traintap = echo_can_traintap,
-};
-
 static int __init mod_init(void)
 {
-	if (dahdi_register_echocan(&me)) {
+	if (dahdi_register_echocan_factory(&my_factory)) {
 		module_printk(KERN_ERR, "could not register with DAHDI core\n");
 
 		return -EPERM;
 	}
 
-	module_printk(KERN_NOTICE, "Registered echo canceler '%s'\n", me.name);
+	module_printk(KERN_NOTICE, "Registered echo canceler '%s'\n", my_factory.name);
 
 	return 0;
 }
 
 static void __exit mod_exit(void)
 {
-	dahdi_unregister_echocan(&me);
+	dahdi_unregister_echocan_factory(&my_factory);
 }
 
 module_param(debug, int, S_IRUGO | S_IWUSR);

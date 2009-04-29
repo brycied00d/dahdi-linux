@@ -293,21 +293,9 @@ vpm_bh_out:
 	return;
 }
 #include "adt_lec.c"
-int vpmadt032_echocan_with_params(struct vpmadt032 *vpm, int channo,
-	struct dahdi_echocanparams *ecp, struct dahdi_echocanparam *p)
+static void vpmadt032_check_and_schedule_update(struct vpmadt032 *vpm, int channo)
 {
 	int update;
-	unsigned int ret;
-
-	ret = adt_lec_parse_params(&vpm->desiredecstate[channo], ecp, p);
-	if (ret)
-		return ret;
-
-	/* The driver cannot control the number of taps on the VPMADT032
-	 * module. Instead, it uses tap_length to enable or disable the echo
-	 * cancellation. */
-	vpm->desiredecstate[channo].tap_length = (ecp->tap_length) ? 1 : 0;
-
 	/* Only update the parameters if the new state of the echo canceller
 	 * is different than the current state. */
 	update = memcmp(&vpm->curecstate[channo],
@@ -322,10 +310,41 @@ int vpmadt032_echocan_with_params(struct vpmadt032 *vpm, int channo,
 		 */
 		schedule_work(&vpm->work);
 	}
+}
+int vpmadt032_echocan_create(struct vpmadt032 *vpm, int channo,
+	struct dahdi_echocanparams *ecp, struct dahdi_echocanparam *p)
+{
+	unsigned int ret;
 
+	ret = adt_lec_parse_params(&vpm->desiredecstate[channo], ecp, p);
+	if (ret)
+		return ret;
+
+	if (vpm->options.debug & DEBUG_ECHOCAN)
+		printk(KERN_DEBUG "echocan: Channel is %d length %d\n", channo, ecp->tap_length);
+
+	/* The driver cannot control the number of taps on the VPMADT032
+	 * module. Instead, it uses tap_length to enable or disable the echo
+	 * cancellation. */
+	vpm->desiredecstate[channo].tap_length = (ecp->tap_length) ? 1 : 0;
+
+	vpmadt032_check_and_schedule_update(vpm, channo);
 	return 0;
 }
-EXPORT_SYMBOL(vpmadt032_echocan_with_params);
+EXPORT_SYMBOL(vpmadt032_echocan_create);
+
+void vpmadt032_echocan_free(struct vpmadt032 *vpm, struct dahdi_chan *chan,
+	struct dahdi_echocan_state *ec)
+{
+	int channo = chan->chanpos - 1;
+	adt_lec_init_defaults(&vpm->desiredecstate[channo], 0);
+
+	if (vpm->options.debug & DEBUG_ECHOCAN)
+		printk(KERN_DEBUG "echocan: Channel is %d length 0\n", channo);
+
+	vpmadt032_check_and_schedule_update(vpm, channo);
+}
+EXPORT_SYMBOL(vpmadt032_echocan_free);
 
 struct vpmadt032 *vpmadt032_alloc(struct vpmadt032_options *options)
 {

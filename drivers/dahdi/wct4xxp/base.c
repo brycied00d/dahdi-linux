@@ -283,6 +283,7 @@ struct t4_span {
 	struct work_struct swork;
 #endif	
 	struct dahdi_chan *chans[32];		/* Individual channels */
+	struct dahdi_echocan_state *ec[32];	/* Echocan state for each channel */
 };
 
 struct t4 {
@@ -345,12 +346,38 @@ struct t4 {
 
 #define T4_VPM_PRESENT (1 << 28)
 
-
 #ifdef VPM_SUPPORT
 static void t4_vpm400_init(struct t4 *wc);
 static void t4_vpm450_init(struct t4 *wc);
 static void t4_vpm_set_dtmf_threshold(struct t4 *wc, unsigned int threshold);
+
+static int echocan_create(struct dahdi_chan *chan, struct dahdi_echocanparams *ecp,
+			   struct dahdi_echocanparam *p, struct dahdi_echocan_state **ec);
+static void echocan_free(struct dahdi_chan *chan, struct dahdi_echocan_state *ec);
+
+static const struct dahdi_echocan_features vpm400m_ec_features = {
+	.NLP_automatic = 1,
+	.CED_tx_detect = 1,
+	.CED_rx_detect = 1,
+};
+
+static const struct dahdi_echocan_features vpm450m_ec_features = {
+	.NLP_automatic = 1,
+	.CED_tx_detect = 1,
+	.CED_rx_detect = 1,
+};
+
+static const struct dahdi_echocan_ops vpm400m_ec_ops = {
+	.name = "VPM400M",
+	.echocan_free = echocan_free,
+};
+
+static const struct dahdi_echocan_ops vpm450m_ec_ops = {
+	.name = "VPM450M",
+	.echocan_free = echocan_free,
+};
 #endif
+
 static void __set_clear(struct t4 *wc, int span);
 static int t4_startup(struct dahdi_span *span);
 static int t4_shutdown(struct dahdi_span *span);
@@ -1089,42 +1116,83 @@ static int t4_vpm_unit(int span, int channel)
 	return unit;
 }
 
-static int t4_echocan(struct dahdi_chan *chan, int eclen)
+static int echocan_create(struct dahdi_chan *chan, struct dahdi_echocanparams *ecp,
+			  struct dahdi_echocanparam *p, struct dahdi_echocan_state **ec)
 {
 	struct t4 *wc = chan->pvt;
+	struct t4_span *tspan = chan->span->pvt;
 	int channel;
-	int unit;
-	
+	const struct dahdi_echocan_ops *ops;
+	const struct dahdi_echocan_features *features;
+
 	if (!wc->vpm)
 		return -ENODEV;
 
 	if (chan->span->offset >= vpmspans)
 		return -ENODEV;
 
-	if (wc->t1e1)
-		channel = chan->chanpos;
-	else
-		channel = chan->chanpos + 4;
+	if (wc->vpm450m) {
+		ops = &vpm450m_ec_ops;
+		features = &vpm450m_ec_features;
+	} else {
+		ops = &vpm400m_ec_ops;
+		features = &vpm400m_ec_features;
+	}
+
+	if (ecp->param_count > 0) {
+		printk(KERN_WARNING "%s echo canceller does not support parameters; failing request\n", ops->name);
+		return -EINVAL;
+	}
+
+	*ec = tspan->ec[chan->chanpos - 1];
+	(*ec)->ops = ops;
+	(*ec)->features = *features;
+
+	channel = wc->t1e1 ? chan->chanpos : chan->chanpos + 4;
+
 	if (wc->vpm450m) {
 		channel = channel << 2;
 		channel |= chan->span->offset;
-		if(debug & DEBUG_ECHOCAN) 
+		if (debug & DEBUG_ECHOCAN)
 			printk(KERN_DEBUG "echocan: Card is %d, Channel is %d, Span is %d, offset is %d length %d\n", 
-				wc->num, chan->chanpos, chan->span->offset, channel, eclen);
-		vpm450m_setec(wc->vpm450m, channel, eclen);
-// Mark		msleep(10);
-//		msleep(100); // longer test
+			       wc->num, chan->chanpos, chan->span->offset, channel, ecp->tap_length);
+		vpm450m_setec(wc->vpm450m, channel, ecp->tap_length);
 	} else {
-		unit = t4_vpm_unit(chan->span->offset, channel);
-		if(debug & DEBUG_ECHOCAN) 
+		int unit = t4_vpm_unit(chan->span->offset, channel);
+
+		if (debug & DEBUG_ECHOCAN)
 			printk(KERN_DEBUG "echocan: Card is %d, Channel is %d, Span is %d, unit is %d, unit offset is %d length %d\n", 
-				wc->num, chan->chanpos, chan->span->offset, unit, channel, eclen);
-		if (eclen)
-			t4_vpm_out(wc,unit,channel,0x3e);
-		else
-			t4_vpm_out(wc,unit,channel,0x01);
+			       wc->num, chan->chanpos, chan->span->offset, unit, channel, ecp->tap_length);
+		t4_vpm_out(wc, unit, channel, 0x3e);
 	}
+
 	return 0;
+}
+
+static void echocan_free(struct dahdi_chan *chan, struct dahdi_echocan_state *ec)
+{
+	struct t4 *wc = chan->pvt;
+	int channel;
+
+	memset(ec, 0, sizeof(*ec));
+
+	channel = wc->t1e1 ? chan->chanpos : chan->chanpos + 4;
+
+	if (wc->vpm450m) {
+		channel = channel << 2;
+		channel |= chan->span->offset;
+		if (debug & DEBUG_ECHOCAN)
+			printk(KERN_DEBUG "echocan: Card is %d, Channel is %d, Span is %d, offset is %d length 0\n",
+			       wc->num, chan->chanpos, chan->span->offset, channel);
+		vpm450m_setec(wc->vpm450m, channel, 0);
+	} else {
+		int unit = t4_vpm_unit(chan->span->offset, channel);
+
+		if (debug & DEBUG_ECHOCAN)
+			printk(KERN_DEBUG "echocan: Card is %d, Channel is %d, Span is %d, unit is %d, unit offset is %d length 0\n",
+			       wc->num, chan->chanpos, chan->span->offset, unit, channel);
+		t4_vpm_out(wc, unit, channel, 0x01);
+	}
 }
 #endif
 
@@ -1593,7 +1661,7 @@ static void init_spans(struct t4 *wc)
 		ts->span.hdlc_hard_xmit = t4_hdlc_hard_xmit;
 		if (gen2) {
 #ifdef VPM_SUPPORT
-			ts->span.echocan = t4_echocan;
+			ts->span.echocan_create = echocan_create;
 #endif			
 			ts->span.dacs = t4_dacs;
 		}
@@ -3494,6 +3562,8 @@ static void free_wc(struct t4 *wc)
 			if (wc->tspans[x]->chans[y]) {
 				kfree(wc->tspans[x]->chans[y]);
 			}
+			if (wc->tspans[x]->ec[y])
+				kfree(wc->tspans[x]->ec[y]);
 		}
 		kfree(wc->tspans[x]);
 	}
@@ -3630,6 +3700,11 @@ static int __devinit t4_init_one(struct pci_dev *pdev, const struct pci_device_i
 				return -ENOMEM;
 			}
 			memset(wc->tspans[x]->chans[f], 0, sizeof(*wc->tspans[x]->chans[f]));
+			if (!(wc->tspans[x]->ec[f] = kmalloc(sizeof(*wc->tspans[x]->ec[f]), GFP_KERNEL))) {
+				free_wc(wc);
+				return -ENOMEM;
+			}
+			memset(wc->tspans[x]->ec[f], 0, sizeof(*wc->tspans[x]->ec[f]));
 		}
 
 #ifdef ENABLE_WORKQUEUES

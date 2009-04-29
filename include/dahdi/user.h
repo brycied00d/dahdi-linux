@@ -410,6 +410,24 @@ enum {
 /* No neon MWI pulses were detected over some period of time */
 #define DAHDI_EVENT_NEONMWI_INACTIVE	22
 
+/* A CED tone was detected on the channel in the transmit direction */
+#define DAHDI_EVENT_TX_CED_DETECTED	23
+
+/* A CED tone was detected on the channel in the receive direction */
+#define DAHDI_EVENT_RX_CED_DETECTED	24
+
+/* A CNG tone was detected on the channel in the transmit direction */
+#define DAHDI_EVENT_TX_CNG_DETECTED	25
+
+/* A CNG tone was detected on the channel in the receive direction */
+#define DAHDI_EVENT_RX_CNG_DETECTED	26
+
+/* The echo canceler's NLP (only) was disabled */
+#define DAHDI_EVENT_EC_NLP_DISABLED	27
+
+/* The echo canceler's NLP (only) was enabled */
+#define DAHDI_EVENT_EC_NLP_ENABLED	28
+
 #define DAHDI_EVENT_PULSEDIGIT		(1 << 16)	/* This is OR'd with the digit received */
 #define DAHDI_EVENT_DTMFDOWN		(1 << 17)	/* Ditto for DTMF key down event */
 #define DAHDI_EVENT_DTMFUP		(1 << 18)	/* Ditto for DTMF key up event */
@@ -1002,8 +1020,11 @@ struct dahdi_vmwi_info {
 #define DAHDI_STARTUP			_IOW(DAHDI_CODE, 99, int)
 #define DAHDI_SHUTDOWN			_IOW(DAHDI_CODE, 100, int)
 
-
 #define DAHDI_HDLC_RATE			_IOW(DAHDI_CODE, 101, int)
+
+/* Put a channel's echo canceller into 'FAX mode' if possible */
+
+#define DAHDI_ECHOCANCEL_FAX_MODE	_IOW(DAHDI_CODE, 102, int)
 
 struct torisa_debug {
 	unsigned int txerrors;
