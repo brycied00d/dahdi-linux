@@ -1794,8 +1794,8 @@ found:
 				__t4_update_timing(cards[x]);
 			}
 		}
-	} else
-		set_bit(T4_CHECK_TIMING, &cards[0]->checkflag);
+	}
+	__t4_update_timing(wc);
 #endif	
 	spin_unlock_irqrestore(&synclock, flags);
 	return 0;
