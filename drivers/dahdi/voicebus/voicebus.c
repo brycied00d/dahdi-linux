@@ -34,8 +34,12 @@
 #include <linux/delay.h>
 #include <linux/interrupt.h>
 #include <linux/timer.h>
+#include <linux/module.h>
 
+#include <dahdi/kernel.h>
 #include "voicebus.h"
+#include "vpmadtreg.h"
+#include "GpakCust.h"
 
 #define assert(__x__) BUG_ON(!(__x__))
 
@@ -365,6 +369,42 @@ voicebus_set_minlatency(struct voicebus *vb, unsigned int ms)
 	VBUNLOCK(vb);
 	return 0;
 }
+EXPORT_SYMBOL(voicebus_set_minlatency);
+
+void
+voicebus_get_handlers(struct voicebus *vb, void **handle_receive,
+	void **handle_transmit, void **context)
+{
+	LOCKS_VOICEBUS;
+	BUG_ON(!handle_receive);
+	BUG_ON(!handle_transmit);
+	BUG_ON(!context);
+	VBLOCK(vb);
+	*handle_receive = vb->handle_receive;
+	*handle_transmit = vb->handle_transmit;
+	*context = vb->context;
+	VBUNLOCK(vb);
+	return;
+}
+EXPORT_SYMBOL(voicebus_get_handlers);
+
+void
+voicebus_set_handlers(struct voicebus *vb,
+	void (*handle_receive)(void *buffer, void *context),
+	void (*handle_transmit)(void *buffer, void *context),
+	void *context)
+{
+	LOCKS_VOICEBUS;
+	BUG_ON(!handle_receive);
+	BUG_ON(!handle_transmit);
+	BUG_ON(!context);
+	VBLOCK(vb);
+	vb->handle_receive = handle_receive;
+	vb->handle_transmit = handle_transmit;
+	vb->context = context;
+	VBUNLOCK(vb);
+}
+EXPORT_SYMBOL(voicebus_set_handlers);
 
 /*! \brief Returns the number of buffers currently on the transmit queue. */
 int
@@ -377,6 +417,7 @@ voicebus_current_latency(struct voicebus *vb)
 	VBUNLOCK(vb);
 	return latency;
 }
+EXPORT_SYMBOL(voicebus_current_latency);
 
 /*!
  * \brief Read one of the hardware control registers without acquiring locks.
@@ -549,12 +590,14 @@ voicebus_setdebuglevel(struct voicebus *vb, u32 level)
 {
 	atomic_set(&vb->debuglevel, level);
 }
+EXPORT_SYMBOL(voicebus_setdebuglevel);
 
 int
 voicebus_getdebuglevel(struct voicebus *vb)
 {
 	return atomic_read(&vb->debuglevel);
 }
+EXPORT_SYMBOL(voicebus_getdebuglevel);
 
 /*! \brief Resets the voicebus hardware interface. */
 static int
@@ -732,6 +775,7 @@ voicebus_transmit(struct voicebus *vb, void *vbb)
 {
 	return vb_submit(vb, &vb->txd, vbb);
 }
+EXPORT_SYMBOL(voicebus_transmit);
 
 /*!
  * \brief Give a frame to the hardware to use for receiving.
@@ -931,6 +975,7 @@ voicebus_start(struct voicebus *vb)
 
 	return 0;
 }
+EXPORT_SYMBOL(voicebus_start);
 
 static void
 vb_clear_start_transmit_bit(struct voicebus *vb)
@@ -1016,6 +1061,7 @@ voicebus_stop(struct voicebus *vb)
 
 	return 0;
 }
+EXPORT_SYMBOL(voicebus_stop);
 
 /*!
  * \brief Prepare the interface for module unload.
@@ -1051,6 +1097,7 @@ voicebus_release(struct voicebus *vb)
 	pci_disable_device(vb->pdev);
 	kfree(vb);
 }
+EXPORT_SYMBOL(voicebus_release);
 
 static void
 __vb_increase_latency(struct voicebus *vb)
@@ -1467,6 +1514,7 @@ cleanup:
 	assert(0 != retval);
 	return retval;
 }
+EXPORT_SYMBOL(voicebus_init);
 
 
 /*! \brief Return the pci_dev in use by this voicebus interface. */
@@ -1475,3 +1523,106 @@ voicebus_get_pci_dev(struct voicebus *vb)
 {
 	return vb->pdev;
 }
+EXPORT_SYMBOL(voicebus_get_pci_dev);
+
+static spinlock_t loader_list_lock;
+static struct list_head binary_loader_list;
+
+/**
+ * vpmadtreg_loadfirmware - Load the vpmadt032 firmware.
+ * @vb: The voicebus device to load.
+ */
+int vpmadtreg_loadfirmware(struct voicebus *vb)
+{
+	struct vpmadt_loader *loader;
+	int ret = 0;
+	int loader_present = 0;
+	might_sleep();
+
+	/* First check to see if a loader is already loaded into memory. */
+	spin_lock(&loader_list_lock);
+	loader_present = !(list_empty(&binary_loader_list));
+	spin_unlock(&loader_list_lock);
+
+	if (!loader_present) {
+		ret = request_module("dahdi_vpmadt032_loader");
+		if (ret)
+			return ret;
+	}
+
+	spin_lock(&loader_list_lock);
+	if (!list_empty(&binary_loader_list)) {
+		loader = list_entry(binary_loader_list.next,
+				struct vpmadt_loader, node);
+		if (try_module_get(loader->owner)) {
+			spin_unlock(&loader_list_lock);
+			ret = loader->load(vb);
+			module_put(loader->owner);
+		} else {
+			spin_unlock(&loader_list_lock);
+			printk(KERN_INFO "Failed to find a registered loader after loading module.\n");
+			ret = -ENODEV;
+		}
+	} else {
+		spin_unlock(&loader_list_lock);
+		printk(KERN_INFO "Failed to find a registered loader after loading module.\n");
+		ret = -1;
+	}
+	return ret;
+}
+
+/* Called by the binary loader module when it is ready to start loading
+ * firmware. */
+int vpmadtreg_register(struct vpmadt_loader *loader)
+{
+	spin_lock(&loader_list_lock);
+	list_add_tail(&loader->node, &binary_loader_list);
+	spin_unlock(&loader_list_lock);
+	return 0;
+}
+EXPORT_SYMBOL(vpmadtreg_register);
+
+int vpmadtreg_unregister(struct vpmadt_loader *loader)
+{
+	int removed = 0;
+	struct vpmadt_loader *cur, *temp;
+	list_for_each_entry_safe(cur, temp, &binary_loader_list, node) {
+		if (loader == cur) {
+			list_del_init(&cur->node);
+			removed = 1;
+			break;
+		}
+	}
+	WARN_ON(!removed);
+	return 0;
+}
+EXPORT_SYMBOL(vpmadtreg_unregister);
+
+int __init voicebus_module_init(void)
+{
+	int res;
+	/* This registration with dahdi.ko will fail since the span is not
+	 * defined, but it will make sure that this module is a dependency of
+	 * dahdi.ko, so that when it is being unloded, this module will be
+	 * unloaded as well.
+	 */
+	dahdi_register(0, 0);
+	INIT_LIST_HEAD(&binary_loader_list);
+	spin_lock_init(&loader_list_lock);
+	res = vpmadt032_module_init();
+	if (res)
+		return res;
+	return 0;
+}
+
+void __exit voicebus_module_cleanup(void)
+{
+	WARN_ON(!list_empty(&binary_loader_list));
+}
+
+MODULE_DESCRIPTION("Voicebus Interface w/VPMADT032 support");
+MODULE_AUTHOR("Digium Incorporated <support@digium.com>");
+MODULE_LICENSE("GPL");
+
+module_init(voicebus_module_init);
+module_exit(voicebus_module_cleanup);

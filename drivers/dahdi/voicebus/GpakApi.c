@@ -32,15 +32,6 @@
  * this program for more details.
  */
 
-#include <linux/version.h>
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,26)
-#include <linux/semaphore.h>
-#else
-#include <asm/semaphore.h>
-#endif
-
-#include <dahdi/kernel.h>
-
 #include "GpakHpi.h"
 #include "GpakCust.h"
 #include "GpakApi.h"
@@ -133,11 +124,6 @@ static int CheckDspReset(
     DSP_WORD DspStatus;      /* DSP Status */
     DSP_WORD DspChannels;    /* number of DSP channels */
     DSP_WORD  Temp[2];
-#if 0
-    DSP_WORD DspConfs;       /* number of DSP conferences */
-    DSP_ADDRESS PktBufrMem;  /* address of Packet Buffer */
-    unsigned short int i;    /* loop index / counter */
-#endif
 
     /* Read the pointer to the Interface Block. */
     gpakReadDspMemory(DspId, DSP_IFBLK_ADDRESS, 2, Temp);
@@ -170,38 +156,6 @@ static int CheckDspReset(
             MaxChannels[DspId] = MAX_CHANNELS;
         else
             MaxChannels[DspId] = (unsigned short int) DspChannels;
-#if 0
-        /* read the number of configured DSP conferences */
-        gpakReadDspMemory(DspId, IfBlockPntr + NUM_CONFERENCES_OFFSET, 1,
-                          &DspConfs);
-        if (DspConfs > MAX_CONFS)
-            MaxConfs[DspId] = MAX_CONFS;
-        else
-            MaxConfs[DspId] = (unsigned short int) DspConfs;
-
-
-        /* read the number of configured DSP packet channels */
-        gpakReadDspMemory(DspId, IfBlockPntr + NUM_PKT_CHANNELS_OFFSET, 1,
-                          &DspChannels);
-        if (DspChannels > MAX_PKT_CHANNELS)
-            MaxPktChannels[DspId] = MAX_PKT_CHANNELS;
-        else
-            MaxPktChannels[DspId] = (unsigned short int) DspChannels;
-
-
-        /* read the pointer to the circular buffer infor struct table */
-        gpakReadDspMemory(DspId, IfBlockPntr + PKT_BUFR_MEM_OFFSET, 2, Temp);
-        RECONSTRUCT_LONGWORD(PktBufrMem, Temp);
-
-
-        /* Determine the addresses of each channel's Packet buffers. */
-        for (i = 0; i < MaxPktChannels[DspId]; i++)
-        {
-            pPktInBufr[DspId][i] = PktBufrMem;
-            pPktOutBufr[DspId][i] = PktBufrMem + CIRC_BUFFER_INFO_STRUCT_SIZE;
-            PktBufrMem += (CIRC_BUFFER_INFO_STRUCT_SIZE*2);
-        }
-#endif
 
         /* read the pointer to the event fifo info struct */
         gpakReadDspMemory(DspId, IfBlockPntr + EVENT_MSG_PNTR_OFFSET, 2, Temp);
@@ -515,7 +469,7 @@ static unsigned int TransactCmd(
  */
 gpakConfigPortStatus_t gpakConfigurePorts(
     unsigned short int DspId,       /* DSP Id (0 to MaxDSPCores-1) */
-    GpakPortConfig_t *pPortConfig,  /* pointer to Port Config info */
+    const GpakPortConfig_t *pPortConfig,  /* pointer to Port Config info */
     GPAK_PortConfigStat_t *pStatus  /* pointer to Port Config Status */
     )
 {
@@ -566,7 +520,7 @@ gpakConfigPortStatus_t gpakConfigurePorts(
                     ((pPortConfig->RxFrameSyncPolarity2 << 4) & 0x0010) |
                     ((pPortConfig->TxFrameSyncPolarity2 << 3) & 0x0008) |
                     ((pPortConfig->CompandingMode2 << 1) & 0x0006) |
-                    (pPortConfig->SerialWordSize1 & 0x0001));
+                    (pPortConfig->SerialWordSize2 & 0x0001));
 
     MsgBuffer[12] = (DSP_WORD)
                    (((pPortConfig->DxDelay3 << 11) & 0x0800) |
@@ -614,6 +568,7 @@ gpakConfigPortStatus_t gpakConfigurePorts(
     else
         return (CpsParmError);
 }
+EXPORT_SYMBOL(gpakConfigurePorts);
 
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -739,7 +694,22 @@ gpakConfigChanStatus_t gpakConfigureChannel(
         MsgBuffer[34]  = (DSP_WORD)
                          pChanConfig->EcanParametersB.EcanFirSegmentLen;   
 
-        MsgLength = 70; // byte number == 35*2 
+        MsgBuffer[35] = (DSP_WORD)
+                       (
+                       ((pChanConfig->EcanParametersB.EcanReconvergenceCheckEnable <<5) & 0x20)  |
+                       ((pChanConfig->EcanParametersA.EcanReconvergenceCheckEnable <<4) & 0x10)  |
+                       ((pChanConfig->EcanParametersB.EcanTandemOperationEnable <<3) & 0x8)  |
+                       ((pChanConfig->EcanParametersA.EcanTandemOperationEnable <<2) & 0x4)  |
+                       ((pChanConfig->EcanParametersB.EcanMixedFourWireMode << 1) & 0x2) | 
+                        (pChanConfig->EcanParametersA.EcanMixedFourWireMode & 1)
+                        );
+        MsgBuffer[36]  = (DSP_WORD)
+                         pChanConfig->EcanParametersA.EcanMaxDoubleTalkThres;   
+
+        MsgBuffer[37]  = (DSP_WORD)
+                         pChanConfig->EcanParametersB.EcanMaxDoubleTalkThres;   
+
+        MsgLength = 76; // byte number == 38*2 
         break;
 
 
@@ -766,6 +736,7 @@ gpakConfigChanStatus_t gpakConfigureChannel(
     else
         return (CcsParmError);
 }
+EXPORT_SYMBOL(gpakConfigureChannel);
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
  * gpakTearDownChannel - Tear Down a DSP's Channel.
@@ -858,6 +829,7 @@ gpakAlgControlStat_t gpakAlgControl(
         return (AcParmError);
 
 }
+EXPORT_SYMBOL(gpakAlgControl);
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
  * gpakReadEventFIFOMessage - read from the event fifo
@@ -895,9 +867,6 @@ gpakReadEventFIFOMessageStat_t gpakReadEventFIFOMessage(
     DSP_WORD TakeIndex;     /* event fifo take index */
     DSP_WORD WordsReady;    /* number words ready for read out of event fifo */
     DSP_WORD EventError;    /* flag indicating error with event fifo msg  */
-#if 0
-    DSP_WORD *pDebugData;   /* debug data buffer pointer in event data struct */
-#endif
 
     /* Make sure the DSP Id is valid. */
     if (DspId >= MAX_DSP_CORES)
@@ -917,7 +886,7 @@ gpakReadEventFIFOMessageStat_t gpakReadEventFIFOMessage(
     EventInfoAddress = pEventFifoAddress[DspId];
     gpakReadDspMemory(DspId, EventInfoAddress, CIRC_BUFFER_INFO_STRUCT_SIZE, 
                                                                  WordBuffer);
-	RECONSTRUCT_LONGWORD(BufrBaseAddress, ((DSP_WORD *)&WordBuffer[CB_BUFR_BASE]));
+    RECONSTRUCT_LONGWORD(BufrBaseAddress, ((DSP_WORD *)&WordBuffer[CB_BUFR_BASE]));
     BufrSize = WordBuffer[CB_BUFR_SIZE];
     PutIndex = WordBuffer[CB_BUFR_PUT_INDEX];
     TakeIndex = WordBuffer[CB_BUFR_TAKE_INDEX];
@@ -952,9 +921,6 @@ gpakReadEventFIFOMessageStat_t gpakReadEventFIFOMessage(
             if (EventDataLength > WORD_BUFFER_SIZE)
             {
                 gpakUnlockAccess(DspId);
-#if 0
-		printk(KERN_DEBUG "EventDataLength > WORD_BUFFER_SIZE (%d)\n", EventDataLength);
-#endif
                 return (RefInvalidEvent);
             }
             ReadCircBuffer(DspId, BufrBaseAddress, BufrLastAddress, &TakeAddress,
@@ -967,18 +933,11 @@ gpakReadEventFIFOMessageStat_t gpakReadEventFIFOMessage(
             TakeIndex += EventDataLength;
             if (TakeIndex >= BufrSize)
                 TakeIndex -= BufrSize;
-            if (EventDataLength != 4) {
-#if 0
-		    printk(KERN_DEBUG "EventDataLength != 4 it's %d\n", EventDataLength);
-#endif
+            if (EventDataLength != 4)
                 EventError = 1;
-	    }
             break;
 
         default:
-#if 0
-	    printk(KERN_DEBUG "Event Code not in switch\n");
-#endif
             EventError = 1;
             break;
     };
@@ -1041,6 +1000,7 @@ gpakPingDspStat_t gpakPingDsp(
     else
         return (PngDspCommFailure);
 }
+EXPORT_SYMBOL(gpakPingDsp);
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
  * gpakSerialTxFixedValue - transmit a fixed value on a timeslot
@@ -1265,7 +1225,7 @@ gpakReadFramingStatsStatus_t gpakReadFramingStats(
     *pFramingError3Count = ReadBuffer[2];
     *pDmaStopErrorCount  = ReadBuffer[3];
     
-    if(pDmaSlipStatsBuffer != NULL) 
+    if(pDmaSlipStatsBuffer != 0) 
     // If users want to get the DMA slips count
     {
 	    pDmaSlipStatsBuffer[0] = ReadBuffer[4];

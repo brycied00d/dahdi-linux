@@ -1,18 +1,5 @@
 obj-$(DAHDI_BUILD_ALL)$(CONFIG_DAHDI_WCTE12XP) += wcte12xp.o
 
-FIRM_DIR	:= ../firmware
-
 EXTRA_CFLAGS += -I$(src)/.. -Wno-undef
 
-ifeq ($(HOTPLUG_FIRMWARE),yes)
-  EXTRA_CFLAGS+=-DHOTPLUG_FIRMWARE
-endif
-
-wcte12xp-objs := base.o vpmadt032.o GpakApi.o voicebus.o
-
-ifneq ($(HOTPLUG_FIRMWARE),yes)
-wcte12xp-objs += $(FIRM_DIR)/dahdi-fw-vpmadt032.o
-endif
-
-$(obj)/$(FIRM_DIR)/dahdi-fw-vpmadt032.o: $(obj)/base.o
-	$(MAKE) -C $(obj)/$(FIRM_DIR) dahdi-fw-vpmadt032.o
+wcte12xp-objs := base.o
