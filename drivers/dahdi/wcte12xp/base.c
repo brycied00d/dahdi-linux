@@ -41,15 +41,13 @@
 
 #include <dahdi/kernel.h>
 
-#include "../wct4xxp/wct4xxp.h"	/* For certain definitions */
+#include "wct4xxp/wct4xxp.h"	/* For certain definitions */
 
-#include "../voicebus.h"
+#include "voicebus/voicebus.h"
 #include "wcte12xp.h"
 
-#if defined(VPM_SUPPORT)
-#include "vpmadt032.h"
-#include "GpakApi.h"
-#endif
+#include "voicebus/GpakCust.h"
+#include "voicebus/GpakApi.h"
 
 struct pci_driver te12xp_driver;
 
@@ -60,14 +58,11 @@ static int loopback = 0;
 static int t1e1override = -1;
 static int unchannelized = 0;
 static int latency = VOICEBUS_DEFAULT_LATENCY;
-#ifdef VPM_SUPPORT
 int vpmsupport = 1;
-int vpmdtmfsupport = 0;
 static int vpmtsisupport = 0;
-int vpmnlptype = 1;
+int vpmnlptype = 3;
 int vpmnlpthresh = 24;
 int vpmnlpmaxsupp = 0;
-#endif
 
 struct t1 *ifaces[WC_MAX_IFACES];
 spinlock_t ifacelock = SPIN_LOCK_UNLOCKED;
@@ -203,6 +198,329 @@ static inline void cmd_decipher(struct t1 *wc, volatile unsigned char *readchunk
 		}
 	}
 	spin_unlock_irqrestore(&wc->cmd_list_lock, flags);
+}
+
+inline void cmd_decipher_vpmadt032(struct t1 *wc, unsigned char *readchunk)
+{
+	unsigned long flags;
+	struct vpmadt032 *vpm = wc->vpmadt032;
+	struct vpmadt032_cmd *cmd;
+
+	BUG_ON(!vpm);
+
+	/* If the hardware is not processing any commands currently, then
+	 * there is nothing for us to do here. */
+	if (list_empty(&vpm->active_cmds)) {
+		return;
+	}
+
+	spin_lock_irqsave(&vpm->list_lock, flags);
+	cmd = list_entry(vpm->active_cmds.next, struct vpmadt032_cmd, node);
+	if (wc->rxident == cmd->txident) {
+		list_del_init(&cmd->node);
+	} else {
+		cmd = NULL;
+	}
+	spin_unlock_irqrestore(&vpm->list_lock, flags);
+
+	if (!cmd) {
+		return;
+	}
+
+	/* Skip audio */
+	readchunk += 66;
+
+	/* Store result */
+	cmd->data  = (0xff & readchunk[CMD_BYTE(2, 1, 1)]) << 8;
+	cmd->data |= readchunk[CMD_BYTE(2, 2, 1)];
+	if (cmd->desc & __VPM150M_WR) {
+		/* Writes do not need any acknowledgement */
+		list_add_tail(&cmd->node, &vpm->free_cmds);
+	} else {
+		cmd->desc |= __VPM150M_FIN;
+		complete(&cmd->complete);
+	}
+}
+
+static int config_vpmadt032(struct vpmadt032 *vpm)
+{
+	int res, channel;
+	GpakPortConfig_t portconfig = {0};
+	gpakConfigPortStatus_t configportstatus;
+	GPAK_PortConfigStat_t pstatus;
+	GpakChannelConfig_t chanconfig;
+	GPAK_ChannelConfigStat_t cstatus;
+	GPAK_AlgControlStat_t algstatus;
+
+	/* First Serial Port config */
+	portconfig.SlotsSelect1 = SlotCfgNone;
+	portconfig.FirstBlockNum1 = 0;
+	portconfig.FirstSlotMask1 = 0x0000;
+	portconfig.SecBlockNum1 = 1;
+	portconfig.SecSlotMask1 = 0x0000;
+	portconfig.SerialWordSize1 = SerWordSize8;
+	portconfig.CompandingMode1 = cmpNone;
+	portconfig.TxFrameSyncPolarity1 = FrameSyncActHigh;
+	portconfig.RxFrameSyncPolarity1 = FrameSyncActHigh;
+	portconfig.TxClockPolarity1 = SerClockActHigh;
+	portconfig.RxClockPolarity1 = SerClockActHigh;
+	portconfig.TxDataDelay1 = DataDelay0;
+	portconfig.RxDataDelay1 = DataDelay0;
+	portconfig.DxDelay1 = Disabled;
+	portconfig.ThirdSlotMask1 = 0x0000;
+	portconfig.FouthSlotMask1 = 0x0000;
+	portconfig.FifthSlotMask1 = 0x0000;
+	portconfig.SixthSlotMask1 = 0x0000;
+	portconfig.SevenSlotMask1 = 0x0000;
+	portconfig.EightSlotMask1 = 0x0000;
+
+	/* Second Serial Port config */
+	portconfig.SlotsSelect2 = SlotCfg8Groups;
+	portconfig.FirstBlockNum2 = 0;
+	portconfig.FirstSlotMask2 = 0x5554;
+	portconfig.SecBlockNum2 = 1;
+	portconfig.SecSlotMask2 = 0x5555;
+	portconfig.ThirdSlotMask2 = 0x5555;
+	portconfig.FouthSlotMask2 = 0x5555;
+	portconfig.SerialWordSize2 = SerWordSize8;
+	portconfig.CompandingMode2 = cmpNone;
+	portconfig.TxFrameSyncPolarity2 = FrameSyncActHigh;
+	portconfig.RxFrameSyncPolarity2 = FrameSyncActHigh;
+	portconfig.TxClockPolarity2 = SerClockActHigh;
+	portconfig.RxClockPolarity2 = SerClockActHigh;
+	portconfig.TxDataDelay2 = DataDelay0;
+	portconfig.RxDataDelay2 = DataDelay0;
+	portconfig.DxDelay2 = Disabled;
+	portconfig.FifthSlotMask2 = 0x0001;
+	portconfig.SixthSlotMask2 = 0x0000;
+	portconfig.SevenSlotMask2 = 0x0000;
+	portconfig.EightSlotMask2 = 0x0000;
+
+	/* Third Serial Port Config */
+	portconfig.SlotsSelect3 = SlotCfg8Groups;
+	portconfig.FirstBlockNum3 = 0;
+	portconfig.FirstSlotMask3 = 0x5554;
+	portconfig.SecBlockNum3 = 1;
+	portconfig.SecSlotMask3 = 0x5555;
+	portconfig.SerialWordSize3 = SerWordSize8;
+	portconfig.CompandingMode3 = cmpNone;
+	portconfig.TxFrameSyncPolarity3 = FrameSyncActHigh;
+	portconfig.RxFrameSyncPolarity3 = FrameSyncActHigh;
+	portconfig.TxClockPolarity3 = SerClockActHigh;
+	portconfig.RxClockPolarity3 = SerClockActLow;
+	portconfig.TxDataDelay3 = DataDelay0;
+	portconfig.RxDataDelay3 = DataDelay0;
+	portconfig.DxDelay3 = Disabled;
+	portconfig.ThirdSlotMask3 = 0x5555;
+	portconfig.FouthSlotMask3 = 0x5555;
+	portconfig.FifthSlotMask3 = 0x0001;
+	portconfig.SixthSlotMask3 = 0x0000;
+	portconfig.SevenSlotMask3 = 0x0000;
+	portconfig.EightSlotMask3 = 0x0000;
+
+	if ((configportstatus = gpakConfigurePorts(vpm->dspid, &portconfig, &pstatus))) {
+		printk(KERN_NOTICE "Configuration of ports failed (%d)!\n", configportstatus);
+		return -1;
+	} else {
+		if (vpm->options.debug & DEBUG_ECHOCAN)
+			printk(KERN_DEBUG "Configured McBSP ports successfully\n");
+	}
+
+	if ((res = gpakPingDsp(vpm->dspid, &vpm->version))) {
+		printk(KERN_NOTICE "Error pinging DSP (%d)\n", res);
+		return -1;
+	}
+
+	for (channel = 0; channel < MAX_CHANNELS_PER_SPAN; ++channel) {
+		vpm->curecstate[channel].tap_length = 0;
+		vpm->curecstate[channel].nlp_type = vpm->options.vpmnlptype;
+		vpm->curecstate[channel].nlp_threshold = vpm->options.vpmnlpthresh;
+		vpm->curecstate[channel].nlp_max_suppress = vpm->options.vpmnlpmaxsupp;
+		memcpy(&vpm->desiredecstate[channel], &vpm->curecstate[channel], sizeof(vpm->curecstate[channel]));
+
+		vpm->setchanconfig_from_state(vpm, channel, &chanconfig);
+		if ((res = gpakConfigureChannel(vpm->dspid, channel, tdmToTdm, &chanconfig, &cstatus))) {
+			printk(KERN_NOTICE "Unable to configure channel #%d (%d)", channel, res);
+			if (res == 1) {
+				printk(", reason %d", cstatus);
+			}
+			printk("\n");
+			return -1;
+		}
+
+		if ((res = gpakAlgControl(vpm->dspid, channel, BypassEcanA, &algstatus))) {
+			printk(KERN_NOTICE "Unable to disable echo can on channel %d (reason %d:%d)\n", channel + 1, res, algstatus);
+			return -1;
+		}
+	}
+
+	if ((res = gpakPingDsp(vpm->dspid, &vpm->version))) {
+		printk(KERN_NOTICE "Error pinging DSP (%d)\n", res);
+		return -1;
+	}
+
+	set_bit(VPM150M_ACTIVE, &vpm->control);
+
+	return 0;
+}
+
+static void cmd_dequeue_vpmadt032(struct t1 *wc, unsigned char *writechunk, int whichframe)
+{
+	struct vpmadt032_cmd *cmd;
+	struct vpmadt032 *vpm = wc->vpmadt032;
+	int x;
+	unsigned char leds = ~((atomic_read(&wc->txints) / 1000) % 8) & 0x7;
+
+	/* Skip audio */
+	writechunk += 66;
+
+	if (test_bit(VPM150M_SPIRESET, &vpm->control) || test_bit(VPM150M_HPIRESET, &vpm->control)) {
+		debug_printk(1, "HW Resetting VPMADT032 ...\n");
+		for (x = 0; x < 4; x++) {
+			if (!x) {
+				if (test_and_clear_bit(VPM150M_SPIRESET, &vpm->control))
+					writechunk[CMD_BYTE(x, 0, 1)] = 0x08;
+				else if (test_and_clear_bit(VPM150M_HPIRESET, &vpm->control))
+					writechunk[CMD_BYTE(x, 0, 1)] = 0x0b;
+			} else
+				writechunk[CMD_BYTE(x, 0, 1)] = 0x00 | leds;
+			writechunk[CMD_BYTE(x, 1, 1)] = 0;
+			writechunk[CMD_BYTE(x, 2, 1)] = 0x00;
+		}
+		return;
+	}
+
+	if ((cmd = vpmadt032_get_ready_cmd(vpm))) {
+		cmd->txident = wc->txident;
+#if 0
+		printk(KERN_DEBUG "Found command txident = %d, desc = 0x%x, addr = 0x%x, data = 0x%x\n", cmd->txident, cmd->desc, cmd->address, cmd->data);
+#endif
+		if (cmd->desc & __VPM150M_RWPAGE) {
+			/* Set CTRL access to page*/
+			writechunk[CMD_BYTE(0, 0, 1)] = (0x8 << 4);
+			writechunk[CMD_BYTE(0, 1, 1)] = 0;
+			writechunk[CMD_BYTE(0, 2, 1)] = 0x20;
+
+			/* Do a page write */
+			if (cmd->desc & __VPM150M_WR) {
+				writechunk[CMD_BYTE(1, 0, 1)] = ((0x8 | 0x4) << 4);
+			} else {
+				writechunk[CMD_BYTE(1, 0, 1)] = ((0x8 | 0x4 | 0x1) << 4);
+			}
+			writechunk[CMD_BYTE(1, 1, 1)] = 0;
+			if (cmd->desc & __VPM150M_WR) {
+				writechunk[CMD_BYTE(1, 2, 1)] = cmd->data & 0xf;
+			} else {
+				writechunk[CMD_BYTE(1, 2, 1)] = 0;
+			}
+
+			if (cmd->desc & __VPM150M_WR) {
+				/* Fill in buffer to size */
+				writechunk[CMD_BYTE(2, 0, 1)] = 0;
+				writechunk[CMD_BYTE(2, 1, 1)] = 0;
+				writechunk[CMD_BYTE(2, 2, 1)] = 0;
+			} else {
+				/* Do reads twice b/c of vpmadt032 bug */
+				writechunk[CMD_BYTE(2, 0, 1)] = ((0x8 | 0x4 | 0x1) << 4);
+				writechunk[CMD_BYTE(2, 1, 1)] = 0;
+				writechunk[CMD_BYTE(2, 2, 1)] = 0;
+			}
+
+			/* Clear XADD */
+			writechunk[CMD_BYTE(3, 0, 1)] = (0x8 << 4);
+			writechunk[CMD_BYTE(3, 1, 1)] = 0;
+			writechunk[CMD_BYTE(3, 2, 1)] = 0;
+
+			/* Fill in buffer to size */
+			writechunk[CMD_BYTE(4, 0, 1)] = 0;
+			writechunk[CMD_BYTE(4, 1, 1)] = 0;
+			writechunk[CMD_BYTE(4, 2, 1)] = 0;
+
+		} else {
+			/* Set address */
+			writechunk[CMD_BYTE(0, 0, 1)] = ((0x8 | 0x4) << 4);
+			writechunk[CMD_BYTE(0, 1, 1)] = (cmd->address >> 8) & 0xff;
+			writechunk[CMD_BYTE(0, 2, 1)] = cmd->address & 0xff;
+
+			/* Send/Get our data */
+			if (cmd->desc & __VPM150M_WR) {
+				writechunk[CMD_BYTE(1, 0, 1)] = ((0x8 | (0x3 << 1)) << 4);
+			} else {
+				writechunk[CMD_BYTE(1, 0, 1)] = ((0x8 | (0x3 << 1) | 0x1) << 4);
+			}
+			writechunk[CMD_BYTE(1, 1, 1)] = (cmd->data >> 8) & 0xff;
+			writechunk[CMD_BYTE(1, 2, 1)] = cmd->data & 0xff;
+
+			if (cmd->desc & __VPM150M_WR) {
+				/* Fill in */
+				writechunk[CMD_BYTE(2, 0, 1)] = 0;
+				writechunk[CMD_BYTE(2, 1, 1)] = 0;
+				writechunk[CMD_BYTE(2, 2, 1)] = 0;
+			} else {
+				/* Do this again for reads b/c of the bug in vpmadt032 */
+				writechunk[CMD_BYTE(2, 0, 1)] = ((0x8 | (0x3 << 1) | 0x1) << 4);
+				writechunk[CMD_BYTE(2, 1, 1)] = (cmd->data >> 8) & 0xff;
+				writechunk[CMD_BYTE(2, 2, 1)] = cmd->data & 0xff;
+			}
+
+			/* Fill in the rest */
+			writechunk[CMD_BYTE(3, 0, 1)] = 0;
+			writechunk[CMD_BYTE(3, 1, 1)] = 0;
+			writechunk[CMD_BYTE(3, 2, 1)] = 0;
+
+			/* Fill in the rest */
+			writechunk[CMD_BYTE(4, 0, 1)] = 0;
+			writechunk[CMD_BYTE(4, 1, 1)] = 0;
+			writechunk[CMD_BYTE(4, 2, 1)] = 0;
+		}
+	} else if (test_and_clear_bit(VPM150M_SWRESET, &vpm->control)) {
+		debug_printk(1, "Booting  VPMADT032\n");
+		for (x = 0; x < 7; x++) {
+			if (0 == x)  {
+				writechunk[CMD_BYTE(x, 0, 1)] = (0x8 << 4);
+			} else {
+				writechunk[CMD_BYTE(x, 0, 1)] = 0x00;
+			}
+			writechunk[CMD_BYTE(x, 1, 1)] = 0;
+			if (0 == x) {
+				writechunk[CMD_BYTE(x, 2, 1)] = 0x01;
+			} else {
+				writechunk[CMD_BYTE(x, 2, 1)] = 0x00;
+			}
+		}
+	} else {
+		for (x = 0; x < 7; x++) {
+			writechunk[CMD_BYTE(x, 0, 1)] = 0x00;
+			writechunk[CMD_BYTE(x, 1, 1)] = 0x00;
+			writechunk[CMD_BYTE(x, 2, 1)] = 0x00;
+		}
+	}
+
+	/* Add our leds in */
+	for (x = 0; x < 7; x++)
+		writechunk[CMD_BYTE(x, 0, 1)] |= leds;
+
+#if 0
+	int y;
+	for (x = 0; x < 7; x++) {
+		for (y = 0; y < 3; y++) {
+			if (writechunk[CMD_BYTE(x, y, 1)] & 0x2) {
+				module_printk("the test bit is high for byte %d\n", y);
+			}
+		}
+	}
+#endif
+
+	/* Now let's figure out if we need to check for DTMF */
+	/* polling */
+	if (test_bit(VPM150M_ACTIVE, &vpm->control) && !whichframe && !(atomic_read(&wc->txints) % 100))
+		schedule_work(&vpm->work);
+
+#if 0
+	/* This may be needed sometime in the future to troubleshoot ADT related issues. */
+	if (test_bit(VPM150M_ACTIVE, &vpm->control) && !whichframe && !(atomic_read(&wc->txints) % 10000))
+		queue_work(vpm->wq, &vpm->work_debug);
+#endif
 }
 
 static inline int t1_setreg_full(struct t1 *wc, int addr, int val, int vpm_num)
@@ -817,9 +1135,6 @@ static int t1xxp_close(struct dahdi_chan *chan)
 
 static int t1xxp_ioctl(struct dahdi_chan *chan, unsigned int cmd, unsigned long data)
 {
-	unsigned int x;
-	struct t1 *wc = chan->pvt;
-
 	switch (cmd) {
 	case WCT4_GET_REGS:
 		/* Since all register access was moved into the voicebus
@@ -829,78 +1144,22 @@ static int t1xxp_ioctl(struct dahdi_chan *chan, unsigned int cmd, unsigned long 
 		WARN_ON(1);
 		return -ENOSYS;
 		break;
-#ifdef VPM_SUPPORT
-	case DAHDI_TONEDETECT:
-		if (get_user(x, (__user int *) data))
-			return -EFAULT;
-		if (!wc->vpm150m)
-			return -ENOSYS;
-		if (wc->vpm150m && (x && !vpmdtmfsupport))
-			return -ENOSYS;
-		if (x & DAHDI_TONEDETECT_ON) {
-			set_bit(chan->chanpos - 1, &wc->dtmfmask);
-			module_printk("turning on tone detection\n");
-		} else {
-			clear_bit(chan->chanpos - 1, &wc->dtmfmask);
-			module_printk("turning off tone detection\n");
-		}
-		if (x & DAHDI_TONEDETECT_MUTE) {
-			if(wc->vpm150m)
-				set_bit(chan->chanpos - 1, &wc->vpm150m->desireddtmfmutestate);
-		} else {
-			if(wc->vpm150m)
-				clear_bit(chan->chanpos - 1, &wc->vpm150m->desireddtmfmutestate);
-		}
-		return 0;
-#endif
 	default:
 		return -ENOTTY;
 	}
 	return 0;
 }
 
-#ifdef VPM_SUPPORT
-
-#include "adt_lec.c"
-
-static int t1xxp_echocan_with_params(struct dahdi_chan *chan, struct dahdi_echocanparams *ecp, struct dahdi_echocanparam *p)
+static int t1xxp_echocan_with_params(struct dahdi_chan *chan,
+	struct dahdi_echocanparams *ecp, struct dahdi_echocanparam *p)
 {
-	struct adt_lec_params params;
 	struct t1 *wc = chan->pvt;
-	struct vpm150m *vpm150m = wc->vpm150m;
-	unsigned long flags;
-	struct vpm150m_workentry *work;
-	unsigned int ret;
-
-	if (!wc->vpm150m)
+	if (!wc->vpmadt032) {
 		return -ENODEV;
-
-	adt_lec_init_defaults(&params, 32);
-
-	if ((ret = adt_lec_parse_params(&params, ecp, p)))
-		return ret;
-
-	/* we can't really control the tap length, but the value is used
-	   to control whether the ec is on or off, so translate it */
-	params.tap_length = ecp->tap_length ? 1 : 0;
-
-	if (!(work = kmalloc(sizeof(*work), GFP_KERNEL)))
-		return -ENOMEM;
-
-	work->params = params;
-	work->wc = wc;
-	work->chan = chan; 
-	spin_lock_irqsave(&vpm150m->lock, flags);
-	list_add_tail(&work->list, &vpm150m->worklist);
-	spin_unlock_irqrestore(&vpm150m->lock, flags);
-	
-	/* we must do this later since we cannot sleep in the echocan function */
-	if (test_bit(VPM150M_ACTIVE, &vpm150m->control))
-		queue_work(vpm150m->wq, &vpm150m->work_echocan);
-
-	return 0; /* how do I return the status since it is done later by the workqueue? */
+	}
+	return vpmadt032_echocan_with_params(wc->vpmadt032, chan->chanpos - 1,
+		ecp, p);
 }
-#endif
 
 static int t1_software_init(struct t1 *wc)
 {
@@ -930,7 +1189,7 @@ static int t1_software_init(struct t1 *wc)
 	strncpy(wc->span.devicetype, wc->variety, sizeof(wc->span.devicetype) - 1);
 
 #if defined(VPM_SUPPORT)
-	if (wc->vpm150m)
+	if (wc->vpmadt032)
 		strncat(wc->span.devicetype, " with VPMADT032", sizeof(wc->span.devicetype) - 1);
 #endif
 
@@ -1001,9 +1260,64 @@ static inline unsigned char t1_vpm_out(struct t1 *wc, int unit, const unsigned i
 
 #endif
 
+static void setchanconfig_from_state(struct vpmadt032 *vpm, int channel, GpakChannelConfig_t *chanconfig)
+{
+	const struct vpmadt032_options *options;
+
+	BUG_ON(!vpm);
+
+	options = &vpm->options;
+
+	chanconfig->PcmInPortA = 3;
+	chanconfig->PcmInSlotA = (channel + 1) * 2;
+	chanconfig->PcmOutPortA = 2;
+	chanconfig->PcmOutSlotA = (channel + 1) * 2;
+	chanconfig->PcmInPortB = 2;
+	chanconfig->PcmInSlotB = (channel + 1) * 2;
+	chanconfig->PcmOutPortB = 3;
+	chanconfig->PcmOutSlotB = (channel + 1) * 2;
+	chanconfig->ToneTypesA = Null_tone;
+	chanconfig->MuteToneA = Disabled;
+	chanconfig->FaxCngDetA = Disabled;
+	chanconfig->ToneTypesB = Null_tone;
+	chanconfig->EcanEnableA = Enabled;
+	chanconfig->EcanEnableB = Disabled;
+	chanconfig->MuteToneB = Disabled;
+	chanconfig->FaxCngDetB = Disabled;
+
+	chanconfig->SoftwareCompand = cmpPCMU;
+
+	chanconfig->FrameRate = rate10ms;
+	chanconfig->EcanParametersA.EcanTapLength = 1024;
+	chanconfig->EcanParametersA.EcanNlpType = vpm->curecstate[channel].nlp_type;
+	chanconfig->EcanParametersA.EcanAdaptEnable = 1;
+	chanconfig->EcanParametersA.EcanG165DetEnable = 1;
+	chanconfig->EcanParametersA.EcanDblTalkThresh = 6;
+	chanconfig->EcanParametersA.EcanMaxDoubleTalkThres = 40;
+	chanconfig->EcanParametersA.EcanNlpThreshold = vpm->curecstate[channel].nlp_threshold;
+	chanconfig->EcanParametersA.EcanNlpConv = 0;
+	chanconfig->EcanParametersA.EcanNlpUnConv = 12;
+	chanconfig->EcanParametersA.EcanNlpMaxSuppress = vpm->curecstate[channel].nlp_max_suppress;
+	chanconfig->EcanParametersA.EcanCngThreshold = 43;
+	chanconfig->EcanParametersA.EcanAdaptLimit = 50;
+	chanconfig->EcanParametersA.EcanCrossCorrLimit = 15;
+	chanconfig->EcanParametersA.EcanNumFirSegments = 3;
+	chanconfig->EcanParametersA.EcanFirSegmentLen = 48;
+	chanconfig->EcanParametersA.EcanReconvergenceCheckEnable = 1;
+	chanconfig->EcanParametersA.EcanTandemOperationEnable = 1;
+	chanconfig->EcanParametersA.EcanMixedFourWireMode = 1;
+
+
+	memcpy(&chanconfig->EcanParametersB,
+		&chanconfig->EcanParametersA,
+		sizeof(chanconfig->EcanParametersB));
+}
+
 static int t1_hardware_post_init(struct t1 *wc)
 {
+	struct vpmadt032_options options;
 	unsigned int reg;
+	int res;
 	int x;
 
 	/* T1 or E1 */
@@ -1036,17 +1350,41 @@ static int t1_hardware_post_init(struct t1 *wc)
 	t1_setleds(wc, wc->ledstate);
 
 #ifdef VPM_SUPPORT
-	t1_vpm150m_init(wc);
-	if (wc->vpm150m) {
-		module_printk("VPM present and operational (Firmware version %x)\n", wc->vpm150m->version);
-		set_bit(4, &wc->ctlreg); /* turn on vpm (RX audio from vpm module) */
+	if (vpmsupport) {
+		memset(&options, 0, sizeof(options));
+		options.debug = debug;
+		options.vpmnlptype = vpmnlptype;
+		options.vpmnlpthresh = vpmnlpthresh;
+		options.vpmnlpmaxsupp = vpmnlpmaxsupp;
+
+		wc->vpmadt032 = vpmadt032_alloc(&options);
+		if (!wc->vpmadt032)
+			return -ENOMEM;
+
+		wc->vpmadt032->context = wc;
+		wc->vpmadt032->setchanconfig_from_state = setchanconfig_from_state;
+		wc->vpmadt032->span = &wc->span;
+
+		res = vpmadt032_init(wc->vpmadt032, wc->vb);
+		if (res) {
+			vpmadt032_free(wc->vpmadt032);
+			wc->vpmadt032=NULL;
+			return -EIO;
+		}
+
+		config_vpmadt032(wc->vpmadt032);
+
+		module_printk("VPM present and operational (Firmware version %x)\n", wc->vpmadt032->version);
+		wc->ctlreg |= 0x10; /* turn on vpm (RX audio from vpm module) */
 		if (vpmtsisupport) {
 			debug_printk(1, "enabling VPM TSI pin\n");
-			set_bit(0, &wc->ctlreg); /* turn on vpm timeslot interchange pin */
+			wc->ctlreg |= 0x01; /* turn on vpm timeslot interchange pin */
 		}
+	} else {
+		module_printk("VPM Support Disabled\n");
+		wc->vpmadt032 = NULL;
 	}
 #endif
-
 	return 0;
 }
 
@@ -1234,9 +1572,9 @@ static inline void t1_transmitprep(struct t1 *wc, unsigned char* writechunk)
 			cmd_dequeue(wc, writechunk, x, y);
 		}
 #ifdef VPM_SUPPORT
-		if(likely(wc->vpm150m)) {
+		if(likely(wc->vpmadt032)) {
 			spin_lock(&wc->reglock);
-			vpm150m_cmd_dequeue(wc, writechunk, x);
+			cmd_dequeue_vpmadt032(wc, writechunk, x);
 			spin_unlock(&wc->reglock);
 		}
 #endif
@@ -1273,9 +1611,9 @@ static inline void t1_receiveprep(struct t1 *wc, unsigned char* readchunk)
 		}
 		cmd_decipher(wc, readchunk);
 #ifdef VPM_SUPPORT
-		if (wc->vpm150m) {
+		if (wc->vpmadt032) {
 			spin_lock(&wc->reglock);
-			vpm150m_cmd_decipher(wc, readchunk);
+			cmd_decipher_vpmadt032(wc, readchunk);
 			spin_unlock(&wc->reglock);
 		}
 #endif
@@ -1445,17 +1783,16 @@ static void __devexit te12xp_remove_one(struct pci_dev *pdev)
 	struct t1 *wc = pci_get_drvdata(pdev);
 #ifdef VPM_SUPPORT
 	unsigned long flags;
-	struct vpm150m *vpm150m = wc->vpm150m;
+	struct vpmadt032 *vpm = wc->vpmadt032;
 #endif
 	if (!wc)
 		return;
 
 #ifdef VPM_SUPPORT
-	if(vpm150m) {
-		clear_bit(VPM150M_DTMFDETECT, &vpm150m->control);
-		clear_bit(VPM150M_ACTIVE, &vpm150m->control);
-		flush_workqueue(vpm150m->wq);
-		destroy_workqueue(vpm150m->wq);
+	if(vpm) {
+		wc->vpmadt032 = NULL;
+		clear_bit(VPM150M_DTMFDETECT, &vpm->control);
+		clear_bit(VPM150M_ACTIVE, &vpm->control);
 	}
 #endif
 	clear_bit(INITIALIZED, &wc->bit_flags);
@@ -1468,12 +1805,10 @@ static void __devexit te12xp_remove_one(struct pci_dev *pdev)
 	wc->vb = NULL;
 
 #ifdef VPM_SUPPORT
-	if(vpm150m) {
+	if(vpm) {
 		spin_lock_irqsave(&wc->reglock, flags);
-		wc->vpm150m = NULL;
-		vpm150m->wc = NULL;
 		spin_unlock_irqrestore(&wc->reglock, flags);
-		kfree(wc->vpm150m);
+		vpmadt032_free(vpm);
 	}
 #endif
 	t1_release(wc);
@@ -1537,7 +1872,6 @@ module_param(alarmdebounce, int, S_IRUGO | S_IWUSR);
 module_param(latency, int, S_IRUGO | S_IWUSR);
 #ifdef VPM_SUPPORT
 module_param(vpmsupport, int, S_IRUGO | S_IWUSR);
-module_param(vpmdtmfsupport, int, S_IRUGO | S_IWUSR);
 module_param(vpmtsisupport, int, S_IRUGO | S_IWUSR);
 #endif
 

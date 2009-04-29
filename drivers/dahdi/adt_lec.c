@@ -1,7 +1,7 @@
 /*
  * ADT Line Echo Canceller Parameter Parsing
  *
- * Copyright (C) 2008 Digium, Inc.
+ * Copyright (C) 2008-2009 Digium, Inc.
  *
  * Kevin P. Fleming <kpfleming@digium.com>
  *
@@ -33,7 +33,8 @@ static inline void adt_lec_init_defaults(struct adt_lec_params *params, __u32 ta
 	params->tap_length = tap_length;
 }
 
-static int adt_lec_parse_params(struct adt_lec_params *params, struct dahdi_echocanparams *ecp, struct dahdi_echocanparam *p)
+static int adt_lec_parse_params(struct adt_lec_params *params,
+	struct dahdi_echocanparams *ecp, struct dahdi_echocanparam *p)
 {
 	unsigned int x;
 	char *c;

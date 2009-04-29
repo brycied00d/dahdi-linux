@@ -4,7 +4,7 @@
  * Written by Mark Spencer <markster@digium.com>
  * Support for TDM800P and VPM150M by Matthew Fredrickson <creslin@digium.com>
  *
- * Copyright (C) 2005, 2006, Digium, Inc.
+ * Copyright (C) 2005-2009 Digium, Inc.
  *
  * All rights reserved.
  *
@@ -28,13 +28,14 @@
 
 #include <dahdi/kernel.h>
 
-#include "../voicebus.h"
 #include <linux/version.h>
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,26)
 #include <linux/semaphore.h>
 #else
 #include <asm/semaphore.h>
 #endif
+
+#include "voicebus/voicebus.h"
 
 #define NUM_FXO_REGS 60
 
@@ -76,8 +77,6 @@
 #define SDI_DREAD	(0x00040000)
 #define SDI_DIN		(0x00080000)
 
-#define PCI_WINDOW_SIZE ((2 * 2 * 2 * SFRAME_SIZE) + (2 * ERING_SIZE * 4))
-
 #define __CMD_RD   (1 << 20)		/* Read Operation */
 #define __CMD_WR   (1 << 21)		/* Write Operation */
 #define __CMD_FIN  (1 << 22)		/* Has finished receive */
@@ -103,26 +102,11 @@
 
 #define MAX_COMMANDS (USER_COMMANDS + ISR_COMMANDS)
 
-#define __VPM150M_RWPAGE	(1 << 4)
-#define __VPM150M_RD		(1 << 3)
-#define __VPM150M_WR		(1 << 2)
-#define __VPM150M_FIN		(1 << 1)
-#define __VPM150M_TX		(1 << 0)
 
 #define VPM150M_HPI_CONTROL 0x00
 #define VPM150M_HPI_ADDRESS 0x02
 #define VPM150M_HPI_DATA 0x03
 
-#define VPM150M_MAX_COMMANDS 8
-
-/* Some Bit ops for different operations */
-#define VPM150M_SPIRESET		0
-#define VPM150M_HPIRESET		1
-#define VPM150M_SWRESET			2
-#define VPM150M_DTMFDETECT		3
-#define VPM150M_ACTIVE			4
-
-#define VPM150M_MAX_DATA		1
 
 #define VPM_SUPPORT
 
@@ -138,36 +122,8 @@
 #endif
 
 #ifdef VPM150M_SUPPORT
-#include "adt_lec.h"
+#include "voicebus/GpakCust.h"
 #endif
-
-struct vpm150m_cmd {
-	unsigned int addr;
-	unsigned char datalen;
-	unsigned char desc;
-	unsigned char txident;
-	unsigned short data[VPM150M_MAX_DATA];
-};
-
-struct vpm150m {
-#ifdef VPM150M_SUPPORT
-	struct workqueue_struct *wq;
-	struct work_struct work;
-#endif
-	struct wctdm *wc;
-
-	int dspid;
-	struct semaphore sem;
-	unsigned long control;
-	unsigned char curpage;
-	unsigned short version;
-	struct adt_lec_params curecstate[24];
-	struct adt_lec_params desiredecstate[24];
-	unsigned long curdtmfmutestate;
-	unsigned long desireddtmfmutestate;
-	struct vpm150m_cmd cmdq[VPM150M_MAX_COMMANDS];
-	unsigned char curtone[24];
-};
 
 struct calregs {
 	unsigned char vals[NUM_CAL_REGS];
@@ -261,22 +217,22 @@ struct wctdm {
 	/* Set hook */
 	int sethook[NUM_CARDS + NUM_EC];
  	int dacssrc[NUM_CARDS];
+	/* Type is the maximum number of FXO/FXS ports supported */
  	int type;
 
-#ifdef VPM_SUPPORT
-	int vpm;
+	int vpm100;
+
 	unsigned long dtmfactive;
 	unsigned long dtmfmask;
 	unsigned long dtmfmutemask;
 	short dtmfenergy[NUM_CARDS];
 	short dtmfdigit[NUM_CARDS];
 
-	struct  vpm150m *vpm150m;
+	struct vpmadt032 *vpmadt032;
 #ifdef FANCY_ECHOCAN
 	int echocanpos;
 	int blinktimer;
 #endif	
-#endif
 	struct voicebus *vb;
 	struct dahdi_chan *chans[NUM_CARDS];
 	int initialized;
