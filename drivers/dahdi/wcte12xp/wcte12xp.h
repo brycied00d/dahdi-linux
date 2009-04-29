@@ -51,29 +51,26 @@
 
 #define PCI_WINDOW_SIZE ((2 * 2 * 2 * SFRAME_SIZE) + (2 * ERING_SIZE * 4))
 
-#define MAX_COMMANDS 7*7*2*2 /* 42 bytes /3 (cntl,addr,data) /2 (cs) */
+#define MAX_COMMANDS 16
 
 #define NUM_EC 4
 
 #define __CMD_VPM  (1 << 16)		/* flag for VPM action */
-#define __CMD_ISR  (1 << 17)		/* flag for ISR reads */
 #define __CMD_PINS (1 << 18)		/* CPLD pin read */
 #define __CMD_LEDS (1 << 19)		/* LED Operation */
 #define __CMD_RD   (1 << 20)		/* Read Operation */
 #define __CMD_WR   (1 << 21)		/* Write Operation */
-#define __CMD_FIN  (1 << 22)		/* Has finished receive */
-#define __CMD_TX   (1 << 23)		/* Has been transmitted */
 
 #define __LED_ORANGE	(1<<3)
 #define __LED_GREEN	(1<<2)
 #define __LED_RED	(1<<1)
 
-#define SET_LED_ORANGE(a) a | __LED_ORANGE 
-#define SET_LED_RED(a) (a | __LED_RED) & ~__LED_GREEN
-#define SET_LED_GREEN(a) (a | __LED_GREEN) & ~__LED_RED
+#define SET_LED_ORANGE(a) (a | __LED_ORANGE)
+#define SET_LED_RED(a) ((a | __LED_RED) & ~__LED_GREEN)
+#define SET_LED_GREEN(a) ((a | __LED_GREEN) & ~__LED_RED)
 
-#define UNSET_LED_ORANGE(a) a & ~__LED_ORANGE 
-#define UNSET_LED_REDGREEN(a) a | __LED_RED | __LED_GREEN
+#define UNSET_LED_ORANGE(a) (a & ~__LED_ORANGE)
+#define UNSET_LED_REDGREEN(a) (a | __LED_RED | __LED_GREEN)
 
 #define CMD_WR(a,b) (((a) << 8) | (b) | __CMD_WR)
 #define CMD_RD(a) (((a) << 8) | __CMD_RD)
@@ -92,16 +89,14 @@
 extern spinlock_t ifacelock;
 
 struct command {
-	unsigned short address;
-	unsigned char data;
-	unsigned char ident;
-	unsigned int flags;
-	unsigned char cs_slot;
-	unsigned char vpm_num; /* ignored for all but vpm commmands */
-};
-
-struct cmdq {
-	struct command cmds[MAX_COMMANDS];
+	u8 data;
+	u8 ident;
+	u8 cs_slot;
+	u8 vpm_num; /* ignored for all but vpm commmands */
+	u16 address;
+	u32 flags;
+	struct list_head node;
+	struct completion complete;
 };
 
 struct vpm150m;
@@ -117,38 +112,24 @@ struct t1 {
 		unsigned int sendingyellow:1;
 	} flags;
 	unsigned char txsigs[16];  /* Copy of tx sig registers */
-	int num;
 	int alarmcount;			/* How much red alarm we've seen */
-	int alarmdebounce;
 	char *variety;
 	char name[80];
-	unsigned int intcount;
-	int sync;
-	int dead;
-	int blinktimer;
-	int alarmtimer;
-	int yellowtimer;
-	int ledlastvalue;
-	int alarms_read;
-	int checktiming;	/* Set >0 to cause the timing source to be checked */
+	unsigned long blinktimer;
 	int loopupcnt;
 	int loopdowncnt;
-	int initialized;
-	int *chanmap;
-	unsigned char ledtestreg;
+#define INITIALIZED 1
+#define SHUTDOWN    2
+	unsigned long bit_flags;
+	unsigned long alarmtimer;
+	unsigned char ledstate;
 	unsigned char ec_chunk1[32][DAHDI_CHUNKSIZE];
 	unsigned char ec_chunk2[32][DAHDI_CHUNKSIZE];
 	struct dahdi_span span;						/* Span */
 	struct dahdi_chan *chans[32];					/* Channels */
-	wait_queue_head_t regq;
-	struct cmdq	cmdq;
-	struct command dummy;	/* preallocate for dummy noop command */
-	unsigned char ctlreg;
-	unsigned int rxints;
-	unsigned int txints;
-	int usecount;
+	unsigned long ctlreg;
 	struct voicebus* vb;
-	unsigned int isrreaderrors;
+	atomic_t txints;
 #ifdef VPM_SUPPORT
 	int vpm;
 	struct vpm150m *vpm150m;
@@ -156,7 +137,14 @@ struct t1 {
 	unsigned long dtmfmask;
 	unsigned long dtmfmutemask;
 #endif
+
+	spinlock_t cmd_list_lock;
+	struct list_head pending_cmds;
+	struct list_head active_cmds;
+	struct timer_list timer;
+	struct work_struct timer_work;
 };
+
 
 int schluffen(wait_queue_head_t *q);
 
