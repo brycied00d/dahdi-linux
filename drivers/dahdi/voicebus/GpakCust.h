@@ -118,15 +118,19 @@ struct vpmadt032 {
 };
 
 struct voicebus;
+struct dahdi_chan;
 struct dahdi_echocanparams;
 struct dahdi_echocanparam;
+struct dahdi_echocan_state;
 
 char vpmadt032tone_to_zaptone(GpakToneCodes_t tone);
 int vpmadt032_init(struct vpmadt032 *vpm, struct voicebus *vb);
 struct vpmadt032 *vpmadt032_alloc(struct vpmadt032_options *options);
 void vpmadt032_free(struct vpmadt032 *vpm);
-int vpmadt032_echocan_with_params(struct vpmadt032 *vpm, int channo,
+int vpmadt032_echocan_create(struct vpmadt032 *vpm, int channo,
 	struct dahdi_echocanparams *ecp, struct dahdi_echocanparam *p);
+void vpmadt032_echocan_free(struct vpmadt032 *vpm, struct dahdi_chan *chan,
+	struct dahdi_echocan_state *ec);
 
 /* If there is a command ready to go to the VPMADT032, return it, otherwise NULL */
 static inline struct vpmadt032_cmd *vpmadt032_get_ready_cmd(struct vpmadt032 *vpm)

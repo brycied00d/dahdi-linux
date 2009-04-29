@@ -22,9 +22,9 @@
 #if !defined(_HPEC_H)
 #define _HPEC_H
 
-struct echo_can_state;
+struct hpec_state;
 
-void __attribute__((regparm(0))) hpec_init(int __attribute__((regparm(0))) __attribute__((format (printf, 1, 2))) (*logger)(const char *format, ...),
+void __attribute__((regparm(0))) hpec_init(int __attribute__((regparm(0), format(printf, 1, 2))) (*logger)(const char *format, ...),
 					   unsigned int debug,
 					   unsigned int chunk_size,
 					   void * (*memalloc)(size_t len),
@@ -36,11 +36,11 @@ int __attribute__((regparm(0))) hpec_license_challenge(struct hpec_challenge *ch
 
 int __attribute__((regparm(0))) hpec_license_check(struct hpec_license *license);
 
-struct echo_can_state __attribute__((regparm(0))) *hpec_channel_alloc(unsigned int len);
+struct hpec_state __attribute__((regparm(0))) *hpec_channel_alloc(unsigned int len);
 
-void __attribute__((regparm(0))) hpec_channel_free(struct echo_can_state *channel);
+void __attribute__((regparm(0))) hpec_channel_free(struct hpec_state *channel);
 
-void __attribute__((regparm(0))) hpec_channel_update(struct echo_can_state *channel, short *isig, short *iref);
+void __attribute__((regparm(0))) hpec_channel_update(struct hpec_state *channel, short *isig, const short *iref);
 
 #endif /* !defined(_HPEC_H) */
 

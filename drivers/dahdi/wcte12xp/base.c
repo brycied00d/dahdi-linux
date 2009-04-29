@@ -63,6 +63,20 @@ static int vpmtsisupport = 0;
 int vpmnlptype = 3;
 int vpmnlpthresh = 24;
 int vpmnlpmaxsupp = 0;
+static int echocan_create(struct dahdi_chan *chan, struct dahdi_echocanparams *ecp,
+			   struct dahdi_echocanparam *p, struct dahdi_echocan_state **ec);
+static void echocan_free(struct dahdi_chan *chan, struct dahdi_echocan_state *ec);
+
+static const struct dahdi_echocan_features vpm150m_ec_features = {
+	.NLP_automatic = 1,
+	.CED_tx_detect = 1,
+	.CED_rx_detect = 1,
+};
+
+static const struct dahdi_echocan_ops vpm150m_ec_ops = {
+	.name = "VPM150M",
+	.echocan_free = echocan_free,
+};
 
 struct t1 *ifaces[WC_MAX_IFACES];
 spinlock_t ifacelock = SPIN_LOCK_UNLOCKED;
@@ -636,8 +650,10 @@ static void free_wc(struct t1 *wc)
 	struct command *cmd;
 	LIST_HEAD(list);
 
-	for (x = 0; x < (wc->spantype == TYPE_E1 ? 31 : 24); x++)
+	for (x = 0; x < (wc->spantype == TYPE_E1 ? 31 : 24); x++) {
 		kfree(wc->chans[x]);
+		kfree(wc->ec[x]);
+	}
 
 	spin_lock_irqsave(&wc->cmd_list_lock, flags);
 	list_splice_init(&wc->active_cmds, &list);
@@ -1150,15 +1166,24 @@ static int t1xxp_ioctl(struct dahdi_chan *chan, unsigned int cmd, unsigned long 
 	return 0;
 }
 
-static int t1xxp_echocan_with_params(struct dahdi_chan *chan,
-	struct dahdi_echocanparams *ecp, struct dahdi_echocanparam *p)
+static int echocan_create(struct dahdi_chan *chan, struct dahdi_echocanparams *ecp,
+			  struct dahdi_echocanparam *p, struct dahdi_echocan_state **ec)
 {
 	struct t1 *wc = chan->pvt;
 	if (!wc->vpmadt032) {
 		return -ENODEV;
 	}
-	return vpmadt032_echocan_with_params(wc->vpmadt032, chan->chanpos - 1,
+	return vpmadt032_echocan_create(wc->vpmadt032, chan->chanpos - 1,
 		ecp, p);
+}
+
+static void echocan_free(struct dahdi_chan *chan, struct dahdi_echocan_state *ec)
+{
+	struct t1 *wc = chan->pvt;
+	if (!wc->vpmadt032)
+		return;
+
+	vpmadt032_echocan_free(wc->vpmadt032, chan, ec);
 }
 
 static int t1_software_init(struct t1 *wc)
@@ -1207,7 +1232,7 @@ static int t1_software_init(struct t1 *wc)
 	wc->span.close = t1xxp_close;
 	wc->span.ioctl = t1xxp_ioctl;
 #ifdef VPM_SUPPORT
-	wc->span.echocan_with_params = t1xxp_echocan_with_params;
+	wc->span.echocan_create = echocan_create;
 #endif
 
 	if (wc->spantype == TYPE_E1) {
@@ -1752,6 +1777,12 @@ retry:
 			return -ENOMEM;
 		}
 		memset(wc->chans[x], 0, sizeof(*wc->chans[x]));
+		if (!(wc->ec[x] = kmalloc(sizeof(*wc->ec[x]), GFP_KERNEL))) {
+			free_wc(wc);
+			ifaces[index] = NULL;
+			return -ENOMEM;
+		}
+		memset(wc->ec[x], 0, sizeof(*wc->ec[x]));
 	}
 
 	mod_timer(&wc->timer, jiffies + HZ/5);

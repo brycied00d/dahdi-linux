@@ -32,73 +32,107 @@
 /* Fix this if OSLEC is elsewhere */
 #include "../staging/echo/oslec.h"
 //#include <linux/oslec.h>
-/* "provide" struct echo_can_state */
-//#define oslec_state echo_can_state
 
 #include <dahdi/kernel.h>
 
 #define module_printk(level, fmt, args...) printk(level "%s: " fmt, THIS_MODULE->name, ## args)
 
-static void echo_can_free(struct echo_can_state *ec)
+static int echo_can_create(struct dahdi_chan *chan, struct dahdi_echocanparams *ecp,
+			   struct dahdi_echocanparam *p, struct dahdi_echocan_state **ec);
+static void echo_can_free(struct dahdi_chan *chan, struct dahdi_echocan_state *ec);
+static void echo_can_process(struct dahdi_echocan_state *ec, short *isig, const short *iref, u32 size);
+static int echo_can_traintap(struct dahdi_echocan_state *ec, int pos, short val);
+
+static const struct dahdi_echocan_factory my_factory = {
+	.name = "OSLEC",
+	.owner = THIS_MODULE,
+	.echocan_create = echo_can_create,
+};
+
+static const struct dahdi_echocan_ops my_ops = {
+	.name = "OSLEC",
+	.echocan_free = echo_can_free,
+	.echocan_process = echo_can_process,
+	.echocan_traintap = echo_can_traintap,
+};
+
+struct ec_pvt {
+	struct oslec_state *oslec;
+	struct dahdi_echocan_state dahdi;
+};
+
+#define dahdi_to_pvt(a) container_of(a, struct ec_pvt, dahdi)
+
+static void echo_can_free(struct dahdi_chan *chan, struct dahdi_echocan_state *ec)
 {
-	oslec_free((struct oslec_state *)ec);
+	struct ec_pvt *pvt = dahdi_to_pvt(ec);
+
+	oslec_free(pvt->oslec);
+	kfree(pvt);
 }
 
-static void echo_can_update(struct echo_can_state *ec, short *isig, short *iref)
+static void echo_can_process(struct dahdi_echocan_state *ec, short *isig, const short *iref, u32 size)
 {
-	unsigned int SampleNum;
+	struct ec_pvt *pvt = dahdi_to_pvt(ec);
+	u32 SampleNum;
 
-	for (SampleNum = 0; SampleNum < DAHDI_CHUNKSIZE; SampleNum++, iref++)
-	{
+	for (SampleNum = 0; SampleNum < size; SampleNum++, iref++) {
 		short iCleanSample;
-		iCleanSample = (short) oslec_update((struct oslec_state *)ec, *iref, *isig);
+
+		iCleanSample = oslec_update(pvt->oslec, *iref, *isig);
 		*isig++ = iCleanSample;
 	}
 }
 
-static int echo_can_create(struct dahdi_echocanparams *ecp, struct dahdi_echocanparam *p,
-			   struct echo_can_state **ec)
+static int echo_can_create(struct dahdi_chan *chan, struct dahdi_echocanparams *ecp,
+			   struct dahdi_echocanparam *p, struct dahdi_echocan_state **ec)
 {
+	struct ec_pvt *pvt;
+
 	if (ecp->param_count > 0) {
 		printk(KERN_WARNING "OSLEC does not support parameters; failing request\n");
 		return -EINVAL;
 	}
 
-	*ec = (struct echo_can_state *)oslec_create(ecp->tap_length, ECHO_CAN_USE_ADAPTION | ECHO_CAN_USE_NLP  | ECHO_CAN_USE_CLIP | ECHO_CAN_USE_TX_HPF | ECHO_CAN_USE_RX_HPF);
+	pvt = kzalloc(sizeof(*pvt), GFP_KERNEL);
+	if (!pvt)
+		return -ENOMEM;
 
-	return *ec ? 0 : -ENOTTY;
+	pvt->dahdi.ops = &my_ops;
+
+	pvt->oslec = oslec_create(ecp->tap_length, ECHO_CAN_USE_ADAPTION | ECHO_CAN_USE_NLP | ECHO_CAN_USE_CLIP | ECHO_CAN_USE_TX_HPF | ECHO_CAN_USE_RX_HPF);
+
+	if (!pvt->oslec) {
+		kfree(pvt);
+		*ec = NULL;
+		return -ENOTTY;
+	} else {
+		*ec = &pvt->dahdi;
+		return 0;
+	}
 }
 
-static inline int echo_can_traintap(struct echo_can_state *ec, int pos, short val)
+static int echo_can_traintap(struct dahdi_echocan_state *ec, int pos, short val)
 {
 	return 1;
 }
 
-static const struct dahdi_echocan me = {
-	.name = "OSLEC",
-	.owner = THIS_MODULE,
-	.echo_can_create = echo_can_create,
-	.echo_can_free = echo_can_free,
-	.echo_can_array_update = echo_can_update,
-	.echo_can_traintap = echo_can_traintap,
-};
-
 static int __init mod_init(void)
 {
-	if (dahdi_register_echocan(&me)) {
+	if (dahdi_register_echocan_factory(&my_factory)) {
 		module_printk(KERN_ERR, "could not register with DAHDI core\n");
 
 		return -EPERM;
 	}
 
-	module_printk(KERN_INFO, "Registered echo canceler '%s'\n", me.name);
+	module_printk(KERN_INFO, "Registered echo canceler '%s'\n", my_factory.name);
 
 	return 0;
 }
 
 static void __exit mod_exit(void)
 {
-	dahdi_unregister_echocan(&me);
+	dahdi_unregister_echocan_factory(&my_factory);
 }
 
 MODULE_DESCRIPTION("DAHDI OSLEC wrapper");

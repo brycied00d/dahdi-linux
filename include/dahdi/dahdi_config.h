@@ -68,13 +68,6 @@
  */
 /* #define CONFIG_DAHDI_MMX */
 
-/*
- * Define to turn off the echo canceler disable tone detector,
- * which will cause DAHDI to ignore the 2100 Hz echo cancel disable
- * tone.
- */
-/* #define NO_ECHOCAN_DISABLE */
-
 /* We now use the linux kernel config to detect which options to use */
 /* You can still override them below */
 #if defined(CONFIG_HDLC) || defined(CONFIG_HDLC_MODULE)

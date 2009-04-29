@@ -148,6 +148,231 @@ struct confq {
 	int outbuf;
 };
 
+struct dahdi_chan;
+struct dahdi_echocan_state;
+
+/*! Features a DAHDI echo canceler (software or hardware) can provide to the DAHDI core. */
+struct dahdi_echocan_features {
+
+	/*! Able to detect CED tone (2100 Hz with phase reversals) in the transmit direction.
+	 * If the echocan can detect this tone, it may report it it as an event (see
+	 * the events.CED_tx_detected field of dahdi_echocan_state), and if it will automatically
+	 * disable itself or its non-linear processor, then the NLP_automatic feature flag should also
+	 * be set so that the DAHDI core doesn't bother trying to do so.
+	*/
+	u32 CED_tx_detect:1;
+
+	/*! Able to detect CED tone (2100 Hz with phase reversals) in the receive direction.
+	 * If the echocan can detect this tone, it may report it it as an event (see
+	 * the events.CED_rx_detected field of dahdi_echocan_state), and if it will automatically
+	 * disable itself or its non-linear processor, then the NLP_automatic flag feature should also
+	 * be set so that the DAHDI core doesn't bother trying to do so.
+	*/
+	u32 CED_rx_detect:1;
+
+	/*! Able to detect CNG tone (1100 Hz) in the transmit direction. */
+	u32 CNG_tx_detect:1;
+
+	/*! Able to detect CNG tone (1100 Hz) in the receive direction. */
+	u32 CNG_rx_detect:1;
+
+	/*! If the echocan's NLP can be enabled and disabled without requiring destruction
+	 * and recreation of the state structure, this feature flag should be set and the
+	 * echocan_NLP_toggle field of the dahdi_echocan_ops structure should be filled with a
+	 * pointer to the function to perform that operation.
+	 */
+	u32 NLP_toggle:1;
+
+	/*! If the echocan will automatically disable itself (or even just its NLP) based on
+	 * detection of a CED tone in either direction, this feature flag should be set (along
+	 * with the tone detection feature flags).
+	 */
+	u32 NLP_automatic:1;
+};
+
+/*! Operations (methods) that can be performed on a DAHDI echo canceler instance (state
+ * structure) after it has been created, by either a software or hardware echo canceller.
+ * The echo canceler must populate the owner field of the dahdi_echocan_state structure
+ * with a pointer to the relevant operations structure for that instance.
+ */
+struct dahdi_echocan_ops {
+
+	/*! The name of the echocan that created this structure. */
+	const char *name;
+
+	/*! \brief Free an echocan state structure.
+	 * \param[in,out] ec Pointer to the state structure to free.
+	 *
+	 * \return Nothing.
+	 */
+	void (*echocan_free)(struct dahdi_chan *chan, struct dahdi_echocan_state *ec);
+
+	/*! \brief Process an array of audio samples through the echocan.
+	 * \param[in,out] ec Pointer to the state structure.
+	 * \param[in,out] isig The receive direction data (will be modified).
+	 * \param[in] iref The transmit direction data.
+	 * \param[in] size The number of elements in the isig and iref arrays.
+	 *
+	 * Note: This function can also return events in the events field of the
+	 * dahdi_echocan_state structure. If it can do so, then the echocan does
+	 * not need to provide the echocan_events function.
+	 *
+	 * \return Nothing.
+	 */
+	void (*echocan_process)(struct dahdi_echocan_state *ec, short *isig, const short *iref, u32 size);
+
+	/*! \brief Retrieve events from the echocan.
+	 * \param[in,out] ec Pointer to the state structure.
+	 *
+	 *
+	 * If any events have occurred, the events field of the dahdi_echocan_state
+	 * structure should be updated to include them.
+	 *
+	 * \return Nothing.
+	 */
+	void (*echocan_events)(struct dahdi_echocan_state *ec);
+
+	/*! \brief Feed a sample (and its position) for echocan training.
+	 * \param[in,out] ec Pointer to the state structure.
+	 * \param[in] pos The tap position to be 'trained'.
+	 * \param[in] val The receive direction sample for the specified tap position.
+	 *
+	 * \retval Zero if training should continue.
+	 * \retval Non-zero if training is complete.
+	 */
+	int (*echocan_traintap)(struct dahdi_echocan_state *ec, int pos, short val);
+
+	/*! \brief Enable or disable non-linear processing (NLP) in the echocan.
+	 * \param[in,out] ec Pointer to the state structure.
+	 * \param[in] enable Zero to disable, non-zero to enable.
+	 *
+	 * \return Nothing.
+	 */
+	void (*echocan_NLP_toggle)(struct dahdi_echocan_state *ec, unsigned int enable);
+};
+
+/*! A factory for creating instances of software echo cancelers to be used on DAHDI channels. */
+struct dahdi_echocan_factory {
+
+	/*! The name of the factory. */
+	const char *name;
+
+	/*! Pointer to the module that owns this factory; the module's reference count will be
+	 * incremented/decremented by the DAHDI core as needed.
+	 */
+	struct module *owner;
+
+	/*! \brief Function to create an instance of the echocan.
+	 * \param[in] ecp Structure defining parameters to be used for the instance creation.
+	 * \param[in] p Pointer to the beginning of an (optional) array of user-defined parameters.
+	 * \param[out] ec Pointer to the state structure that is created, if any.
+	 *
+	 * \retval Zero on success.
+	 * \retval Non-zero on failure (return value will be returned to userspace so it should be a
+	 * standard error number).
+	 */
+	int (*echocan_create)(struct dahdi_chan *chan, struct dahdi_echocanparams *ecp,
+			      struct dahdi_echocanparam *p, struct dahdi_echocan_state **ec);
+};
+
+/*! \brief Register an echo canceler factory with the DAHDI core.
+ * \param[in] ec Pointer to the dahdi_echocan_factory structure to be registered.
+ *
+ * \retval Zero on success.
+ * \retval Non-zero on failure (return value will be a standard error number).
+ */
+int dahdi_register_echocan_factory(const struct dahdi_echocan_factory *ec);
+
+/*! \brief Unregister a previously-registered echo canceler factory from the DAHDI core.
+ * \param[in] ec Pointer to the dahdi_echocan_factory structure to be unregistered.
+ *
+ * \return Nothing.
+ */
+void dahdi_unregister_echocan_factory(const struct dahdi_echocan_factory *ec);
+
+enum dahdi_echocan_mode {
+	__ECHO_MODE_MUTE = 1 << 8,
+	ECHO_MODE_IDLE = 0,
+	ECHO_MODE_PRETRAINING = 1 | __ECHO_MODE_MUTE,
+	ECHO_MODE_STARTTRAINING = 2 | __ECHO_MODE_MUTE,
+	ECHO_MODE_AWAITINGECHO = 3 | __ECHO_MODE_MUTE,
+	ECHO_MODE_TRAINING = 4 | __ECHO_MODE_MUTE,
+	ECHO_MODE_ACTIVE = 5,
+	ECHO_MODE_FAX = 6,
+};
+
+/*! An instance of a DAHDI echo canceler (software or hardware). */
+struct dahdi_echocan_state {
+
+	/*! Pointer to a dahdi_echocan_ops structure of operations that can be
+	 * performed on this instance.
+	 */
+	const struct dahdi_echocan_ops *ops;
+
+	/*! State data used by the DAHDI core's CED detector for the transmit
+	 * direction, if needed.
+	 */
+	echo_can_disable_detector_state_t txecdis;
+
+	/*! State data used by the DAHDI core's CED detector for the receive
+	 * direction, if needed.
+	 */
+	echo_can_disable_detector_state_t rxecdis;
+
+	/*! Features offered by the echo canceler that provided this instance. */
+	struct dahdi_echocan_features features;
+
+	struct {
+		/*! The mode the echocan is currently in. */
+		enum dahdi_echocan_mode mode;
+
+		/*! The last tap position that was fed to the echocan's training function. */
+		u32 last_train_tap;
+
+		/*! How many samples to wait before beginning the training operation. */
+		u32 pretrain_timer;
+	} status;
+
+	/*! This structure contains event flags, allowing the echocan to report
+	 * events that occurred as it processed the transmit and receive streams
+	 * of samples. Each call to the echocan_process operation for this
+	 * instance may report events, so the structure should be cleared before
+	 * calling that operation.
+	 */
+	union dahdi_echocan_events {
+		u32 all;
+		struct {
+			/*! CED tone was detected in the transmit direction. If the
+			 * echocan automatically disables its NLP when this occurs,
+			 * it must also signal the NLP_auto_disabled event during the *same*
+			 * call to echocan_process that reports the CED detection.
+			 */
+			u32 CED_tx_detected:1;
+
+			/*! CED tone was detected in the receive direction. If the
+			 * echocan automatically disables its NLP when this occurs,
+			 * it must also signal the NLP_auto_disabled event during the *same*
+			 * call to echocan_process that reports the CED detection.
+			 */
+			u32 CED_rx_detected:1;
+
+			/*! CNG tone was detected in the transmit direction. */
+			u32 CNG_tx_detected:1;
+
+			/*! CNG tone was detected in the receive direction. */
+			u32 CNG_rx_detected:1;
+
+			/*! The echocan disabled its NLP automatically.
+			 */
+			u32 NLP_auto_disabled:1;
+
+			/*! The echocan enabled its NLP automatically.
+			 */
+			u32 NLP_auto_enabled:1;
+		};
+	} events;
+};
+
 struct dahdi_chan {
 #ifdef CONFIG_DAHDI_NET
 	/*! \note Must be first */
@@ -295,22 +520,14 @@ struct dahdi_chan {
 	short	conflast2[DAHDI_MAX_CHUNKSIZE];		/*!< Previous last conference sample -- pseudo part of channel */
 	
 
-	/*! Is echo cancellation enabled or disabled */
-	int		echocancel;
 	/*! The echo canceler module that should be used to create an
 	   instance when this channel needs one */
-	const struct dahdi_echocan *ec_factory;
+	const struct dahdi_echocan_factory *ec_factory;
 	/*! The echo canceler module that owns the instance currently
 	   on this channel, if one is present */
-	const struct dahdi_echocan *ec_current;
-	/*! The private state data of the echo canceler instance in use */
-	struct echo_can_state *ec_state;
-	echo_can_disable_detector_state_t txecdis;
-	echo_can_disable_detector_state_t rxecdis;
-	
-	int		echostate;		/*!< State of echo canceller */
-	int		echolastupdate;		/*!< Last echo can update pos */
-	int		echotimer;		/*!< Timer for echo update */
+	const struct dahdi_echocan_factory *ec_current;
+	/*! The state data of the echo canceler instance in use */
+	struct dahdi_echocan_state *ec_state;
 
 	/* RBS timings  */
 	int		prewinktime;  /*!< pre-wink time (ms) */
@@ -373,21 +590,6 @@ struct dahdi_hdlc {
 	struct dahdi_chan *chan;
 };
 #endif
-
-/* Echo cancellation */
-struct echo_can_state;
-
-struct dahdi_echocan {
-	const char *name;
-	struct module *owner;
-	int (*echo_can_create)(struct dahdi_echocanparams *ecp, struct dahdi_echocanparam *p, struct echo_can_state **ec);
-	void (*echo_can_free)(struct echo_can_state *ec);
-	void (*echo_can_array_update)(struct echo_can_state *ec, short *isig, short *iref);
-	int (*echo_can_traintap)(struct echo_can_state *ec, int pos, short val);
-};
-
-int dahdi_register_echocan(const struct dahdi_echocan *ec);
-void dahdi_unregister_echocan(const struct dahdi_echocan *ec);
 
 /*! Define the maximum block size */
 #define DAHDI_MAX_BLOCKSIZE	8192
@@ -600,10 +802,9 @@ struct dahdi_span {
 	/*! Opt: IOCTL */
 	int (*ioctl)(struct dahdi_chan *chan, unsigned int cmd, unsigned long data);
 	
-	/*! Opt: Native echo cancellation (simple) */
-	int (*echocan)(struct dahdi_chan *chan, int ecval);
-
-	int (*echocan_with_params)(struct dahdi_chan *chan, struct dahdi_echocanparams *ecp, struct dahdi_echocanparam *p);
+	/*! Opt: Provide echo cancellation on a channel */
+	int (*echocan_create)(struct dahdi_chan *chan, struct dahdi_echocanparams *ecp,
+			      struct dahdi_echocanparam *p, struct dahdi_echocan_state **ec);
 
 	/* Okay, now we get to the signalling.  You have several options: */
 

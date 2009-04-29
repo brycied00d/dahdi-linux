@@ -228,6 +228,32 @@ static int vpmnlpthresh = 24;
 /* See vpmnlptype = 4 for more info */
 static int vpmnlpmaxsupp = 0;
 
+static int echocan_create(struct dahdi_chan *chan, struct dahdi_echocanparams *ecp,
+			   struct dahdi_echocanparam *p, struct dahdi_echocan_state **ec);
+static void echocan_free(struct dahdi_chan *chan, struct dahdi_echocan_state *ec);
+
+static const struct dahdi_echocan_features vpm100m_ec_features = {
+	.NLP_automatic = 1,
+	.CED_tx_detect = 1,
+	.CED_rx_detect = 1,
+};
+
+static const struct dahdi_echocan_features vpm150m_ec_features = {
+	.NLP_automatic = 1,
+	.CED_tx_detect = 1,
+	.CED_rx_detect = 1,
+};
+
+static const struct dahdi_echocan_ops vpm100m_ec_ops = {
+	.name = "VPM100M",
+	.echocan_free = echocan_free,
+};
+
+static const struct dahdi_echocan_ops vpm150m_ec_ops = {
+	.name = "VPM150M",
+	.echocan_free = echocan_free,
+};
+
 static int wctdm_init_proslic(struct wctdm *wc, int card, int fast , int manual, int sane);
 
 static inline int CMD_BYTE(int card, int bit, int altcs)
@@ -1628,10 +1654,32 @@ static inline void wctdm_vpm_check(struct wctdm *wc, int x)
 	}
 }
 
-static int wctdm_echocan_with_params(struct dahdi_chan *chan, 
-	struct dahdi_echocanparams *ecp, struct dahdi_echocanparam *p)
+static int echocan_create(struct dahdi_chan *chan, struct dahdi_echocanparams *ecp,
+			  struct dahdi_echocanparam *p, struct dahdi_echocan_state **ec)
 {
 	struct wctdm *wc = chan->pvt;
+	const struct dahdi_echocan_ops *ops;
+	const struct dahdi_echocan_features *features;
+
+	if (!wc->vpm100 && !wc->vpmadt032)
+		return -ENODEV;
+
+	if (wc->vpmadt032) {
+		ops = &vpm150m_ec_ops;
+		features = &vpm150m_ec_features;
+	} else {
+		ops = &vpm100m_ec_ops;
+		features = &vpm100m_ec_features;
+	}
+
+	if (wc->vpm100 && (ecp->param_count > 0)) {
+		printk(KERN_WARNING "%s echo canceller does not support parameters; failing request\n", ops->name);
+		return -EINVAL;
+	}
+
+	*ec = wc->ec[chan->chanpos - 1];
+	(*ec)->ops = ops;
+	(*ec)->features = *features;
 
 	if (wc->vpm100) {
 		int channel;
@@ -1642,20 +1690,39 @@ static int wctdm_echocan_with_params(struct dahdi_chan *chan,
 		if (wc->vpm100 < 2)
 			channel >>= 2;
 	
-		if(debug & DEBUG_ECHOCAN) 
-			printk(KERN_DEBUG "echocan: Unit is %d, Channel is  %d length %d\n", 
-				unit, channel, ecp->tap_length);
-		if (ecp->tap_length)
-			wctdm_vpm_out(wc,unit,channel,0x3e);
-		else
-			wctdm_vpm_out(wc,unit,channel,0x01);
+		if (debug & DEBUG_ECHOCAN)
+			printk(KERN_DEBUG "echocan: Unit is %d, Channel is %d length %d\n", unit, channel, ecp->tap_length);
 
+		wctdm_vpm_out(wc, unit, channel, 0x3e);
 		return 0;
 	} else if (wc->vpmadt032) {
-		return vpmadt032_echocan_with_params(wc->vpmadt032, 
+		return vpmadt032_echocan_create(wc->vpmadt032,
 			chan->chanpos-1, ecp, p);
 	} else {
 		return -ENODEV;
+	}
+}
+
+static void echocan_free(struct dahdi_chan *chan, struct dahdi_echocan_state *ec)
+{
+	struct wctdm *wc = chan->pvt;
+
+	memset(ec, 0, sizeof(*ec));
+	if (wc->vpm100) {
+		int channel;
+		int unit;
+
+		channel = (chan->chanpos - 1);
+		unit = (chan->chanpos - 1) & 0x3;
+		if (wc->vpm100 < 2)
+			channel >>= 2;
+
+		if (debug & DEBUG_ECHOCAN)
+			printk(KERN_DEBUG "echocan: Unit is %d, Channel is %d length 0\n",
+			       unit, channel);
+		wctdm_vpm_out(wc, unit, channel, 0x01);
+	} else if (wc->vpmadt032) {
+		vpmadt032_echocan_free(wc->vpmadt032, chan, ec);
 	}
 }
 
@@ -3187,7 +3254,7 @@ static int wctdm_initialize(struct wctdm *wc)
 	wc->span.watchdog = wctdm_watchdog;
 	wc->span.dacs= wctdm_dacs;
 #ifdef VPM_SUPPORT
-	wc->span.echocan_with_params = wctdm_echocan_with_params;
+	wc->span.echocan_create = echocan_create;
 #endif	
 	init_waitqueue_head(&wc->span.maintq);
 
@@ -3587,6 +3654,8 @@ static void free_wc(struct wctdm *wc)
 		if (wc->chans[x]) {
 			kfree(wc->chans[x]);
 		}
+		if (wc->ec[x])
+			kfree(wc->ec[x]);
 	}
 	kfree(wc);
 }
@@ -3651,6 +3720,11 @@ retry:
 			return -ENOMEM;
 		}
 		memset(wc->chans[i], 0, sizeof(*wc->chans[i]));
+		if (!(wc->ec[i] = kmalloc(sizeof(*wc->ec[i]), GFP_KERNEL))) {
+			free_wc(wc);
+			return -ENOMEM;
+		}
+		memset(wc->ec[i], 0, sizeof(*wc->ec[i]));
 	}
 
 
