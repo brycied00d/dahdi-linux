@@ -53,7 +53,7 @@ inline void vpm150m_cmd_dequeue(struct t1 *wc, volatile unsigned char *writechun
 	struct vpm150m_cmd *curcmd = NULL;
 	struct vpm150m *vpm150m = wc->vpm150m;
 	int x;
-	unsigned char leds = ~((wc->intcount / 1000) % 8) & 0x7;
+	unsigned char leds = ~((atomic_read(&wc->txints) / 1000) % 8) & 0x7;
 
 	/* Skip audio */
 	writechunk += 66;
@@ -225,7 +225,7 @@ inline void vpm150m_cmd_dequeue(struct t1 *wc, volatile unsigned char *writechun
 
 	/* Now let's figure out if we need to check for DTMF */
 	/* polling */
-	if (test_bit(VPM150M_ACTIVE, &vpm150m->control) && !whichframe && !(wc->intcount % 100))
+	if (test_bit(VPM150M_ACTIVE, &vpm150m->control) && !whichframe && !(atomic_read(&wc->txints) % 100))
 		queue_work(vpm150m->wq, &vpm150m->work_dtmf);
 
 #if 0
@@ -296,11 +296,10 @@ static struct vpm150m_cmd * vpm150m_empty_slot(struct t1 *wc)
 static inline int vpm150m_io_wait(struct t1 *wc)
 {
 	int x;
-	int ret=0;
 	for (x=0; x < VPM150M_MAX_COMMANDS;) {
 		if (wc->vpm150m->cmdq[x].flags) {
-			if ((ret=schluffen(&wc->regq))) {
-				return ret;
+			if (msleep_interruptible(1)) {
+				return -EINTR;
 			}
 			x=0;
 		}
@@ -308,7 +307,7 @@ static inline int vpm150m_io_wait(struct t1 *wc)
 			++x;
 		}
 	}
-	return ret;
+	return 0;
 }
 
 static int t1_vpm150m_getreg_full_async(struct t1 *wc, int pagechange, unsigned int len, 
@@ -351,8 +350,8 @@ static int t1_vpm150m_getreg_full_return(struct t1 *wc, int pagechange, unsigned
 		}
 		else {
 			spin_unlock_irqrestore(&wc->reglock, flags);
-			if ((ret=schluffen(&wc->regq))) {
-				return ret;
+			if (msleep_interruptible(1)) {
+				return -EINTR;
 			}
 			spin_lock_irqsave(&wc->reglock, flags);
 			ret = -EBUSY;
@@ -370,8 +369,8 @@ static int t1_vpm150m_getreg_full(struct t1 *wc, int pagechange, unsigned int le
 		ret = t1_vpm150m_getreg_full_async(wc, pagechange, len, addr, outbuf, &hit);
 		if (!hit) {
 			if ( -EBUSY == ret ) {
-				if ((ret = schluffen(&wc->regq))) 
-					return ret;
+				if (msleep_interruptible(1))
+					return -EINTR;
 			}
 			BUG_ON( 0 != ret);
 		}
@@ -385,7 +384,7 @@ static int t1_vpm150m_setreg_full(struct t1 *wc, int pagechange, unsigned int le
 {
 	unsigned long flags;
 	struct vpm150m_cmd *hit;
-	int ret, i;
+	int i;
 	do {
 		spin_lock_irqsave(&wc->reglock, flags);
 		hit = vpm150m_empty_slot(wc);
@@ -400,8 +399,8 @@ static int t1_vpm150m_setreg_full(struct t1 *wc, int pagechange, unsigned int le
 		}
 		spin_unlock_irqrestore(&wc->reglock, flags);
 		if (!hit) {
-			if ((ret = schluffen(&wc->regq)))
-				return ret;
+			if (msleep_interruptible(1))
+				return -EINTR;
 		}
 	} while (!hit);
 	return (hit) ? 0 : -1;
@@ -499,20 +498,25 @@ static void vpm150m_echocan_bh(struct work_struct *data)
 	struct vpm150m *vpm150m = container_of(data, struct vpm150m, work_echocan);
 #endif
 	struct t1 *wc = vpm150m->wc;
-	struct list_head *task;
-	struct list_head *next_task;
 	unsigned long flags;
+	struct vpm150m_workentry *we;
+	struct dahdi_chan *chan;
+	int deflaw;
+	int res;
+	GPAK_AlgControlStat_t pstatus;
 
-	list_for_each_safe(task, next_task, &vpm150m->worklist) {
-		struct vpm150m_workentry *we = list_entry(task, struct vpm150m_workentry, list);
-		struct dahdi_chan *chan = we->chan;
-		int deflaw;
-		int res;
-		GPAK_AlgControlStat_t pstatus;
+	while (!list_empty(&vpm150m->worklist)) {
+		we = list_entry(vpm150m->worklist.next, struct vpm150m_workentry, list);
+
+		spin_lock_irqsave(&vpm150m->lock, flags);
+		list_del(&we->list);
+		spin_unlock_irqrestore(&vpm150m->lock, flags);
+
+		chan = we->chan;
 
 		if (we->params.tap_length) {
 			/* configure channel for the ulaw/alaw */
-			unsigned int start = wc->intcount;
+			unsigned int start = atomic_read(&wc->txints);
 
 			if (memcmp(&we->params, &vpm150m->chan_params[chan->chanpos - 1], sizeof(we->params))) {
 				/* set parameters */
@@ -535,9 +539,9 @@ static void vpm150m_echocan_bh(struct work_struct *data)
 			}
 
 			res = gpakAlgControl(vpm150m->dspid, chan->chanpos - 1, EnableEcanA, &pstatus);
-			debug_printk(2, "Echo can enable took %d ms\n", wc->intcount - start);
+			debug_printk(2, "Echo can enable took %d ms\n", atomic_read(&wc->txints) - start);
 		} else {
-			unsigned int start = wc->intcount;
+			unsigned int start = atomic_read(&wc->txints);
 			debug_printk(1, "Disabling EC on channel %d\n", chan->chanpos);
 			res = gpakAlgControl(vpm150m->dspid, chan->chanpos - 1, BypassSwCompanding, &pstatus);
 			if (res)
@@ -545,15 +549,12 @@ static void vpm150m_echocan_bh(struct work_struct *data)
 			res = gpakAlgControl(vpm150m->dspid, chan->chanpos - 1, BypassEcanA, &pstatus);
 			if (res)
 				module_printk("Unable to disable echo can on channel %d (reason %d)\n", chan->chanpos, res);
-			debug_printk(2, "Echocan disable took %d ms\n", wc->intcount - start);
+			debug_printk(2, "Echocan disable took %d ms\n", atomic_read(&wc->txints) - start);
 		}
 		if (res) {
 			module_printk("Unable to toggle echo cancellation on channel %d (reason %d)\n", chan->chanpos, res);
 		}
 
-		spin_lock_irqsave(&vpm150m->lock, flags);
-		list_del(task);
-		spin_unlock_irqrestore(&vpm150m->lock, flags);
 		kfree(we);
 	}
 }
@@ -606,16 +607,16 @@ static void vpm150m_dtmf_bh(struct work_struct *data)
 			}
 		}
 		if (enable > -1) {
-			unsigned int start = wc->intcount;
+			unsigned int start = atomic_read(&wc->txints);
 			GPAK_AlgControlStat_t pstatus;
 			int res;
 
 			if (enable) {
 				res = gpakAlgControl(vpm150m->dspid, i, EnableDTMFMuteA, &pstatus);
-				debug_printk(2, "DTMF mute enable took %d ms\n", wc->intcount - start);
+				debug_printk(2, "DTMF mute enable took %d ms\n", atomic_read(&wc->txints) - start);
 			} else {
 				res = gpakAlgControl(vpm150m->dspid, i, DisableDTMFMuteA, &pstatus);
-				debug_printk(2, "DTMF mute disable took %d ms\n", wc->intcount - start);
+				debug_printk(2, "DTMF mute disable took %d ms\n", atomic_read(&wc->txints) - start);
 			}
 			if (!res)
 				change_bit(i, &vpm150m->curdtmfmutestate);
@@ -627,11 +628,11 @@ static void vpm150m_dtmf_bh(struct work_struct *data)
 		GpakAsyncEventCode_t eventcode;
 		GpakAsyncEventData_t eventdata;
 		gpakReadEventFIFOMessageStat_t  res;
-		unsigned int start = wc->intcount;
+		unsigned int start = atomic_read(&wc->txints);
 
 		do {
 			res = gpakReadEventFIFOMessage(vpm150m->dspid, &channel, &eventcode, &eventdata);
-			debug_printk(3, "ReadEventFIFOMessage took %d ms\n", wc->intcount - start);
+			debug_printk(3, "ReadEventFIFOMessage took %d ms\n", atomic_read(&wc->txints) - start);
 
 			if (res == RefInvalidEvent || res == RefDspCommFailure) {
 				module_printk("Uh oh (%d)\n", res);
@@ -735,7 +736,7 @@ void t1_vpm150m_init(struct t1 *wc) {
 	spin_unlock_irqrestore(&wc->reglock, flags);
 
 	for (i = 0; i < 10; i++)
-		schluffen(&wc->regq);
+		msleep_interruptible(1);
 
 	debug_printk(1, "Looking for VPMADT032 by testing page access: ");
 	for (i = 0; i < 0xf; i++) {
@@ -854,7 +855,7 @@ void t1_vpm150m_init(struct t1 *wc) {
 		set_bit(VPM150M_HPIRESET, &vpm150m->control);
 
 		while (test_bit(VPM150M_HPIRESET, &vpm150m->control))
-			schluffen(&wc->regq);
+			msleep(1);
 
 		module_printk("VPMADT032 Loading firmware... ");
 		downloadstatus = gpakDownloadDsp(vpm150m->dspid, &fw);
@@ -872,7 +873,7 @@ void t1_vpm150m_init(struct t1 *wc) {
 		set_bit(VPM150M_SWRESET, &vpm150m->control);
 
 		while (test_bit(VPM150M_SWRESET, &vpm150m->control))
-			schluffen(&wc->regq);
+			msleep(1);
 
 		msleep(700);
 #if 0
