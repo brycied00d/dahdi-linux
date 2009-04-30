@@ -1232,7 +1232,8 @@ static int t1_software_init(struct t1 *wc)
 	wc->span.close = t1xxp_close;
 	wc->span.ioctl = t1xxp_ioctl;
 #ifdef VPM_SUPPORT
-	wc->span.echocan_create = echocan_create;
+	if (vpmsupport)
+		wc->span.echocan_create = echocan_create;
 #endif
 
 	if (wc->spantype == TYPE_E1) {

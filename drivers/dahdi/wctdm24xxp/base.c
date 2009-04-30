@@ -3254,7 +3254,8 @@ static int wctdm_initialize(struct wctdm *wc)
 	wc->span.watchdog = wctdm_watchdog;
 	wc->span.dacs= wctdm_dacs;
 #ifdef VPM_SUPPORT
-	wc->span.echocan_create = echocan_create;
+	if (vpmsupport)
+		wc->span.echocan_create = echocan_create;
 #endif	
 	init_waitqueue_head(&wc->span.maintq);
 

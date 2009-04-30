@@ -1661,7 +1661,8 @@ static void init_spans(struct t4 *wc)
 		ts->span.hdlc_hard_xmit = t4_hdlc_hard_xmit;
 		if (gen2) {
 #ifdef VPM_SUPPORT
-			ts->span.echocan_create = echocan_create;
+			if (vpmsupport)
+				ts->span.echocan_create = echocan_create;
 #endif			
 			ts->span.dacs = t4_dacs;
 		}
