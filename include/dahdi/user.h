@@ -36,6 +36,7 @@
 #define _DAHDI_USER_H
 
 #include <linux/types.h>
+#include <linux/ioctl.h>
 
 #ifndef ELAST
 #define ELAST 500
