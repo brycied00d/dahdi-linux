@@ -357,6 +357,10 @@ u_char __dahdi_lin2a[16384];
 
 static u_char defgain[256];
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 10)
+#define __RW_LOCK_UNLOCKED() RW_LOCK_UNLOCKED
+#endif
+
 #ifdef DEFINE_RWLOCK
 static DEFINE_RWLOCK(zone_lock);
 static DEFINE_RWLOCK(chan_lock);
