@@ -91,6 +91,13 @@
 #endif
 #endif
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,14)
+/* also added in RHEL kernels with the OpenInfiniband backport: */
+#if LINUX_VERSION_CODE != KERNEL_VERSION(2,6,9) || !defined(DEFINE_SPINLOCK)
+typedef	unsigned gfp_t;		/* Added in 2.6.14 */
+#endif
+#endif
+
 /* The total number of active channels over which the driver will start polling
  * the card every 10 ms. */
 #define POLLING_CALL_THRESHOLD 40
