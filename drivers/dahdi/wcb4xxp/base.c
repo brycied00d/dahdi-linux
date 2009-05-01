@@ -87,6 +87,10 @@ static int vpmsupport = 1;
 static int timer_1_ms = 2000;
 static int timer_3_ms = 30000;
 
+#if !defined(mmiowb)
+#define mmiowb() barrier()
+#endif
+
 #define MAX_B4_CARDS 64
 static struct b4xxp *cards[MAX_B4_CARDS];
 
