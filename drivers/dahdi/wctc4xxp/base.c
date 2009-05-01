@@ -30,7 +30,6 @@
 #include <linux/pci.h>
 #include <linux/interrupt.h>
 #include <linux/delay.h>
-#include <linux/io.h>
 #include <linux/jiffies.h>
 #include <linux/moduleparam.h>
 #include <linux/firmware.h>
@@ -41,6 +40,12 @@
 #include <linux/timer.h>
 
 #include "dahdi/kernel.h"
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 18)
+#include <asm/io.h>
+#else
+#include <linux/io.h>
+#endif
 
 /* COMPILE TIME OPTIONS =================================================== */
 
