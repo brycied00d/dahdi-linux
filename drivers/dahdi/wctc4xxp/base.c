@@ -2049,8 +2049,14 @@ wctc4xxp_handle_receive_ring(struct wcdte *wc)
 	/* If we can't grab this lock, another thread must already be checking
 	 * the receive ring...so we should just finish up, and we'll try again
 	 * later. */
+#if defined(spin_trylock_irqsave)
 	if (!spin_trylock_irqsave(&wc->rx_lock, flags))
 		return 0;
+#else
+	if (spin_is_locked(&wc->rx_lock))
+		return 0;
+	spin_lock_irqsave(&wc->rx_lock, flags);
+#endif
 
 	while ((cmd = wctc4xxp_retrieve(wc->rxd))) {
 		++count;
