@@ -7,10 +7,6 @@
 
 PWD:=$(shell pwd)
 
-ifndef ARCH
-ARCH:=$(shell uname -m | sed -e s/i.86/i386/)
-endif
-
 ifndef DEB_HOST_GNU_TYPE
 UNAME_M:=$(shell uname -m)
 else
@@ -61,7 +57,7 @@ INST_HEADERS:=kernel.h user.h fasthdlc.h wctdm_user.h dahdi_config.h
 
 DAHDI_BUILD_ALL:=m
 
-KMAKE=$(MAKE) -C $(KSRC) ARCH=$(ARCH) SUBDIRS=$(PWD)/drivers/dahdi DAHDI_INCLUDE=$(PWD)/include DAHDI_MODULES_EXTRA="$(DAHDI_MODULES_EXTRA)" HOTPLUG_FIRMWARE=$(HOTPLUG_FIRMWARE)
+KMAKE=$(MAKE) -C $(KSRC) SUBDIRS=$(PWD)/drivers/dahdi DAHDI_INCLUDE=$(PWD)/include DAHDI_MODULES_EXTRA="$(DAHDI_MODULES_EXTRA)" HOTPLUG_FIRMWARE=$(HOTPLUG_FIRMWARE)
 
 ifneq (,$(wildcard $(DESTDIR)/etc/udev/rules.d))
   DYNFS:=yes
