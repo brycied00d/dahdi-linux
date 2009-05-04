@@ -338,6 +338,9 @@ void vpmadt032_echocan_free(struct vpmadt032 *vpm, struct dahdi_chan *chan,
 {
 	int channo = chan->chanpos - 1;
 	adt_lec_init_defaults(&vpm->desiredecstate[channo], 0);
+	vpm->desiredecstate[channo].nlp_type = vpm->options.vpmnlptype;
+	vpm->desiredecstate[channo].nlp_threshold = vpm->options.vpmnlpthresh;
+	vpm->desiredecstate[channo].nlp_max_suppress = vpm->options.vpmnlpmaxsupp;
 
 	if (vpm->options.debug & DEBUG_ECHOCAN)
 		printk(KERN_DEBUG "echocan: Channel is %d length 0\n", channo);
