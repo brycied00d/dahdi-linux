@@ -212,6 +212,47 @@ static int vpmadt032_setreg(struct vpmadt032 *vpm, unsigned int addr, u16 data)
 	return res;
 }
 
+static int vpmadt032_enable_ec(struct vpmadt032 *vpm, int channel)
+{
+	int res;
+	GPAK_AlgControlStat_t pstatus;
+	GpakAlgCtrl_t control;
+
+	if (vpm->span) {
+		control = (DAHDI_LAW_ALAW == vpm->span->deflaw) ?
+				EnableALawSwCompanding :
+				EnableMuLawSwCompanding;
+	} else {
+		control = EnableMuLawSwCompanding;
+	}
+	printk(KERN_DEBUG "Enabling ecan on channel: %d (%s)\n", channel,
+			((control == EnableMuLawSwCompanding) ?
+			"MuLaw" : "ALaw"));
+	res = gpakAlgControl(vpm->dspid, channel, control, &pstatus);
+	if (res) {
+		printk(KERN_WARNING "Unable to set SW Companding on " \
+			"channel %d (reason %d)\n", channel, res);
+	}
+	res = gpakAlgControl(vpm->dspid, channel, EnableEcanA, &pstatus);
+	return res;
+}
+
+static int vpmadt032_disable_ec(struct vpmadt032 *vpm, int channel)
+{
+	int res;
+	GPAK_AlgControlStat_t pstatus;
+
+	printk(KERN_DEBUG "Disabling ecan on channel: %d\n", channel);
+	res = gpakAlgControl(vpm->dspid, channel, BypassSwCompanding, &pstatus);
+	if (res) {
+		printk(KERN_WARNING "Unable to disable sw companding on " \
+			"echo cancellation channel %d (reason %d)\n",
+			channel, res);
+	}
+	res = gpakAlgControl(vpm->dspid, channel, BypassEcanA, &pstatus);
+	return res;
+}
+
 /**
  * vpmadt032_bh - Changes the echocan parameters on the vpmadt032 module.
  *
@@ -272,19 +313,10 @@ static void vpmadt032_bh(struct work_struct *data)
 			}
 
 		} else if (desiredstate->tap_length != curstate->tap_length) {
-			if (desiredstate->tap_length) {
-				printk(KERN_DEBUG "Enabling ecan on channel: %d\n", channel);
-				res = gpakAlgControl(vpm->dspid, channel, EnableMuLawSwCompanding, &pstatus);
-				if (res)
-					printk("Unable to set SW Companding on channel %d (reason %d)\n", channel, res);
-				res = gpakAlgControl(vpm->dspid, channel, EnableEcanA, &pstatus);
-			} else {
-				printk(KERN_DEBUG "Disabling ecan on channel: %d\n", channel);
-				res = gpakAlgControl(vpm->dspid, channel, BypassSwCompanding, &pstatus);
-				if (res)
-					printk("Unable to disable sw companding on echo cancellation channel %d (reason %d)\n", channel, res);
-				res = gpakAlgControl(vpm->dspid, channel, BypassEcanA, &pstatus);
-			}
+			if (desiredstate->tap_length)
+				res = vpmadt032_enable_ec(vpm, channel);
+			else
+				res = vpmadt032_disable_ec(vpm, channel);
 		}
 vpm_bh_out:
 		if (!res)
