@@ -72,6 +72,15 @@
 #define VPM150M_DTMFDETECT		3
 #define VPM150M_ACTIVE			4
 
+#define NLPTYPE_NONE		0
+#define NLPTYPE_MUTE		1
+#define NLPTYPE_RANDOM_NOISE 	2
+#define HOTH_NOISE_NLPTYPE 	3
+#define NLPTYPE_SUPPRESS	4
+#define DEFAULT_NLPTYPE 	NLPTYPE_SUPPRESS
+
+/* This is the threshold (in dB) for enabling and disabling of the NLP */
+#define DEFAULT_NLPTHRESH		24
 
 struct vpmadt032_cmd {
 	struct list_head node;

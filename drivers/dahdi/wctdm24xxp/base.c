@@ -213,20 +213,9 @@ static int neonmwi_offlimit_cycles;  /* Time in milliseconds the monitor is chec
 
 static int vpmsupport = 1;
 
-/*
- * This parameter is used to adjust the NLP type used.  The options are:
- * 0 : None
- * 1 : Mute
- * 2 : Random Noise
- * 3 : Hoth Noise
- * 4 : Suppression NLP - In order to use this, you must set the vpmnlpmaxsupp parameter to
- * 	some value in order to give the amount of dB to suppress to the suppressor
- */
-static int vpmnlptype = 1;
-/* This is the threshold (in dB) for enabling and disabling of the NLP */
-static int vpmnlpthresh = 24;
-/* See vpmnlptype = 4 for more info */
-static int vpmnlpmaxsupp = 0;
+static int vpmnlptype = DEFAULT_NLPTYPE;
+static int vpmnlpthresh = DEFAULT_NLPTHRESH;
+static int vpmnlpmaxsupp = DEFAULT_NLPTHRESH;
 
 static int echocan_create(struct dahdi_chan *chan, struct dahdi_echocanparams *ecp,
 			   struct dahdi_echocanparam *p, struct dahdi_echocan_state **ec);
