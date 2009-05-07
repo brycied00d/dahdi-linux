@@ -340,7 +340,7 @@ static void vpmadt032_check_and_schedule_update(struct vpmadt032 *vpm, int chann
 		 * parameters to a work queue so the caller can continue to
 		 * proceed with setting up the call.
 		 */
-		schedule_work(&vpm->work);
+		queue_work(vpm->wq, &vpm->work);
 	}
 }
 int vpmadt032_echocan_create(struct vpmadt032 *vpm, int channo,
@@ -381,15 +381,26 @@ void vpmadt032_echocan_free(struct vpmadt032 *vpm, struct dahdi_chan *chan,
 }
 EXPORT_SYMBOL(vpmadt032_echocan_free);
 
-struct vpmadt032 *vpmadt032_alloc(struct vpmadt032_options *options)
+struct vpmadt032 *
+vpmadt032_alloc(struct vpmadt032_options *options, const char *board_name)
 {
 	struct vpmadt032 *vpm;
 	int i;
+	const char *suffix = "-vpm";
+	size_t length;
+
 	might_sleep();
 
-	vpm = kzalloc(sizeof(*vpm), GFP_KERNEL);
-	if (!vpm)
+	length = strlen(board_name) + strlen(suffix) + 1;
+
+	/* Add a little extra to store the wq_name. */
+	vpm = kzalloc(sizeof(*vpm) + length, GFP_KERNEL);
+	if (!vpm) {
 		return NULL;
+	}
+
+	strcpy(vpm->wq_name, board_name);
+	strcat(vpm->wq_name, suffix);
 
 	/* Init our vpmadt032 struct */
 	memcpy(&vpm->options, options, sizeof(*options));
@@ -400,6 +411,16 @@ struct vpmadt032 *vpmadt032_alloc(struct vpmadt032_options *options)
 	sema_init(&vpm->sem, 1);
 	vpm->curpage = 0x80;
 	vpm->dspid = -1;
+
+	/* Do not use the global workqueue for processing these events.  Some of
+	 * the operations can take 100s of ms, most of that time spent sleeping.
+	 * On single CPU systems, this unduly serializes operations accross
+	 * multiple vpmadt032 instances. */
+	vpm->wq = create_singlethread_workqueue(vpm->wq_name);
+	if (!vpm->wq) {
+		kfree(vpm);
+		return NULL;
+	}
 
 	/* Place this structure in the ifaces array so that the DspId from the
 	 * Gpak Library can be used to locate it. */
@@ -434,6 +455,8 @@ vpmadt032_init(struct vpmadt032 *vpm, struct voicebus *vb)
 	gpakPingDspStat_t pingstatus;
 
 	BUG_ON(!vpm->setchanconfig_from_state);
+	BUG_ON(!vpm->wq);
+
 	might_sleep();
 
 	if (vpm->options.debug & DEBUG_ECHOCAN)
@@ -530,6 +553,9 @@ void vpmadt032_free(struct vpmadt032 *vpm)
 	LIST_HEAD(local_list);
 
 	BUG_ON(!vpm);
+	BUG_ON(!vpm->wq);
+
+	destroy_workqueue(vpm->wq);
 
 	/* Move all the commands onto the local list protected by the locks */
 	spin_lock_irqsave(&vpm->list_lock, flags);
