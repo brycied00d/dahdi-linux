@@ -60,9 +60,11 @@ static int unchannelized = 0;
 static int latency = VOICEBUS_DEFAULT_LATENCY;
 int vpmsupport = 1;
 static int vpmtsisupport = 0;
-int vpmnlptype = 3;
-int vpmnlpthresh = 24;
-int vpmnlpmaxsupp = 0;
+
+int vpmnlptype = DEFAULT_NLPTYPE;
+int vpmnlpthresh = DEFAULT_NLPTHRESH;
+int vpmnlpmaxsupp = DEFAULT_NLPTHRESH;
+
 static int echocan_create(struct dahdi_chan *chan, struct dahdi_echocanparams *ecp,
 			   struct dahdi_echocanparam *p, struct dahdi_echocan_state **ec);
 static void echocan_free(struct dahdi_chan *chan, struct dahdi_echocan_state *ec);
