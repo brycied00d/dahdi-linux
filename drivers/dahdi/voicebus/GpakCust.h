@@ -107,6 +107,7 @@ struct vpmadt032 {
 	void *context;
 	const struct dahdi_span *span;
 	struct work_struct work;
+	struct workqueue_struct *wq;
 	int dspid;
 	struct semaphore sem;
 	unsigned long control;
@@ -124,6 +125,8 @@ struct vpmadt032 {
 	unsigned char curtone[MAX_CHANNELS_PER_SPAN];
 	struct vpmadt032_options options;
 	void (*setchanconfig_from_state)(struct vpmadt032 *vpm, int channel, struct GpakChannelConfig *chanconfig);
+	/* This must be last */
+	char wq_name[0];
 };
 
 struct voicebus;
@@ -134,7 +137,8 @@ struct dahdi_echocan_state;
 
 char vpmadt032tone_to_zaptone(GpakToneCodes_t tone);
 int vpmadt032_init(struct vpmadt032 *vpm, struct voicebus *vb);
-struct vpmadt032 *vpmadt032_alloc(struct vpmadt032_options *options);
+struct vpmadt032 *vpmadt032_alloc(struct vpmadt032_options *options,
+					const char *board_name);
 void vpmadt032_free(struct vpmadt032 *vpm);
 int vpmadt032_echocan_create(struct vpmadt032 *vpm, int channo,
 	struct dahdi_echocanparams *ecp, struct dahdi_echocanparam *p);

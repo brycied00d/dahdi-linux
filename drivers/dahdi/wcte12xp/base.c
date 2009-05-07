@@ -1385,7 +1385,7 @@ static int t1_hardware_post_init(struct t1 *wc)
 		options.vpmnlpthresh = vpmnlpthresh;
 		options.vpmnlpmaxsupp = vpmnlpmaxsupp;
 
-		wc->vpmadt032 = vpmadt032_alloc(&options);
+		wc->vpmadt032 = vpmadt032_alloc(&options, wc->name);
 		if (!wc->vpmadt032)
 			return -ENOMEM;
 

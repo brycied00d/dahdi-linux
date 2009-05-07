@@ -3597,9 +3597,10 @@ retry:
 		options.vpmnlpthresh = vpmnlpthresh;
 		options.vpmnlpmaxsupp = vpmnlpmaxsupp;
 
-		if (!(wc->vpmadt032=vpmadt032_alloc(&options))) {
+		wc->vpmadt032 = vpmadt032_alloc(&options, wc->board_name);
+		if (!wc->vpmadt032)
 			return -ENOMEM;
-		}
+
 		wc->vpmadt032->setchanconfig_from_state = setchanconfig_from_state;
 		wc->vpmadt032->context = wc;
 		wc->vpmadt032->span = &wc->span;
