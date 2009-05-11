@@ -43,7 +43,7 @@ typedef union
 } GpakAsyncEventData_t;
 
 /* Definition of an Echo Canceller Parameters information structure. */
-typedef struct
+typedef struct GpakEcanParms
 {
     short int EcanTapLength;       // Echo Can Num Taps (tail length) 
     short int EcanNlpType;         // Echo Can NLP Type 
