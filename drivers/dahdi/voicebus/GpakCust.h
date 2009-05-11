@@ -77,10 +77,13 @@
 #define NLPTYPE_RANDOM_NOISE 	2
 #define HOTH_NOISE_NLPTYPE 	3
 #define NLPTYPE_SUPPRESS	4
-#define DEFAULT_NLPTYPE 	NLPTYPE_SUPPRESS
+#define NLPTYPE_RESERVED	5
+#define NLPTYPE_AUTOSUPPRESS	6
+#define DEFAULT_NLPTYPE 	NLPTYPE_AUTOSUPPRESS
 
 /* This is the threshold (in dB) for enabling and disabling of the NLP */
-#define DEFAULT_NLPTHRESH		24
+#define DEFAULT_NLPTHRESH		22
+#define DEFAULT_NLPMAXSUPP		10
 
 struct vpmadt032_cmd {
 	struct list_head node;
@@ -144,6 +147,9 @@ int vpmadt032_echocan_create(struct vpmadt032 *vpm, int channo,
 	struct dahdi_echocanparams *ecp, struct dahdi_echocanparam *p);
 void vpmadt032_echocan_free(struct vpmadt032 *vpm, struct dahdi_chan *chan,
 	struct dahdi_echocan_state *ec);
+
+struct GpakEcanParms;
+void vpmadt032_get_default_parameters(struct GpakEcanParms *p);
 
 /* If there is a command ready to go to the VPMADT032, return it, otherwise NULL */
 static inline struct vpmadt032_cmd *vpmadt032_get_ready_cmd(struct vpmadt032 *vpm)

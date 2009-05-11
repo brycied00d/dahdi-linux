@@ -215,7 +215,7 @@ static int vpmsupport = 1;
 
 static int vpmnlptype = DEFAULT_NLPTYPE;
 static int vpmnlpthresh = DEFAULT_NLPTHRESH;
-static int vpmnlpmaxsupp = DEFAULT_NLPTHRESH;
+static int vpmnlpmaxsupp = DEFAULT_NLPMAXSUPP;
 
 static int echocan_create(struct dahdi_chan *chan, struct dahdi_echocanparams *ecp,
 			   struct dahdi_echocanparam *p, struct dahdi_echocan_state **ec);
@@ -288,6 +288,7 @@ static inline int empty_slot(struct wctdm *wc, int card)
 void setchanconfig_from_state(struct vpmadt032 *vpm, int channel, GpakChannelConfig_t *chanconfig)
 {
 	const struct vpmadt032_options *options;
+	GpakEcanParms_t *p;
 
 	BUG_ON(!vpm);
 
@@ -323,20 +324,13 @@ void setchanconfig_from_state(struct vpmadt032 *vpm, int channel, GpakChannelCon
 	}
 		
 	chanconfig->FrameRate = rate2ms;
-	chanconfig->EcanParametersA.EcanTapLength = 1024;
-	chanconfig->EcanParametersA.EcanNlpType = vpm->curecstate[channel].nlp_type;
-	chanconfig->EcanParametersA.EcanAdaptEnable = 1;
-	chanconfig->EcanParametersA.EcanG165DetEnable = 1;
-	chanconfig->EcanParametersA.EcanDblTalkThresh = 6;
-	chanconfig->EcanParametersA.EcanNlpThreshold = vpm->curecstate[channel].nlp_threshold;
-	chanconfig->EcanParametersA.EcanNlpConv = 0;
-	chanconfig->EcanParametersA.EcanNlpUnConv = 0;
-	chanconfig->EcanParametersA.EcanNlpMaxSuppress = vpm->curecstate[channel].nlp_max_suppress;
-	chanconfig->EcanParametersA.EcanCngThreshold = 43;
-	chanconfig->EcanParametersA.EcanAdaptLimit = 50;
-	chanconfig->EcanParametersA.EcanCrossCorrLimit = 15;
-	chanconfig->EcanParametersA.EcanNumFirSegments = 3;
-	chanconfig->EcanParametersA.EcanFirSegmentLen = 48;
+	p = &chanconfig->EcanParametersA;
+
+	vpmadt032_get_default_parameters(p);
+
+	p->EcanNlpType = vpm->curecstate[channel].nlp_type;
+	p->EcanNlpThreshold = vpm->curecstate[channel].nlp_threshold;
+	p->EcanNlpMaxSuppress = vpm->curecstate[channel].nlp_max_suppress;
 
 	memcpy(&chanconfig->EcanParametersB,
 		&chanconfig->EcanParametersA,

@@ -395,9 +395,8 @@ vpmadt032_alloc(struct vpmadt032_options *options, const char *board_name)
 
 	/* Add a little extra to store the wq_name. */
 	vpm = kzalloc(sizeof(*vpm) + length, GFP_KERNEL);
-	if (!vpm) {
+	if (!vpm)
 		return NULL;
-	}
 
 	strcpy(vpm->wq_name, board_name);
 	strcat(vpm->wq_name, suffix);
@@ -545,6 +544,30 @@ failed_exit:
 }
 EXPORT_SYMBOL(vpmadt032_init);
 
+void vpmadt032_get_default_parameters(struct GpakEcanParms *p)
+{
+	memset(p, 0, sizeof(*p));
+
+	p->EcanTapLength = 1024;
+	p->EcanNlpType = DEFAULT_NLPTYPE;
+	p->EcanAdaptEnable = 1;
+	p->EcanG165DetEnable = 1;
+	p->EcanDblTalkThresh = 6;
+	p->EcanMaxDoubleTalkThres = 40;
+	p->EcanNlpThreshold = DEFAULT_NLPTHRESH;
+	p->EcanNlpConv = 0;
+	p->EcanNlpUnConv = 12;
+	p->EcanNlpMaxSuppress = DEFAULT_NLPMAXSUPP;
+	p->EcanCngThreshold = 43;
+	p->EcanAdaptLimit = 50;
+	p->EcanCrossCorrLimit = 15;
+	p->EcanNumFirSegments = 3;
+	p->EcanFirSegmentLen = 48;
+	p->EcanReconvergenceCheckEnable = 2;
+	p->EcanTandemOperationEnable = 0;
+	p->EcanMixedFourWireMode = 0;
+}
+EXPORT_SYMBOL(vpmadt032_get_default_parameters);
 
 void vpmadt032_free(struct vpmadt032 *vpm)
 {
