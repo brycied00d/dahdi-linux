@@ -1897,6 +1897,9 @@ module_param(latency, int, S_IRUGO | S_IWUSR);
 #ifdef VPM_SUPPORT
 module_param(vpmsupport, int, S_IRUGO | S_IWUSR);
 module_param(vpmtsisupport, int, S_IRUGO | S_IWUSR);
+module_param(vpmnlptype, int, S_IRUGO);
+module_param(vpmnlpthresh, int, S_IRUGO);
+module_param(vpmnlpmaxsupp, int, S_IRUGO);
 #endif
 
 MODULE_DESCRIPTION("Wildcard VoiceBus Digital Card Driver");
