@@ -66,25 +66,35 @@ endif
 dahdi-objs := dahdi-base.o
 
 ###############################################################################
+# Find appropriate ARCH value for VPMADT032 and HPEC binary modules
+###############################################################################
+
+ifeq ($(ARCH),i386)
+  DAHDI_ARCH=x86_32
+else ifeq ($(ARCH),x86_64)
+  DAHDI_ARCH=x86_64
+else ifeq ($(ARCH),x86)
+  ifeq ($(CONFIG_x86_32),y)
+    DAHDI_ARCH=x86_32
+  else
+    DAHDI_ARCH=x86_64
+  endif
+else
+$(warning CPU Architecture '$(ARCH)' does not support VPMADT032 or HPEC. Skipping.)
+endif
+
+###############################################################################
 # VPMADT032 Loader
 ###############################################################################
 
 dahdi_vpmadt032_loader-objs := vpmadt032_loader/dahdi_vpmadt032_loader.o 
 
-ifeq ($(ARCH),i386)
-  ifneq ($(wildcard $(src)/vpmadt032_loader/vpmadt032_x86_32.o_shipped),)
+ifneq ($(DAHDI_ARCH),)
+  ifneq ($(wildcard $(src)/vpmadt032_loader/vpmadt032_$(DAHDI_ARCH).o_shipped),)
     VPMADT032_LOADER_PRESENT=yes
-    dahdi_vpmadt032_loader-objs += vpmadt032_loader/vpmadt032_x86_32.o
+    dahdi_vpmadt032_loader-objs += vpmadt032_loader/vpmadt032_$(DAHDI_ARCH).o
     obj-$(DAHDI_BUILD_ALL)$(CONFIG_DAHDI_VPMADT032_LOADER)	+= dahdi_vpmadt032_loader.o
   endif
-else ifeq ($(ARCH),x86_64)
-  ifneq ($(wildcard $(src)/vpmadt032_loader/vpmadt032_x86_64.o_shipped),)
-    VPMADT032_LOADER_PRESENT=yes
-    dahdi_vpmadt032_loader-objs += vpmadt032_loader/vpmadt032_x86_64.o
-    obj-$(DAHDI_BUILD_ALL)$(CONFIG_DAHDI_VPMADT032_LOADER)	+= dahdi_vpmadt032_loader.o
-  endif
-else
-$(warning CPU Architecture '$(ARCH)' does not support VPMADT032 firmware downloader. Skipping.)
 endif
 
 ###############################################################################
@@ -94,18 +104,11 @@ endif
 dahdi_echocan_hpec-objs := hpec/dahdi_echocan_hpec.o
 CFLAGS_dahdi_echocan_hpec.o := -I$(src)/hpec
 
-ifeq ($(ARCH),i386)
-  ifneq ($(wildcard $(src)/hpec/hpec_x86_32.o_shipped),)
+ifneq ($(DAHDI_ARCH),)
+  ifneq ($(wildcard $(src)/hpec/hpec_$(DAHDI_ARCH).o_shipped),)
     HPEC_PRESENT=yes
-    dahdi_echocan_hpec-objs += hpec/hpec_x86_32.o
+    dahdi_echocan_hpec-objs += hpec/hpec_$(DAHDI_ARCH).o
   endif
-else ifeq ($(ARCH),x86_64)
-  ifneq ($(wildcard $(src)/hpec/hpec_x86_64.o_shipped),)
-    HPEC_PRESENT=yes
-    dahdi_echocan_hpec-objs += hpec/hpec_x86_64.o
-  endif
-else
-$(warning CPU Architecture '$(ARCH)' does not support HPEC echo canceller. Skipping.)
 endif
 
 ifeq ($(HPEC_PRESENT),yes)
