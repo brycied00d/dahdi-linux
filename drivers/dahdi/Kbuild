@@ -74,7 +74,7 @@ ifeq ($(ARCH),i386)
 else ifeq ($(ARCH),x86_64)
   DAHDI_ARCH=x86_64
 else ifeq ($(ARCH),x86)
-  ifeq ($(CONFIG_x86_32),y)
+  ifeq ($(CONFIG_X86_32),y)
     DAHDI_ARCH=x86_32
   else
     DAHDI_ARCH=x86_64
