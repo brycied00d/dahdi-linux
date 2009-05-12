@@ -7,12 +7,6 @@
 
 PWD:=$(shell pwd)
 
-ifndef DEB_HOST_GNU_TYPE
-UNAME_M:=$(shell uname -m)
-else
-UNAME_M:=$(DEB_HOST_GNU_TYPE)
-endif
-
 DAHDI_MODULES_EXTRA:=$(MODULES_EXTRA:%=%.o) $(SUBDIRS_EXTRA:%=%/)
 
 # If you want to build for a kernel other than the current kernel, set KVERS
