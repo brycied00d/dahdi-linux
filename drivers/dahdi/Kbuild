@@ -77,14 +77,14 @@ ifeq ($(ARCH),i386)
     dahdi_vpmadt032_loader-objs += vpmadt032_loader/vpmadt032_x86_32.o
     obj-$(DAHDI_BUILD_ALL)$(CONFIG_DAHDI_VPMADT032_LOADER)	+= dahdi_vpmadt032_loader.o
   endif
-else
-  ifeq ($(ARCH),x86_64)
-    ifneq ($(wildcard $(src)/vpmadt032_loader/vpmadt032_x86_64.o_shipped),)
-       VPMADT032_LOADER_PRESENT=yes
-       dahdi_vpmadt032_loader-objs += vpmadt032_loader/vpmadt032_x86_64.o
-       obj-$(DAHDI_BUILD_ALL)$(CONFIG_DAHDI_VPMADT032_LOADER)	+= dahdi_vpmadt032_loader.o
-    endif
+else ifeq ($(ARCH),x86_64)
+  ifneq ($(wildcard $(src)/vpmadt032_loader/vpmadt032_x86_64.o_shipped),)
+    VPMADT032_LOADER_PRESENT=yes
+    dahdi_vpmadt032_loader-objs += vpmadt032_loader/vpmadt032_x86_64.o
+    obj-$(DAHDI_BUILD_ALL)$(CONFIG_DAHDI_VPMADT032_LOADER)	+= dahdi_vpmadt032_loader.o
   endif
+else
+$(warning CPU Architecture '$(ARCH)' does not support VPMADT032 firmware downloader. Skipping.)
 endif
 
 ###############################################################################
@@ -95,17 +95,17 @@ dahdi_echocan_hpec-objs := hpec/dahdi_echocan_hpec.o
 CFLAGS_dahdi_echocan_hpec.o := -I$(src)/hpec
 
 ifeq ($(ARCH),i386)
-ifneq ($(wildcard $(src)/hpec/hpec_x86_32.o_shipped),)
-HPEC_PRESENT=yes
-dahdi_echocan_hpec-objs += hpec/hpec_x86_32.o
-endif
-endif
-
-ifeq ($(ARCH),x86_64)
-ifneq ($(wildcard $(src)/hpec/hpec_x86_64.o_shipped),)
-HPEC_PRESENT=yes
-dahdi_echocan_hpec-objs += hpec/hpec_x86_64.o
-endif
+  ifneq ($(wildcard $(src)/hpec/hpec_x86_32.o_shipped),)
+    HPEC_PRESENT=yes
+    dahdi_echocan_hpec-objs += hpec/hpec_x86_32.o
+  endif
+else ifeq ($(ARCH),x86_64)
+  ifneq ($(wildcard $(src)/hpec/hpec_x86_64.o_shipped),)
+    HPEC_PRESENT=yes
+    dahdi_echocan_hpec-objs += hpec/hpec_x86_64.o
+  endif
+else
+$(warning CPU Architecture '$(ARCH)' does not support HPEC echo canceller. Skipping.)
 endif
 
 ifeq ($(HPEC_PRESENT),yes)
