@@ -935,10 +935,13 @@ static int t1xxp_spanconfig(struct dahdi_span *span, struct dahdi_lineconfig *lc
 	struct t1 *wc = span->pvt;
 
 	/* Do we want to SYNC on receive or not */
-	if (lc->sync)
+	if (lc->sync) {
 		set_bit(7, &wc->ctlreg);
-	else
+		span->syncsrc = span->spanno;
+	} else {
 		clear_bit(7, &wc->ctlreg);
+		span->syncsrc = 0;
+	}
 
 	/* If already running, apply changes immediately */
 	if (test_bit(DAHDI_FLAGBIT_RUNNING, &span->flags))
