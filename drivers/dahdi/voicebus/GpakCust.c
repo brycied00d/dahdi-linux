@@ -225,9 +225,12 @@ static int vpmadt032_enable_ec(struct vpmadt032 *vpm, int channel)
 	} else {
 		control = EnableMuLawSwCompanding;
 	}
-	printk(KERN_DEBUG "Enabling ecan on channel: %d (%s)\n", channel,
-			((control == EnableMuLawSwCompanding) ?
-			"MuLaw" : "ALaw"));
+	if (vpm->options.debug | DEBUG_ECHOCAN) {
+		const char *law;
+		law = (control == EnableMuLawSwCompanding) ? "MuLaw" : "ALaw";
+		printk(KERN_DEBUG "Enabling ecan on channel: %d (%s)\n",
+				channel, law);
+	}
 	res = gpakAlgControl(vpm->dspid, channel, control, &pstatus);
 	if (res) {
 		printk(KERN_WARNING "Unable to set SW Companding on " \
@@ -242,7 +245,9 @@ static int vpmadt032_disable_ec(struct vpmadt032 *vpm, int channel)
 	int res;
 	GPAK_AlgControlStat_t pstatus;
 
-	printk(KERN_DEBUG "Disabling ecan on channel: %d\n", channel);
+	if (vpm->options.debug | DEBUG_ECHOCAN)
+		printk(KERN_DEBUG "Disabling ecan on channel: %d\n", channel);
+
 	res = gpakAlgControl(vpm->dspid, channel, BypassSwCompanding, &pstatus);
 	if (res) {
 		printk(KERN_WARNING "Unable to disable sw companding on " \
