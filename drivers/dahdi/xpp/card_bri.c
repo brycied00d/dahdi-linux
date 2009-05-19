@@ -443,7 +443,9 @@ static void bri_hdlc_abort(xpd_t *xpd, struct dahdi_chan *dchan, int event)
 	priv = xpd->priv;
 	BUG_ON(!priv);
 #ifdef	CONFIG_DAHDI_BRI_DCHANS
-	dump_hex_buf(xpd, "D-Chan RX: dchan_rbuf", priv->dchan_rbuf, priv->dchan_r_idx);
+	if(debug & DBG_COMMANDS)
+		dump_hex_buf(xpd, "D-Chan(abort) RX: dchan_rbuf",
+			priv->dchan_rbuf, priv->dchan_r_idx);
 	priv->dchan_r_idx = 0;
 #else
 	dahdi_hdlc_abort(dchan, event);
@@ -1143,6 +1145,7 @@ static int BRI_card_close(xpd_t *xpd, lineno_t pos)
 #ifdef	CONFIG_DAHDI_BRI_DCHANS
 	struct dahdi_chan	*chan = XPD_CHAN(xpd, pos);
 
+	/* Clear D-Channel pending data */
 	chan->bytes2receive = 0;
 	chan->eofrx = 0;
 	chan->bytes2transmit = 0;
@@ -1753,6 +1756,22 @@ static int proc_bri_info_read(char *page, char **start, off_t off, int count, in
 	return len;
 }
 
+static DRIVER_ATTR_READER(dchan_hardhdlc_show, drv,buf)
+{
+	int			len = 0;
+
+#if	defined(CONFIG_DAHDI_BRI_DCHANS)
+	len += sprintf(buf + len, "0\n");
+#elif	defined(DAHDI_SIG_HARDHDLC)
+	len += sprintf(buf + len, "1\n");
+#else
+#error Cannot build BRI without BRISTUFF or HARDHDLC supprt
+#endif
+	return len;
+}
+
+static	DRIVER_ATTR(dchan_hardhdlc,S_IRUGO,dchan_hardhdlc_show,NULL);
+
 static int bri_xpd_probe(struct device *dev)
 {
 	xpd_t	*xpd;
@@ -1795,6 +1814,9 @@ static int __init card_bri_startup(void)
 
 	if((ret = xpd_driver_register(&bri_driver.driver)) < 0)
 		return ret;
+	ret = driver_create_file(&bri_driver.driver, &driver_attr_dchan_hardhdlc);
+	if(ret < 0)
+		return ret;
 	INFO("revision %s\n", XPP_VERSION);
 #if	defined(CONFIG_DAHDI_BRI_DCHANS)
 	INFO("FEATURE: WITH BRISTUFF\n");
@@ -1812,6 +1834,7 @@ static void __exit card_bri_cleanup(void)
 {
 	DBG(GENERAL, "\n");
 	xproto_unregister(&PROTO_TABLE(BRI));
+	driver_remove_file(&bri_driver.driver, &driver_attr_dchan_hardhdlc);
 	xpd_driver_unregister(&bri_driver.driver);
 }
 
