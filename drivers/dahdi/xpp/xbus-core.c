@@ -90,7 +90,6 @@ const char *xbus_statename(enum xbus_state st)
 		case XBUS_STATE_READY:		return "READY";
 		case XBUS_STATE_DEACTIVATING:	return "DEACTIVATING";
 		case XBUS_STATE_DEACTIVATED:	return "DEACTIVATED";
-		case XBUS_STATE_DISCONNECTED:	return "DISCONNECTED";
 		case XBUS_STATE_FAIL:		return "FAIL";
 	}
 	return NULL;
@@ -481,7 +480,7 @@ static int really_send_cmd_frame(xbus_t *xbus, xframe_t *xframe)
 	BUG_ON(!xbus);
 	BUG_ON(!xframe);
 	BUG_ON(xframe->xframe_magic != XFRAME_MAGIC);
-	if(XBUS_IS(xbus, DISCONNECTED)) {
+	if(!XBUS_FLAGS(xbus, CONNECTED)) {
 		XBUS_ERR(xbus, "Dropped command before sending -- hardware deactivated.\n");
 		dump_xframe("Dropped", xbus, xframe, DBG_ANY);
 		FREE_SEND_XFRAME(xbus, xframe);
@@ -562,7 +561,7 @@ int send_cmd_frame(xbus_t *xbus, xframe_t *xframe)
 
 
 	BUG_ON(xframe->xframe_magic != XFRAME_MAGIC);
-	if(XBUS_IS(xbus, DISCONNECTED)) {
+	if(!XBUS_FLAGS(xbus, CONNECTED)) {
 		XBUS_ERR(xbus, "Dropped command before queueing -- hardware deactivated.\n");
 		ret = -ENODEV;
 		goto err;
@@ -627,7 +626,7 @@ void xbus_receive_xframe(xbus_t *xbus, xframe_t *xframe)
 	if(rx_tasklet) {
 		xframe_enqueue_recv(xbus, xframe);
 	} else {
-		if(likely(!XBUS_IS(xbus, DISCONNECTED)))
+		if(likely(XBUS_FLAGS(xbus, CONNECTED)))
 			xframe_receive(xbus, xframe);
 		else
 			FREE_RECV_XFRAME(xbus, xframe);	/* return to receive_pool */
@@ -1103,6 +1102,22 @@ err:
 	return NULL;
 }
 
+bool xbus_setflags(xbus_t *xbus, int flagbit, bool on)
+{
+	unsigned long	flags;
+
+	spin_lock_irqsave(&xbus->transport.state_lock, flags);
+	XBUS_DBG(DEVICES, xbus, "%s flag %d\n",
+			(on) ? "Set" : "Clear",
+			flagbit);
+	if(on)
+		set_bit(flagbit, &(xbus->transport.transport_flags));
+	else
+		clear_bit(flagbit, &(xbus->transport.transport_flags));
+	spin_unlock_irqrestore(&xbus->transport.state_lock, flags);
+	return 1;
+}
+
 bool xbus_setstate(xbus_t *xbus, enum xbus_state newstate)
 {
 	unsigned long	flags;
@@ -1139,19 +1154,19 @@ bool xbus_setstate(xbus_t *xbus, enum xbus_state newstate)
 			state_flip = 1;	/* We are good */
 			break;
 		case XBUS_STATE_DEACTIVATING:
-#if 0
-			if(XBUS_IS(xbus, DEACTIVATED) || XBUS_IS(xbus, DISCONNECTED))
+			if(XBUS_IS(xbus, DEACTIVATING))
 				goto bad_state;
-#endif
+			if(XBUS_IS(xbus, DEACTIVATED))
+				goto bad_state;
 			break;
 		case XBUS_STATE_DEACTIVATED:
 			if(!XBUS_IS(xbus, DEACTIVATING))
 				goto bad_state;
 			break;
-		case XBUS_STATE_DISCONNECTED:
-			break;
 		case XBUS_STATE_FAIL:
-			if(XBUS_IS(xbus, DEACTIVATING) || XBUS_IS(xbus, DEACTIVATED) || XBUS_IS(xbus, DISCONNECTED))
+			if(XBUS_IS(xbus, DEACTIVATING))
+				goto bad_state;
+			if(XBUS_IS(xbus, DEACTIVATED))
 				goto bad_state;
 			break;
 		default:
@@ -1212,11 +1227,12 @@ int xbus_connect(xbus_t *xbus)
 	BUG_ON(!ops->xframe_send_cmd);
 	BUG_ON(!ops->alloc_xframe);
 	BUG_ON(!ops->free_xframe);
+	xbus_setflags(xbus, XBUS_FLAG_CONNECTED, 1);
 	xbus_activate(xbus);
 	return 0;
 }
 
-void xbus_deactivate(xbus_t *xbus, bool is_disconnected)
+void xbus_deactivate(xbus_t *xbus)
 {
 	BUG_ON(!xbus);
 	XBUS_INFO(xbus, "[%s] Deactivating\n", xbus->label);
@@ -1230,16 +1246,15 @@ void xbus_deactivate(xbus_t *xbus, bool is_disconnected)
 	xbus_setstate(xbus, XBUS_STATE_DEACTIVATED);
 	worker_reset(xbus->worker);
 	xbus_release_xpds(xbus);
-	if(!is_disconnected)
-		xbus_setstate(xbus, XBUS_STATE_IDLE);
 	elect_syncer("deactivate");
 }
 
 void xbus_disconnect(xbus_t *xbus)
 {
-	XBUS_INFO(xbus, "[%s] Disconnecting\n", xbus->label);
 	BUG_ON(!xbus);
-	xbus_deactivate(xbus, 1);
+	XBUS_INFO(xbus, "[%s] Disconnecting\n", xbus->label);
+	xbus_setflags(xbus, XBUS_FLAG_CONNECTED, 0);
+	xbus_deactivate(xbus);
 	xbus_command_queue_clean(xbus);
 	xbus_command_queue_waitempty(xbus);
 	tasklet_kill(&xbus->receive_tasklet);
@@ -1247,7 +1262,6 @@ void xbus_disconnect(xbus_t *xbus)
 	xframe_queue_clear(&xbus->send_pool);
 	xframe_queue_clear(&xbus->receive_pool);
 	xframe_queue_clear(&xbus->pcm_tospan);
-	xbus_setstate(xbus, XBUS_STATE_DISCONNECTED);
 	del_timer_sync(&xbus->command_timer);
 	transportops_put(xbus);
 	transport_destroy(xbus);
@@ -1481,7 +1495,7 @@ static int xbus_read_proc(char *page, char **start, off_t off, int count, int *e
 			xbus->busname,
 			xbus->connector,
 			xbus->label,
-			(!XBUS_IS(xbus, DISCONNECTED)) ? "connected" : "missing"
+			(XBUS_FLAGS(xbus, CONNECTED)) ? "connected" : "missing"
 		      );
 	len += xbus_fill_proc_queue(page + len, &xbus->send_pool);
 	len += xbus_fill_proc_queue(page + len, &xbus->receive_pool);
@@ -1726,7 +1740,7 @@ static int read_proc_xbuses(char *page, char **start, off_t off, int count, int 
 					xbus->busname,
 					xbus->connector,
 					xbus->label,
-					(!XBUS_IS(xbus, DISCONNECTED)) ? "connected" : "missing"
+					(XBUS_FLAGS(xbus, CONNECTED)) ? "connected" : "missing"
 				      );
 		}
 	}
@@ -1763,6 +1777,7 @@ static void transport_init(xbus_t *xbus, struct xbus_ops *ops, ushort max_send_s
 	spin_lock_init(&xbus->transport.state_lock);
 	spin_lock_init(&xbus->transport.lock);
 	atomic_set(&xbus->transport.transport_refcount, 0);
+	xbus_setflags(xbus, XBUS_FLAG_CONNECTED, 0);
 	init_waitqueue_head(&xbus->transport.transport_unused);
 }
 

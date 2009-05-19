@@ -414,7 +414,7 @@ static void reset_sync_counters(void)
 		      (e.g: wrong firmware version, etc).
 		 */
 		if(xbus->self_ticking) {
-			if(XBUS_IS(xbus, DISCONNECTED)) {
+			if(!XBUS_FLAGS(xbus, CONNECTED)) {
 				XBUS_DBG(GENERAL, xbus,
 					"Dropped packet. Is shutting down.\n");
 			} else {
@@ -554,7 +554,7 @@ static void update_sync_master(xbus_t *new_syncer, bool force_dahdi)
 		xbus_t	*xbus = xbus_num(i);
 		if(!xbus)
 			continue;
-		if(!XBUS_IS(xbus, DISCONNECTED) && xbus != new_syncer) {
+		if(XBUS_FLAGS(xbus, CONNECTED) && xbus != new_syncer) {
 			if(xbus->self_ticking)
 				xbus_request_sync(xbus, SYNC_MODE_PLL);
 			else

@@ -147,9 +147,9 @@ bool valid_xpd_addr(const struct xpd_addr *addr);
 	do {							\
 		int		pack_len = RPACKET_SIZE(card,op);	\
 								\
-		if(XBUS_IS(xbus, DISCONNECTED))			\
+		if(!XBUS_FLAGS(xbus, CONNECTED))		\
 			return -ENODEV;				\
-		(frm) = ALLOC_SEND_XFRAME(xbus);			\
+		(frm) = ALLOC_SEND_XFRAME(xbus);		\
 		if(!(frm))					\
 			return -ENOMEM;				\
 		(p) = xframe_next_packet(frm, pack_len);	\
