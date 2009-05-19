@@ -279,7 +279,7 @@ static struct device_attribute xbus_dev_attrs[] = {
 static int astribank_match(struct device *dev, struct device_driver *driver)
 {
 	DBG(DEVICES, "SYSFS MATCH: dev->bus_id = %s, driver->name = %s\n",
-		dev->bus_id, driver->name);
+		dev_name(dev), driver->name);
 	return 1;
 }
 
@@ -326,7 +326,7 @@ static int astribank_uevent(struct device *dev, char **envp, int num_envp, char 
 	if(!dev)
 		return -ENODEV;
 	xbus = dev_to_xbus(dev);
-	DBG(GENERAL, "SYFS bus_id=%s xbus=%s\n", dev->bus_id, xbus->busname);
+	DBG(GENERAL, "SYFS bus_id=%s xbus=%s\n", dev_name(dev), xbus->busname);
 	XBUS_VAR_BLOCK;
 	envp[i] = NULL;
 	return 0;
@@ -348,7 +348,7 @@ static int astribank_uevent(struct device *dev, struct kobj_uevent_env *kenv)
 	if(!dev)
 		return -ENODEV;
 	xbus = dev_to_xbus(dev);
-	DBG(GENERAL, "SYFS bus_id=%s xbus=%s\n", dev->bus_id, xbus->busname);
+	DBG(GENERAL, "SYFS bus_id=%s xbus=%s\n", dev_name(dev), xbus->busname);
 	XBUS_VAR_BLOCK;
 	return 0;
 }
@@ -363,7 +363,7 @@ void astribank_uevent_send(xbus_t *xbus, enum kobject_action act)
 
 	kobj = &xbus->astribank.kobj;
 	XBUS_DBG(DEVICES, xbus, "SYFS bus_id=%s action=%d\n",
-		xbus->astribank.bus_id, act);
+		dev_name(&xbus->astribank), act);
 
 #if defined(OLD_HOTPLUG_SUPPORT_269)
 	{
@@ -645,7 +645,7 @@ static int xpd_match(struct device *dev, struct device_driver *driver)
 		return 0;
 	}
 	XPD_DBG(DEVICES, xpd, "SYSFS MATCH: type=%d dev->bus_id = %s, driver->name = %s\n",
-		xpd->type, dev->bus_id, driver->name);
+		xpd->type, dev_name(dev), driver->name);
 	return 1;
 }
 
@@ -701,8 +701,8 @@ int xpd_device_register(xbus_t *xbus, xpd_t *xpd)
 	XPD_DBG(DEVICES, xpd, "SYSFS\n");
 	dev->bus = &xpd_type;
 	dev->parent = &xbus->astribank;
-	snprintf(dev->bus_id, BUS_ID_SIZE, "%02d:%1x:%1x",
-		xbus->num, xpd->addr.unit, xpd->addr.subunit);
+	dev_set_name(dev, "%02d:%1x:%1x", xbus->num, xpd->addr.unit, 
+			xpd->addr.subunit);
 	dev->driver_data = xpd;
 	dev->release = xpd_release;
 	ret = device_register(dev);
@@ -759,7 +759,7 @@ int xbus_sysfs_create(xbus_t *xbus)
 	XBUS_DBG(DEVICES, xbus, "\n");
 	astribank->bus = &toplevel_bus_type;
 	astribank->parent = xbus->transport.transport_device;
-	snprintf(astribank->bus_id, BUS_ID_SIZE, "xbus-%02d", xbus->num);
+	dev_set_name(astribank, "xbus-%02d", xbus->num);
 	astribank->driver_data = xbus;
 	astribank->release = astribank_release;
 	ret = device_register(astribank);
