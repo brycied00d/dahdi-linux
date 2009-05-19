@@ -1502,7 +1502,7 @@ static int fxs_xpd_probe(struct device *dev)
 	/* Is it our device? */
 	if(xpd->type != XPD_TYPE_FXS) {
 		XPD_ERR(xpd, "drop suggestion for %s (%d)\n",
-			dev->bus_id, xpd->type);
+			dev_name(dev), xpd->type);
 		return -EINVAL;
 	}
 	XPD_DBG(DEVICES, xpd, "SYSFS\n");

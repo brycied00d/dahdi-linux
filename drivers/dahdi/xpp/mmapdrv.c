@@ -10,7 +10,7 @@
 #include <asm/dma.h>
 #include <asm/cacheflush.h>
 #include <asm/uaccess.h>
-#include <dahdi.h>
+#include <dahdi/kernel.h>
 #include "mmapbus.h"
 #include "xbus-core.h"
 #include "dahdi_debug.h"

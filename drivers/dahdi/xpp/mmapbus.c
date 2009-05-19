@@ -5,7 +5,7 @@
 
 static int mmap_match(struct device *dev, struct device_driver *driver)
 {
-	return !strncmp(dev->bus_id, driver->name, strlen(driver->name));
+	return !strncmp(dev_name(dev), driver->name, strlen(driver->name));
 }
 static int mmap_uevent(struct device *dev, char **envp, int num_envp, char *buffer, int buffer_size)
 {
