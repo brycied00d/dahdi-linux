@@ -135,6 +135,8 @@ typedef unsigned char		byte;
 #define	DEVICE_ATTR_WRITER(name,dev,buf, count)	\
 		ssize_t name(struct device *dev, const char *buf, size_t count)
 #endif
+#define	DRIVER_ATTR_READER(name,drv,buf)	\
+		ssize_t name(struct device_driver *drv, char * buf)
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,26)
 #define dev_name(dev)		(dev)->bus_id
