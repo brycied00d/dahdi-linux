@@ -190,14 +190,14 @@ static int xpd_proc_create(xbus_t *xbus, xpd_t *xpd)
 		XPD_ERR(xpd, "Failed to create proc file '%s'\n", PROC_XPD_SUMMARY);
 		goto err;
 	}
-	xpd->proc_xpd_summary->owner = THIS_MODULE;
+	SET_PROC_DIRENTRY_OWNER(xpd->proc_xpd_summary);
 #ifdef	OLD_PROC
 	xpd->proc_xpd_ztregister = create_proc_entry(PROC_XPD_ZTREGISTER, 0644, xpd->proc_xpd_dir);
 	if (!xpd->proc_xpd_ztregister) {
 		XPD_ERR(xpd, "Failed to create proc file '%s'\n", PROC_XPD_ZTREGISTER);
 		goto err;
 	}
-	xpd->proc_xpd_ztregister->owner = THIS_MODULE;
+	SET_PROC_DIRENTRY_OWNER(xpd->proc_xpd_ztregister);
 	xpd->proc_xpd_ztregister->data = xpd;
 	xpd->proc_xpd_ztregister->read_proc = proc_xpd_ztregister_read;
 	xpd->proc_xpd_ztregister->write_proc = proc_xpd_ztregister_write;
@@ -206,7 +206,7 @@ static int xpd_proc_create(xbus_t *xbus, xpd_t *xpd)
 		XPD_ERR(xpd, "Failed to create proc file '%s'\n", PROC_XPD_BLINK);
 		goto err;
 	}
-	xpd->proc_xpd_blink->owner = THIS_MODULE;
+	SET_PROC_DIRENTRY_OWNER(xpd->proc_xpd_blink);
 	xpd->proc_xpd_blink->data = xpd;
 	xpd->proc_xpd_blink->read_proc = proc_xpd_blink_read;
 	xpd->proc_xpd_blink->write_proc = proc_xpd_blink_write;

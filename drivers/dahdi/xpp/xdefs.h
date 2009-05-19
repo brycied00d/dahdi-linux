@@ -143,6 +143,11 @@ typedef unsigned char		byte;
 #define dev_set_name(dev, format, ...) \
 	snprintf((dev)->bus_id, BUS_ID_SIZE, format, ## __VA_ARGS__);
 #endif
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,30)
+#define	SET_PROC_DIRENTRY_OWNER(p)	do { (p)->owner = THIS_MODULE; } while(0);
+#else
+#define	SET_PROC_DIRENTRY_OWNER(p)	do { } while(0);
+#endif
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,19)
 /* Also don't define this for later RHEL >= 5.2 . hex_asc is from the 

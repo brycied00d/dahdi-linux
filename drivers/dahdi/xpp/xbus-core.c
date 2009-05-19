@@ -1087,7 +1087,7 @@ static struct xbus_workqueue *worker_new(int xbusno)
 			XBUS_ERR(xbus, "Failed to create proc file '%s'\n", PROC_XBUS_WAITFOR_XPDS);
 			goto err;
 		}
-		worker->proc_xbus_waitfor_xpds->owner = THIS_MODULE;
+		SET_PROC_DIRENTRY_OWNER(worker->proc_xbus_waitfor_xpds);
 	}
 #endif
 #endif
@@ -1398,7 +1398,7 @@ xbus_t *xbus_new(struct xbus_ops *ops, ushort max_send_size, struct device *tran
 		err = -EIO;
 		goto nobus;
 	}
-	xbus->proc_xbus_summary->owner = THIS_MODULE;
+	SET_PROC_DIRENTRY_OWNER(xbus->proc_xbus_summary);
 #ifdef	PROTOCOL_DEBUG
 	xbus->proc_xbus_command = create_proc_entry(PROC_XBUS_COMMAND, 0200, xbus->proc_xbus_dir);
 	if (!xbus->proc_xbus_command) {
@@ -1408,7 +1408,7 @@ xbus_t *xbus_new(struct xbus_ops *ops, ushort max_send_size, struct device *tran
 	}
 	xbus->proc_xbus_command->write_proc = proc_xbus_command_write;
 	xbus->proc_xbus_command->data = xbus;
-	xbus->proc_xbus_command->owner = THIS_MODULE;
+	SET_PROC_DIRENTRY_OWNER(xbus->proc_xbus_command);
 #endif
 #endif
 #ifdef	XPP_DEBUGFS
@@ -1857,7 +1857,7 @@ int __init xbus_core_init(void)
 		ret = -EFAULT;
 		goto err;
 	}
-	proc_xbuses->owner = THIS_MODULE;
+	SET_PROC_DIRENTRY_OWNER(proc_xbuses);
 #endif
 #ifdef	XPP_DEBUGFS
 	DBG(GENERAL, "Creating debugfs xpp root\n");
