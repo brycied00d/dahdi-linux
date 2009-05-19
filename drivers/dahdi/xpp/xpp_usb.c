@@ -755,7 +755,7 @@ static int xusb_probe(struct usb_interface *interface, const struct usb_device_i
 		retval = -EIO;
 		goto probe_failed;
 	}
-	procsummary->owner = THIS_MODULE;
+	SET_PROC_DIRENTRY_OWNER(procsummary);
 #endif
 	bus_count++;
 	xusb->xbus_num = xbus->num;
