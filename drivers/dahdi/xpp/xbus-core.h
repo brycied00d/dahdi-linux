@@ -94,7 +94,6 @@ enum xbus_state {
 	XBUS_STATE_READY,
 	XBUS_STATE_DEACTIVATING,
 	XBUS_STATE_DEACTIVATED,
-	XBUS_STATE_DISCONNECTED,
 	XBUS_STATE_FAIL,
 };
 
@@ -106,6 +105,7 @@ struct xbus_transport {
 	struct device		*transport_device;
 	ushort			max_send_size;
 	enum xbus_state		xbus_state;
+	unsigned long		transport_flags;
 	spinlock_t		state_lock;
 	atomic_t		transport_refcount;
 	wait_queue_head_t	transport_unused;
@@ -116,6 +116,9 @@ struct xbus_transport {
 #define	XBUS_STATE(xbus)	((xbus)->transport.xbus_state)
 #define	XBUS_IS(xbus, st)	(XBUS_STATE(xbus) == XBUS_STATE_ ## st)
 #define	TRANSPORT_EXIST(xbus)	((xbus)->transport.ops != NULL)
+
+#define	XBUS_FLAG_CONNECTED	0
+#define	XBUS_FLAGS(xbus, flg)	test_bit(XBUS_FLAG_ ## flg, &((xbus)->transport.transport_flags))
 
 struct xbus_ops *transportops_get(xbus_t *xbus);
 void transportops_put(xbus_t *xbus);
@@ -300,11 +303,12 @@ xpacket_t *xframe_next_packet(xframe_t *xframe, int len);
 xpd_t	*xpd_of(const xbus_t *xbus, int xpd_num);
 xpd_t	*xpd_byaddr(const xbus_t *xbus, uint unit, uint subunit);
 bool	xbus_setstate(xbus_t *xbus, enum xbus_state newstate);
+bool	xbus_setflags(xbus_t *xbus, int flagbit, bool on);
 xbus_t	*xbus_new(struct xbus_ops *ops, ushort max_send_size, struct device *transport_device, void *priv);
 void	xbus_free(xbus_t *xbus);
 int	xbus_connect(xbus_t *xbus);
 int	xbus_activate(xbus_t *xbus);
-void	xbus_deactivate(xbus_t *xbus, bool is_disconnected);
+void	xbus_deactivate(xbus_t *xbus);
 void	xbus_disconnect(xbus_t *xbus);
 void	xbus_receive_xframe(xbus_t *xbus, xframe_t *xframe);
 int	xbus_process_worker(xbus_t *xbus);

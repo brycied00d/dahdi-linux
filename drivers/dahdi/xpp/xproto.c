@@ -266,7 +266,7 @@ int xframe_receive(xbus_t *xbus, xframe_t *xframe)
 		FREE_RECV_XFRAME(xbus, xframe);
 		return -EPROTO;
 	}
-	if(XBUS_IS(xbus, DISCONNECTED)) {
+	if(!XBUS_FLAGS(xbus, CONNECTED)) {
 		XBUS_DBG(GENERAL, xbus, "Dropped xframe. Is shutting down.\n");
 		return -ENODEV;
 	}
