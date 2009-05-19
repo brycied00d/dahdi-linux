@@ -307,9 +307,8 @@ int parse_chip_command(xpd_t *xpd, char *cmdline)
 
 	BUG_ON(!xpd);
 	xbus = xpd->xbus;
-	if(XBUS_IS(xbus, DISCONNECTED)) {
-		XBUS_DBG(GENERAL, xbus, "Dropped packet. In state %s.\n",
-			xbus_statename(XBUS_STATE(xbus)));
+	if(!XBUS_FLAGS(xbus, CONNECTED)) {
+		XBUS_DBG(GENERAL, xbus, "Dropped packet. Disconnected.\n");
 		return -EBUSY;
 	}
 	strlcpy(buf, cmdline, MAX_PROC_WRITE);	/* Save a copy */

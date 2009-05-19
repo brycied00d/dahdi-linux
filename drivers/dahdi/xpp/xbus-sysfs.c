@@ -86,7 +86,7 @@ static DEVICE_ATTR_WRITER(xbus_state_store, dev, buf, count)
 	xbus = dev_to_xbus(dev);
 	XBUS_DBG(GENERAL, xbus, "%s\n", buf);
 	if(strncmp(buf, "stop", 4) == 0)
-		xbus_deactivate(xbus, 0);
+		xbus_deactivate(xbus);
 	else if(XBUS_IS(xbus, IDLE) && strncmp(buf, "start", 5) == 0)
 		xbus_activate(xbus);
 	else {
@@ -104,7 +104,7 @@ static DEVICE_ATTR_READER(status_show, dev, buf)
 	int	ret;
 
 	xbus = dev_to_xbus(dev);
-	ret = snprintf(buf, PAGE_SIZE, "%s\n", (!XBUS_IS(xbus, DISCONNECTED))?"connected":"missing");
+	ret = snprintf(buf, PAGE_SIZE, "%s\n", (XBUS_FLAGS(xbus, CONNECTED))?"connected":"missing");
 	return ret;
 }
 
@@ -392,7 +392,11 @@ static void astribank_release(struct device *dev)
 
 	BUG_ON(!dev);
 	xbus = dev_to_xbus(dev);
-	if(!XBUS_IS(xbus, DISCONNECTED)) {
+	if(XBUS_FLAGS(xbus, CONNECTED)) {
+		XBUS_ERR(xbus, "Try to release CONNECTED device.\n");
+		BUG();
+	}
+	if(!XBUS_IS(xbus, IDLE) && !XBUS_IS(xbus, FAIL) && !XBUS_IS(xbus, DEACTIVATED)) {
 		XBUS_ERR(xbus, "Try to release in state %s\n",
 			xbus_statename(XBUS_STATE(xbus)));
 		BUG();
