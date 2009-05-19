@@ -136,6 +136,12 @@ typedef unsigned char		byte;
 		ssize_t name(struct device *dev, const char *buf, size_t count)
 #endif
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,26)
+#define dev_name(dev)		(dev)->bus_id
+#define dev_set_name(dev, format, ...) \
+	snprintf((dev)->bus_id, BUS_ID_SIZE, format, ## __VA_ARGS__);
+#endif
+
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,19)
 /* Also don't define this for later RHEL >= 5.2 . hex_asc is from the 
  * same linux-2.6-net-infrastructure-updates-to-mac80211-iwl4965.patch
