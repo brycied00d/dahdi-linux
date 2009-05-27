@@ -421,7 +421,7 @@ static int pri_proc_create(xbus_t *xbus, xpd_t *xpd)
 		XPD_ERR(xpd, "Failed to create proc '%s'\n", PROC_PRI_INFO_FNAME);
 		goto err;
 	}
-	priv->pri_info->owner = THIS_MODULE;
+	SET_PROC_DIRENTRY_OWNER(priv->pri_info);
 	priv->pri_info->write_proc = proc_pri_info_write;
 	priv->pri_info->read_proc = proc_pri_info_read;
 	priv->pri_info->data = xpd;

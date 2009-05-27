@@ -405,7 +405,7 @@ static int fxo_proc_create(xbus_t *xbus, xpd_t *xpd)
 		XPD_ERR(xpd, "Failed to create proc file '%s'\n", PROC_FXO_INFO_FNAME);
 		goto err;
 	}
-	priv->fxo_info->owner = THIS_MODULE;
+	SET_PROC_DIRENTRY_OWNER(priv->fxo_info);
 #ifdef	WITH_METERING
 	XPD_DBG(PROC, xpd, "Creating Metering tone file\n");
 	priv->meteringfile = create_proc_read_entry(PROC_METERING_FNAME, 0444, xpd->proc_xpd_dir,
@@ -414,7 +414,7 @@ static int fxo_proc_create(xbus_t *xbus, xpd_t *xpd)
 		XPD_ERR(xpd, "Failed to create proc file '%s'\n", PROC_METERING_FNAME);
 		goto err;
 	}
-	priv->meteringfile->owner = THIS_MODULE;
+	SET_PROC_DIRENTRY_OWNER(priv->meteringfile);
 #endif
 #endif
 	return 0;

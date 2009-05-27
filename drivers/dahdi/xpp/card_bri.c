@@ -799,7 +799,7 @@ static int bri_proc_create(xbus_t *xbus, xpd_t *xpd)
 		XPD_ERR(xpd, "Failed to create proc file '%s'\n", PROC_BRI_INFO_FNAME);
 		goto err;
 	}
-	priv->bri_info->owner = THIS_MODULE;
+	SET_PROC_DIRENTRY_OWNER(priv->bri_info);
 #endif
 	return 0;
 err:
