@@ -552,12 +552,16 @@ static int fill_alarm_string(char *buf, int count, int alarms)
 
 static int dahdi_proc_read(char *page, char **start, off_t off, int count, int *eof, void *data)
 {
-	int x, len = 0;
+	int x, len = 0, real_count;
 	long span;
 
-	/* In Linux 2.6, this MUST NOT EXECEED 1024 bytes in one read! */
+	/* In Linux 2.6, page is always PROC_BLOCK_SIZE=(PAGE_SIZE-1024) bytes.
+	 * 0<count<=PROC_BLOCK_SIZE . count=1 will produce an error in
+	 * vsnprintf ('head -c 1 /proc/dahdi/1', 'dd bs=1').
+	 * An ugly hack. Good way: seq_printf (seq_file.c). */
+        real_count = count;
+	count = PAGE_SIZE-1024;
 	span = (long)data;
-
 	if (!span)
 		return 0;
 
@@ -678,10 +682,14 @@ static int dahdi_proc_read(char *page, char **start, off_t off, int count, int *
 		/* stop if we've already generated enough */
 		if (len > off + count)
 			break;
+		/* stop if we're NEAR danger limit. let it be -128 bytes. */
+		if (len > count-128)
+			break;
 	}
+	count = real_count;
 	/* If everything printed so far is before beginning of request */
 	if (len <= off) {
-		off -= len;
+		off = 0;
 		len = 0;
 	}
 	*start = page + off;
