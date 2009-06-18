@@ -378,14 +378,14 @@ static inline void ring_check(struct wctdm *wc, int card)
 			if (debug)
 				printk(KERN_DEBUG "RING on %d/%d!\n", wc->span.spanno, card + 1);
 			if (!wc->mod[card].fxo.offhook)
-				dahdi_hooksig(&wc->chans[card], DAHDI_RXSIG_RING);
+				dahdi_hooksig(wc->chans[card], DAHDI_RXSIG_RING);
 			wc->mod[card].fxo.ring = 1;
 		}
 		if (wc->mod[card].fxo.ring && !wc->mod[card].fxo.pegcount) {
 			/* No more ring */
 			if (debug)
 				printk(KERN_DEBUG "NO RING on %d/%d!\n", wc->span.spanno, card + 1);
-			dahdi_hooksig(&wc->chans[card], DAHDI_RXSIG_OFFHOOK);
+			dahdi_hooksig(wc->chans[card], DAHDI_RXSIG_OFFHOOK);
 			wc->mod[card].fxo.ring = 0;
 		}
 	}
@@ -864,7 +864,7 @@ static inline void wctdm_voicedaa_check_hook(struct wctdm *wc, int card)
 						printk(KERN_DEBUG "NO BATTERY on %d/%d!\n", wc->span.spanno, card + 1);
 #ifdef	JAPAN
 					if (!wc->ohdebounce && wc->offhook) {
-						dahdi_hooksig(&wc->chans[card], DAHDI_RXSIG_ONHOOK);
+						dahdi_hooksig(wc->chans[card], DAHDI_RXSIG_ONHOOK);
 						if (debug)
 							printk(KERN_DEBUG "Signalled On Hook\n");
 #ifdef	ZERO_BATT_RING
@@ -908,7 +908,7 @@ static inline void wctdm_voicedaa_check_hook(struct wctdm *wc, int card)
 #ifdef	ZERO_BATT_RING
 					if (wc->onhook) {
 						wc->onhook = 0;
-						dahdi_hooksig(&wc->chans[card], DAHDI_RXSIG_OFFHOOK);
+						dahdi_hooksig(wc->chans[card], DAHDI_RXSIG_OFFHOOK);
 						if (debug)
 							printk(KERN_DEBUG "Signalled Off Hook\n");
 					}
