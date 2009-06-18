@@ -1426,7 +1426,7 @@ static inline void wctdm_voicedaa_check_hook(struct wctdm *wc, int card)
 						printk(KERN_DEBUG "NO BATTERY on %d/%d!\n", wc->span.spanno, card + 1);
 #ifdef	JAPAN
 					if (!wc->ohdebounce && wc->offhook) {
-						dahdi_hooksig(&wc->chans[card], DAHDI_RXSIG_ONHOOK);
+						dahdi_hooksig(wc->chans[card], DAHDI_RXSIG_ONHOOK);
 						if (debug)
 							printk(KERN_DEBUG "Signalled On Hook\n");
 #ifdef	ZERO_BATT_RING
@@ -1470,7 +1470,7 @@ static inline void wctdm_voicedaa_check_hook(struct wctdm *wc, int card)
 #ifdef	ZERO_BATT_RING
 					if (wc->onhook) {
 						wc->onhook = 0;
-						dahdi_hooksig(&wc->chans[card], DAHDI_RXSIG_OFFHOOK);
+						dahdi_hooksig(wc->chans[card], DAHDI_RXSIG_OFFHOOK);
 						if (debug)
 							printk(KERN_DEBUG "Signalled Off Hook\n");
 					}
