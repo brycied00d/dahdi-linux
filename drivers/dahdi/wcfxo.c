@@ -488,7 +488,7 @@ DAHDI_IRQ_HANDLER(wcfxo_interrupt)
 				wc->battery =  0;
 #ifdef	JAPAN
 				if ((!wc->ohdebounce) && wc->offhook) {
-					dahdi_hooksig(&wc->chan, DAHDI_RXSIG_ONHOOK);
+					dahdi_hooksig(wc->chan, DAHDI_RXSIG_ONHOOK);
 					if (debug)
 						printk(KERN_DEBUG "Signalled On Hook\n");
 #ifdef	ZERO_BATT_RING
@@ -516,7 +516,7 @@ DAHDI_IRQ_HANDLER(wcfxo_interrupt)
 #ifdef	ZERO_BATT_RING
 				if (wc->onhook) {
 					wc->onhook = 0;
-					dahdi_hooksig(&wc->chan, DAHDI_RXSIG_OFFHOOK);
+					dahdi_hooksig(wc->chan, DAHDI_RXSIG_OFFHOOK);
 					if (debug)
 						printk(KERN_DEBUG "Signalled Off Hook\n");
 				}
