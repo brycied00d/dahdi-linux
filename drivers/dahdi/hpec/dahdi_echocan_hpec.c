@@ -114,7 +114,7 @@ static void echo_can_process(struct dahdi_echocan_state *ec, short *isig, const 
 	hpec_channel_update(pvt->hpec, isig, iref);
 }
 
-DECLARE_MUTEX(alloc_lock);
+DECLARE_MUTEX(license_lock);
 
 static int echo_can_create(struct dahdi_chan *chan, struct dahdi_echocanparams *ecp,
 			   struct dahdi_echocanparam *p, struct dahdi_echocan_state **ec)
@@ -133,12 +133,12 @@ static int echo_can_create(struct dahdi_chan *chan, struct dahdi_echocanparams *
 	pvt->dahdi.ops = &my_ops;
 	pvt->dahdi.features = my_features;
 
-	if (down_interruptible(&alloc_lock))
+	if (down_interruptible(&license_lock))
 		return -ENOTTY;
 
 	pvt->hpec = hpec_channel_alloc(ecp->tap_length);
 
-	up(&alloc_lock);
+	up(&license_lock);
 
 	if (!pvt->hpec) {
 		kfree(pvt);
@@ -154,8 +154,6 @@ static int echo_can_traintap(struct dahdi_echocan_state *ec, int pos, short val)
 {
 	return 1;
 }
-
-DECLARE_MUTEX(license_lock);
 
 static int hpec_license_ioctl(unsigned int cmd, unsigned long data)
 {
