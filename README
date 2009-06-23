@@ -81,7 +81,7 @@ Installing to a Subtree
 ~~~~~~~~~~~~~~~~~~~~~~~
 The following may be useful when testing the package or when preparing a
 package for a binary distribution (such as an rpm package) installing
-onto a subtree rather than on th real system. 
+onto a subtree rather than on the real system. 
 
   make install DESTDIR=targetdir
 
@@ -164,7 +164,7 @@ Thus for the moment, the simplest way to build OSLEC with dahdi is:
    (at least 2.6.28-rc1) to the a subdirectory with the same name in the
    dahdi-linux tree.
 
-2. Edit drivers/dahdi/Kbuild and unrem the two lines related to OSLEC.
+2. Edit drivers/dahdi/Kbuild and uncomment the two lines related to OSLEC.
 
 After doing that, you'll see the following when building (running
 'make')
@@ -270,7 +270,7 @@ Internals
 DAHDI Device Files
 ~~~~~~~~~~~~~~~~~~~
 Userspace programs will usually interact with DAHDI through device
-files under the /dev/dahdi directory (pedantically: characted device files 
+files under the /dev/dahdi directory (pedantically: character device files 
 with major number 196) . Those device files can be generated statically
 or dynamically through the udev system.
 
@@ -287,7 +287,7 @@ or dynamically through the udev system.
   249 channels.
 * /dev/dahdi/pseudo (196:255) - A timing-only device. Every time you open
   it, a new DAHDI channel is created. That DAHDI channel is "pseudo" -
-  DAHDI recieves no data in it, and only sends garbage data with the
+  DAHDI receives no data in it, and only sends garbage data with the
   same timing as the DAHDI timing master device.
 
 
@@ -307,7 +307,7 @@ similar connection. With an analog connection you are not synced to the other
 party. And some systems don't have DAHDI hardware at all.  Even a digital card
 may be used for other uses or is simply not connected to a provider. DAHDI
 cards are also capable of providing timing from a clock on card. Cheap x100P
-clone cards are sometimes used for that pupose.
+clone cards are sometimes used for that purpose.
 
 If all the above fail, you can use the module dahdi_dummy to provide timing
 alone without needing any DAHDI hardware. It will work with most systems and
@@ -331,7 +331,7 @@ Or even run:
 Spans and Channels
 ~~~~~~~~~~~~~~~~~~
 DAHDI provides telephony *channels* to the userspace applications. 
-Those channels are channels are incorperated into logical units called
+Those channels are channels are incorporated into logical units called
 *spans*.
 
 With digital telephony adapters (e.g: E1 or T1), a span normally 
@@ -356,7 +356,7 @@ then a line for each channel of the span.
 The title line shows the number of the span, its name and title, and 
 (potentially) the alarms in which it is.
 
-The title shows the span number and name, followed by any allarms the
+The title shows the span number and name, followed by any alarms the
 span may have: For example, here is the first span in my system (with no
 alarms):
 
@@ -382,7 +382,7 @@ ABI Compatibility
 ~~~~~~~~~~~~~~~~~
 Like any other kernel code, DAHDI strives to maintain a stable interface to
 userspace programs. The API of DAHDI to userspace programs, dahdi/user.h, has
-remained backword-compatible for a long time and is expected to remain so in
+remained backward-compatible for a long time and is expected to remain so in
 the future. With the ABI (the bits themselves) things are slightly trickier.
 
 DAHDI's interface to userspace is mostly ioctl(3) calls. Ioctl calls
@@ -390,7 +390,7 @@ are identified by a number that stems from various things, one of which
 is the size of the data structure passed between the kernel and
 userspace. 
 
-Many of the DAHDI ioctl-s use some sepcific structs to pass information
+Many of the DAHDI ioctl-s use some specific structs to pass information
 between kernel and userspace. In some cases the need arose to pass a few
 more data members in each call. Simply adding a new member to the struct
 would have meant a new number for the ioctl, as its number depends on
@@ -524,6 +524,21 @@ If you wish to use the DAHDI drivers in an application for which the license
 terms are not appropriate (e.g. a proprietary embedded system), licenses under
 more flexible terms can be readily obtained through Digium, Inc. at reasonable
 cost.
+
+Known Issues
+------------
+
+Removing echocan modules
+~~~~~~~~~~~~~~~~~~~~~~~~
+Before unloading an echo-canceller module you must remove an reference to it.
+Using 'etc/init.d/dahdi stop' is the preferred method.
+
+However if, for some reason, you want to unload just a single dahdi_echocan_*
+module that you use, you must first edit /etc/dahdi/system.conf and change any
+echocan lines referring to it to refer to a different echo canceller module.
+
+https://issues.asterisk.org/view.php?id=15327[0015327: oops after removing an echocan module that is in use]
+
 
 Reporting Bugs
 --------------
