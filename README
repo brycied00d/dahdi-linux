@@ -531,7 +531,7 @@ Known Issues
 Removing echocan modules
 ~~~~~~~~~~~~~~~~~~~~~~~~
 Before unloading an echo-canceller module you must remove an reference to it.
-Using 'etc/init.d/dahdi stop' is the preferred method.
+Using '/etc/init.d/dahdi stop' is the preferred method.
 
 However if, for some reason, you want to unload just a single dahdi_echocan_*
 module that you use, you must first edit /etc/dahdi/system.conf and change any
@@ -543,7 +543,7 @@ https://issues.asterisk.org/view.php?id=15327[0015327: oops after removing an ec
 Reporting Bugs
 --------------
 Please report bug and patches to the Asterisk bug tracker at
-http://bugs.digium.com in the "DAHDI" category.
+http://issues.asterisk.org in the "DAHDI" category.
 
 Links
 -----
