@@ -6,7 +6,7 @@
  * written by Jim Dixon <jim@lambdatel.com>.
  *
  * Copyright (C) 2001 Jim Dixon / Zapata Telephony.
- * Copyright (C) 2001-2005, Digium, Inc.
+ * Copyright (C) 2001-2009, Digium, Inc.
  *
  * All rights reserved.
  *
@@ -3547,6 +3547,12 @@ static int __devinit t4_launch(struct t4 *wc)
 	__t4_set_timing_source(wc,4, 0, 0);
 	spin_unlock_irqrestore(&wc->reglock, flags);
 	tasklet_init(&wc->t4_tlet, t4_isr_bh, (unsigned long)wc);
+
+	/* Start the first span on the card with the default configuration so
+	 * that it may provide timing to Asterisk before being properly
+	 * configured. */
+	t4_startup(&wc->tspans[0]->span);
+
 	return 0;
 }
 
