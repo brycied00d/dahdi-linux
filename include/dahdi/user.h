@@ -1027,19 +1027,6 @@ struct dahdi_vmwi_info {
 
 #define DAHDI_ECHOCANCEL_FAX_MODE	_IOW(DAHDI_CODE, 102, int)
 
-struct torisa_debug {
-	unsigned int txerrors;
-	unsigned int irqcount;
-	unsigned int taskletsched;
-	unsigned int taskletrun;
-	unsigned int taskletexec;
-	int span1flags;
-	int span2flags;
-};
-
-/* Special torisa ioctl */
-#define TORISA_GETDEBUG			_IOW(DAHDI_CODE, 60, struct torisa_debug)
-
 /* Get current status IOCTL */
 /* Defines for Radio Status (dahdi_radio_stat.radstat) bits */
 
