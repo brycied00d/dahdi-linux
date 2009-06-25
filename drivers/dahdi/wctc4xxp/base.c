@@ -743,7 +743,7 @@ wctc4xxp_net_ioctl(struct net_device *netdev, struct ifreq *ifr, int cmd)
 }
 
 #ifdef HAVE_NET_DEVICE_OPS
-const struct net_device_ops wctc4xxp_netdev_ops = {
+static const struct net_device_ops wctc4xxp_netdev_ops = {
 	.ndo_set_multicast_list = &wctc4xxp_net_set_multi,
 	.ndo_open = &wctc4xxp_net_up,
 	.ndo_stop = &wctc4xxp_net_down,
