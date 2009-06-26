@@ -239,7 +239,9 @@ static void __ztdynamic_run(void)
 			dahdi_receive(&z->span);
 			dahdi_transmit(&z->span);
 			/* Handle all transmissions now */
+			spin_unlock_irqrestore(&dlock, flags);
 			ztd_sendmessage(z);
+			spin_lock_irqsave(&dlock, flags);
 		}
 		z = z->next;
 	}
