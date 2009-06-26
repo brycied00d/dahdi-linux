@@ -3807,6 +3807,7 @@ static void __devexit t4_remove_one(struct pci_dev *pdev)
 {
 	struct t4 *wc = pci_get_drvdata(pdev);
 	struct dahdi_span *span;
+	int basesize;
 	int i;
 
 	if (!wc) {
@@ -3821,6 +3822,10 @@ static void __devexit t4_remove_one(struct pci_dev *pdev)
 		release_vpm450m(wc->vpm450m);
 	wc->vpm450m = NULL;
 	/* Unregister spans */
+
+	basesize = DAHDI_MAX_CHUNKSIZE * 32 * 4;
+	if (!(wc->tspans[0]->spanflags & FLAG_2NDGEN))
+		basesize = basesize * 2;
 
 	for (i = 0; i < wc->numspans; ++i) {
 		span = &wc->tspans[i]->span;
@@ -3842,7 +3847,9 @@ static void __devexit t4_remove_one(struct pci_dev *pdev)
 	pci_release_regions(pdev);		
 	
 	/* Immediately free resources */
-	pci_free_consistent(pdev, DAHDI_MAX_CHUNKSIZE * 2 * 2 * 32 * 4, (void *)wc->writechunk, wc->writedma);
+
+	pci_free_consistent(pdev, basesize * 2,
+				(void *)wc->writechunk, wc->writedma);
 	
 	order_index[wc->order]--;
 	
