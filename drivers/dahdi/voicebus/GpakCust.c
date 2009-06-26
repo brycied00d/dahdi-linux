@@ -403,8 +403,13 @@ vpmadt032_alloc(struct vpmadt032_options *options, const char *board_name)
 	if (!vpm)
 		return NULL;
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 18)
+	/* There is a limit on the length of the name of the workqueue. */
+	strcpy(vpm->wq_name, "vpmadt032");
+#else
 	strcpy(vpm->wq_name, board_name);
 	strcat(vpm->wq_name, suffix);
+#endif
 
 	/* Init our vpmadt032 struct */
 	memcpy(&vpm->options, options, sizeof(*options));
