@@ -38,6 +38,8 @@ else
   HAS_KSRC:=no
 endif
 
+CHECKSTACK=$(KSRC)/scripts/checkstack.pl
+
 # Set HOTPLUG_FIRMWARE=no to override automatic building with hotplug support
 # if it is enabled in the kernel.
 
@@ -90,8 +92,8 @@ include/dahdi/version.h: FORCE
 
 prereq: include/dahdi/version.h firmware-loaders
 
-stackcheck: checkstack modules
-	./checkstack kernel/*.ko kernel/*/*.ko
+stackcheck: $(CHECKSTACK) modules
+	objdump -d drivers/dahdi/*.ko drivers/dahdi/*/*.ko | $(CHECKSTACK)
 
 install: all install-modules install-devices install-include install-firmware install-xpp-firm
 	@echo "###################################################"
