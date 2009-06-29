@@ -1573,15 +1573,11 @@ static int t4_chanconfig(struct dahdi_chan *chan, int sigtype)
 
 static int t4_open(struct dahdi_chan *chan)
 {
-	try_module_get(THIS_MODULE);
-
 	return 0;
 }
 
 static int t4_close(struct dahdi_chan *chan)
 {
-	module_put(THIS_MODULE);
-
 	return 0;
 }
 
@@ -1631,6 +1627,7 @@ static void init_spans(struct t4 *wc)
 			ts->span.spantype = "J1";
 			break;
 		}
+		ts->span.owner = THIS_MODULE;
 		ts->span.spanconfig = t4_spanconfig;
 		ts->span.chanconfig = t4_chanconfig;
 		ts->span.irq = wc->dev->irq;

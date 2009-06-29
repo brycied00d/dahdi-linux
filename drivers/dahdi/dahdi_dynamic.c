@@ -516,8 +516,6 @@ static int ztd_open(struct dahdi_chan *chan)
 			return -ENODEV;
 		z->usecount++;
 	}
-	if(!try_module_get(THIS_MODULE))
-		printk(KERN_NOTICE "TDMoX: Unable to increment module use count\n");
 	return 0;
 }
 
@@ -534,7 +532,6 @@ static int ztd_close(struct dahdi_chan *chan)
 		z->usecount--;
 	if (z->dead && !z->usecount)
 		dynamic_destroy(z);
-	module_put(THIS_MODULE);
 	return 0;
 }
 
@@ -604,6 +601,7 @@ static int create_dynamic(struct dahdi_dynamic_span *zds)
 	z->timing = zds->timing;
 	sprintf(z->span.name, "DYN/%s/%s", zds->driver, zds->addr);
 	sprintf(z->span.desc, "Dynamic '%s' span at '%s'", zds->driver, zds->addr);
+	z->span.owner = THIS_MODULE;
 	z->span.channels = zds->numchans;
 	z->span.pvt = z;
 	z->span.deflaw = DAHDI_LAW_MULAW;

@@ -272,6 +272,7 @@ static void init_spans(struct tor2 *tor)
 		dahdi_copy_string(tor->spans[x].devicetype, tor->type, sizeof(tor->spans[x].devicetype));
 		snprintf(tor->spans[x].location, sizeof(tor->spans[x].location) - 1,
 			 "PCI Bus %02d Slot %02d", tor->pci->bus->number, PCI_SLOT(tor->pci->devfn) + 1);
+		tor->spans[x].owner = THIS_MODULE;
 		tor->spans[x].spanconfig = tor2_spanconfig;
 		tor->spans[x].chanconfig = tor2_chanconfig;
 		tor->spans[x].startup = tor2_startup;

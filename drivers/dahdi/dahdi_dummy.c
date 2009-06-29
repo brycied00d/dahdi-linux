@@ -189,6 +189,7 @@ static int dahdi_dummy_initialize(struct dahdi_dummy *ztd)
 	sprintf(ztd->chan->name, "DAHDI_DUMMY/%d/%d", 1, 0);
 	dahdi_copy_string(ztd->span.devicetype, "DAHDI Dummy Timing", sizeof(ztd->span.devicetype));
 	ztd->chan->chanpos = 1;
+	ztd->span.owner = THIS_MODULE;
 	ztd->span.chans = &ztd->chan;
 	ztd->span.channels = 0;		/* no channels on our span */
 	ztd->span.deflaw = DAHDI_LAW_MULAW;

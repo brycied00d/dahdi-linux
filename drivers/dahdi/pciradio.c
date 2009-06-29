@@ -1462,6 +1462,7 @@ static int pciradio_initialize(struct pciradio *rad)
 	int x;
 
 	/* DAHDI stuff */
+	rad->span.owner = THIS_MODULE;
 	sprintf(rad->span.name, "PCIRADIO/%d", rad->pos);
 	sprintf(rad->span.desc, "Board %d", rad->pos + 1);
 	rad->span.deflaw = DAHDI_LAW_MULAW;

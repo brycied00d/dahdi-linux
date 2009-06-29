@@ -2084,10 +2084,6 @@ static int b4xxp_open(struct dahdi_chan *chan)
 	struct b4xxp *b4 = chan->pvt;
 	struct b4xxp_span *bspan = &b4->spans[chan->span->offset];
 
-	if (!try_module_get(THIS_MODULE)) {
-		return -EBUSY;
-	}
-
 	if (DBG_FOPS && DBG_SPANFILTER)
 		dev_info(b4->dev, "open() on chan %s (%i/%i)\n", chan->name, chan->channo, chan->chanpos);
 
@@ -2100,8 +2096,6 @@ static int b4xxp_close(struct dahdi_chan *chan)
 {
 	struct b4xxp *b4 = chan->pvt;
 	struct b4xxp_span *bspan = &b4->spans[chan->span->offset];
-
-	module_put(THIS_MODULE);
 
 	if (DBG_FOPS && DBG_SPANFILTER)
 		dev_info(b4->dev, "close() on chan %s (%i/%i)\n", chan->name, chan->channo, chan->chanpos);
@@ -2166,6 +2160,7 @@ static void init_spans(struct b4xxp *b4)
 		sprintf(bspan->span.location, "PCI Bus %02d Slot %02d",
 			b4->pdev->bus->number, PCI_SLOT(b4->pdev->devfn) + 1);
 
+		bspan->span.owner = THIS_MODULE;
 		bspan->span.spanconfig = b4xxp_spanconfig;
 		bspan->span.chanconfig = b4xxp_chanconfig;
 		bspan->span.startup = b4xxp_startup;

@@ -1017,6 +1017,7 @@ static int PRI_card_dahdi_preregistration(xpd_t *xpd, bool on)
 		/* Nothing to do yet */
 		return 0;
 	}
+	xpd->span.owner = THIS_MODULE;
 	xpd->span.spantype = pri_protocol_name(priv->pri_protocol);
 	xpd->span.linecompat = pri_linecompat(priv->pri_protocol);
 	xpd->span.deflaw = priv->deflaw;

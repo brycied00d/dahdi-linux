@@ -1992,7 +1992,6 @@ static int wctdm_open(struct dahdi_chan *chan)
 	if (wc->dead)
 		return -ENODEV;
 	wc->usecount++;
-	try_module_get(THIS_MODULE);
 	return 0;
 }
 
@@ -2007,7 +2006,6 @@ static int wctdm_close(struct dahdi_chan *chan)
 {
 	struct wctdm *wc = chan->pvt;
 	wc->usecount--;
-	module_put(THIS_MODULE);
 	if (wc->modtype[chan->chanpos - 1] == MOD_TYPE_FXS) {
 		wc->mod[chan->chanpos - 1].fxs.idletxhookstate = POLARITY_XOR(chan->chanpos - 1) ? 0x5 : 0x1;
 	}
@@ -2105,6 +2103,7 @@ static int wctdm_initialize(struct wctdm *wc)
 		wc->chans[x]->chanpos = x+1;
 		wc->chans[x]->pvt = wc;
 	}
+	wc->span.owner = THIS_MODULE;
 	wc->span.chans = wc->chans;
 	wc->span.channels = NUM_CARDS;
 	wc->span.hooksig = wctdm_hooksig;
