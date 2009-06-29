@@ -964,6 +964,7 @@ static int t1xxp_software_init(struct t1 *wc)
 		return -1;
 	t4_serial_setup(wc);
 	wc->num = x;
+	wc->span.owner = THIS_MODULE;
 	sprintf(wc->span.name, "WCT1/%d", wc->num);
 	snprintf(wc->span.desc, sizeof(wc->span.desc) - 1, "%s Card %d", wc->variety, wc->num);
 	wc->span.manufacturer = "Digium";
