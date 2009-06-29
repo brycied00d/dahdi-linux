@@ -759,6 +759,7 @@ static int t1xxp_software_init(struct t1xxp *wc)
 	dahdi_copy_string(wc->span.devicetype, wc->variety, sizeof(wc->span.devicetype));
 	snprintf(wc->span.location, sizeof(wc->span.location) - 1,
 		 "PCI Bus %02d Slot %02d", wc->dev->bus->number, PCI_SLOT(wc->dev->devfn) + 1);
+	wc->span.owner = THIS_MODULE;
 	wc->span.spanconfig = t1xxp_spanconfig;
 	wc->span.chanconfig = t1xxp_chanconfig;
 	wc->span.irq = wc->dev->irq;

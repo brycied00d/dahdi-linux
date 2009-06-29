@@ -230,7 +230,6 @@ static int t1xxp_open(struct dahdi_chan *chan)
 	if (wc->dead)
 		return -ENODEV;
 	wc->usecount++;
-	try_module_get(THIS_MODULE);
 
 	return 0;
 }
@@ -355,7 +354,6 @@ static int t1xxp_close(struct dahdi_chan *chan)
 	struct t1 *wc = chan->pvt;
 
 	wc->usecount--;
-	module_put(THIS_MODULE);
 	/* If we're dead, release us now */
 	if (!wc->usecount && wc->dead) 
 		t1xxp_release(wc);

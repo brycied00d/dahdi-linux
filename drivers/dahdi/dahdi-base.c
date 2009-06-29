@@ -15,7 +15,7 @@
  * from Cisco 3620 to IBM x305 here in F1 Group
  *
  * Copyright (C) 2001 Jim Dixon / Zapata Telephony.
- * Copyright (C) 2001 - 2008 Digium, Inc.
+ * Copyright (C) 2001 - 2009 Digium, Inc.
  *
  * All rights reserved.
  *
@@ -2649,39 +2649,44 @@ static int dahdi_timer_release(struct inode *inode, struct file *file)
 static int dahdi_specchan_open(struct inode *inode, struct file *file, int unit)
 {
 	int res = 0;
+	struct dahdi_chan *const chan = chans[unit];
 
-	if (chans[unit] && chans[unit]->sig) {
+	if (chan && chan->sig) {
 		/* Make sure we're not already open, a net device, or a slave device */
-		if (chans[unit]->flags & DAHDI_FLAG_NETDEV)
+		if (chan->flags & DAHDI_FLAG_NETDEV)
 			res = -EBUSY;
-		else if (chans[unit]->master != chans[unit])
+		else if (chan->master != chan)
 			res = -EBUSY;
-		else if ((chans[unit]->sig & __DAHDI_SIG_DACS) == __DAHDI_SIG_DACS)
+		else if ((chan->sig & __DAHDI_SIG_DACS) == __DAHDI_SIG_DACS)
 			res = -EBUSY;
-		else if (!test_and_set_bit(DAHDI_FLAGBIT_OPEN, &chans[unit]->flags)) {
+		else if (!test_and_set_bit(DAHDI_FLAGBIT_OPEN, &chan->flags)) {
 			unsigned long flags;
-			res = initialize_channel(chans[unit]);
+			res = initialize_channel(chan);
 			if (res) {
 				/* Reallocbufs must have failed */
-				clear_bit(DAHDI_FLAGBIT_OPEN, &chans[unit]->flags);
+				clear_bit(DAHDI_FLAGBIT_OPEN, &chan->flags);
 				return res;
 			}
-			spin_lock_irqsave(&chans[unit]->lock, flags);
-			if (chans[unit]->flags & DAHDI_FLAG_PSEUDO)
-				chans[unit]->flags |= DAHDI_FLAG_AUDIO;
-			if (chans[unit]->span && chans[unit]->span->open) {
-				res = chans[unit]->span->open(chans[unit]);
+			spin_lock_irqsave(&chan->lock, flags);
+			if (chan->flags & DAHDI_FLAG_PSEUDO)
+				chan->flags |= DAHDI_FLAG_AUDIO;
+			if (chan->span) {
+				if (!try_module_get(chan->span->owner))
+					res = -ENXIO;
+				else if (chan->span->open)
+					res = chan->span->open(chan);
 			}
 			if (!res) {
-				chans[unit]->file = file;
-				spin_unlock_irqrestore(&chans[unit]->lock, flags);
+				chan->file = file;
+				spin_unlock_irqrestore(&chan->lock, flags);
 			} else {
-				spin_unlock_irqrestore(&chans[unit]->lock, flags);
-				close_channel(chans[unit]);
-				clear_bit(DAHDI_FLAGBIT_OPEN, &chans[unit]->flags);
+				spin_unlock_irqrestore(&chan->lock, flags);
+				close_channel(chan);
+				clear_bit(DAHDI_FLAGBIT_OPEN, &chan->flags);
 			}
-		} else
+		} else {
 			res = -EBUSY;
+		}
 	} else
 		res = -ENXIO;
 	return res;
@@ -2691,18 +2696,22 @@ static int dahdi_specchan_release(struct inode *node, struct file *file, int uni
 {
 	int res=0;
 	unsigned long flags;
+	struct dahdi_chan *const chan = chans[unit];
 
-	if (chans[unit]) {
+	if (chan) {
 		/* Chan lock protects contents against potentially non atomic accesses.
 		 * So if the pointer setting is not atomic, we should protect */
-		spin_lock_irqsave(&chans[unit]->lock, flags);
-		chans[unit]->file = NULL;
-		spin_unlock_irqrestore(&chans[unit]->lock, flags);
-		close_channel(chans[unit]);
-		if (chans[unit]->span && chans[unit]->span->close)
-			res = chans[unit]->span->close(chans[unit]);
+		spin_lock_irqsave(&chan->lock, flags);
+		chan->file = NULL;
+		spin_unlock_irqrestore(&chan->lock, flags);
+		close_channel(chan);
+		if (chan->span) {
+			if (chan->span->close)
+				res = chan->span->close(chan);
+			module_put(chan->span->owner);
+		}
 		/* The channel might be destroyed by low-level driver span->close() */
-		if(chans[unit])
+		if (chans[unit])
 			clear_bit(DAHDI_FLAGBIT_OPEN, &chans[unit]->flags);
 	} else
 		res = -ENXIO;
@@ -3851,8 +3860,10 @@ static int dahdi_ctl_ioctl(struct inode *inode, struct file *file, unsigned int 
 		CHECK_VALID_SPAN(j);
 		if (spans[j]->flags & DAHDI_FLAG_RUNNING)
 			return 0;
+
 		if (spans[j]->startup)
 			res = spans[j]->startup(spans[j]);
+
 		if (!res) {
 			/* Mark as running and hangup any channels */
 			spans[j]->flags |= DAHDI_FLAG_RUNNING;
@@ -5498,6 +5509,8 @@ int dahdi_register(struct dahdi_span *span, int prefmaster)
 
 	if (!span)
 		return -EINVAL;
+
+	WARN_ON(!span->owner);
 
 	if (test_bit(DAHDI_FLAGBIT_REGISTERED, &span->flags)) {
 		module_printk(KERN_ERR, "Span %s already appears to be registered\n", span->name);

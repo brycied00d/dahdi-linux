@@ -2960,7 +2960,6 @@ static int wctdm_open(struct dahdi_chan *chan)
 	if (wc->dead)
 		return -ENODEV;
 	wc->usecount++;
-	try_module_get(THIS_MODULE);
 	
 	/* Reset the mwi indicators */
 	spin_lock_irqsave(&wc->reglock, flags);
@@ -2984,7 +2983,6 @@ static int wctdm_close(struct dahdi_chan *chan)
 	int x;
 	signed char reg;
 	wc->usecount--;
-	module_put(THIS_MODULE);
 	for (x=0;x<wc->cards;x++) {
 		if (wc->modtype[x] == MOD_TYPE_FXS) {
 			wc->mods[x].fxs.idletxhookstate = POLARITY_XOR(x) ? 5 : 1;
@@ -3226,6 +3224,7 @@ static int wctdm_initialize(struct wctdm *wc)
 		wc->chans[x]->chanpos = x+1;
 		wc->chans[x]->pvt = wc;
 	}
+	wc->span.owner = THIS_MODULE;
 	wc->span.chans = wc->chans;
 	wc->span.channels = wc->type;
 	wc->span.irq = pdev->irq;

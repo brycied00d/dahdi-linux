@@ -1142,15 +1142,11 @@ static int t1xxp_maint(struct dahdi_span *span, int cmd)
 
 static int t1xxp_open(struct dahdi_chan *chan)
 {
-	if (!try_module_get(THIS_MODULE))
-		return -ENXIO;
-	else
-		return 0;
+	return 0;
 }
 
 static int t1xxp_close(struct dahdi_chan *chan)
 {
-	module_put(THIS_MODULE);
 	return 0;
 }
 
@@ -1226,6 +1222,7 @@ static int t1_software_init(struct t1 *wc)
 	snprintf(wc->span.location, sizeof(wc->span.location) - 1,
 		"PCI Bus %02d Slot %02d", dev->bus->number, PCI_SLOT(dev->devfn) + 1);
 
+	wc->span.owner = THIS_MODULE;
 	wc->span.spanconfig = t1xxp_spanconfig;
 	wc->span.chanconfig = t1xxp_chanconfig;
 	wc->span.irq = dev->irq;

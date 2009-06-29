@@ -1056,6 +1056,8 @@ int dahdi_register_xpd(xpd_t *xpd)
 	const xops_t	*xops;
 
 	BUG_ON(!xpd);
+	WARN_ON(!xpd->span.owner);
+
 	xops = xpd->xops;
 	xbus = xpd->xbus;
 
