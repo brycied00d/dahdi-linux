@@ -183,13 +183,6 @@ static struct class_simple *dahdi_class = NULL;
 #define class_destroy class_simple_destroy
 #endif
 
-/*
- * See issue http://bugs.digium.com/view.php?id=13504 for more information. 
- * on why reference counting on the echo canceller modules is disabled
- * currently.
- */
-#undef USE_ECHOCAN_REFCOUNT 
-
 static int deftaps = 64;
 
 static int debug;
@@ -383,13 +376,14 @@ static LIST_HEAD(ecfactory_list);
 
 struct ecfactory {
 	const struct dahdi_echocan_factory *ec;
-	struct module *owner;
 	struct list_head list;
 };
 
 int dahdi_register_echocan_factory(const struct dahdi_echocan_factory *ec)
 {
 	struct ecfactory *cur;
+
+	WARN_ON(!ec->owner);
 
 	write_lock(&ecfactory_list_lock);
 
@@ -1108,18 +1102,13 @@ retry:
 
 	list_for_each_entry(cur, &ecfactory_list, list) {
 		if (!strcmp(name_upper, cur->ec->name)) {
-#ifdef USE_ECHOCAN_REFCOUNT
-			if (try_module_get(cur->owner)) {
+			if (try_module_get(cur->ec->owner)) {
 				read_unlock(&ecfactory_list_lock);
 				return cur->ec;
 			} else {
 				read_unlock(&ecfactory_list_lock);
 				return NULL;
 			}
-#else
-			read_unlock(&ecfactory_list_lock);
-			return cur->ec;
-#endif
 		}
 	}
 
@@ -1145,10 +1134,8 @@ retry:
 
 static void release_echocan(const struct dahdi_echocan_factory *ec)
 {
-#ifdef USE_ECHOCAN_REFCOUNT
 	if (ec)
 		module_put(ec->owner);
-#endif
 }
 
 /** 
@@ -1863,6 +1850,8 @@ static void dahdi_chan_unreg(struct dahdi_chan *chan)
 	unsigned long flags;
 
 	might_sleep();
+
+	release_echocan(chan->ec_factory);
 
 #ifdef CONFIG_DAHDI_NET
 	if (chan->flags & DAHDI_FLAG_NETDEV) {
@@ -4910,14 +4899,12 @@ static int ioctl_echocancel(struct dahdi_chan *chan, struct dahdi_echocanparams 
 		ret = chan->span->echocan_create(chan, ecp, params, &ec);
 
 	if ((ret == -ENODEV) && chan->ec_factory) {
-#ifdef USE_ECHOCAN_REFCOUNT
 		/* try to get another reference to the module providing
 		   this channel's echo canceler */
 		if (!try_module_get(chan->ec_factory->owner)) {
 			module_printk(KERN_ERR, "Cannot get a reference to the '%s' echo canceler\n", chan->ec_factory->name);
 			goto exit_with_free;
 		}
-#endif
 
 		/* got the reference, copy the pointer and use it for making
 		   an echo canceler instance if possible */
