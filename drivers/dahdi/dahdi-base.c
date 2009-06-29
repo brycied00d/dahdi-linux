@@ -289,7 +289,56 @@ static struct dahdi_dialparams global_dialparams = {
 static int dahdi_chan_ioctl(struct inode *inode, struct file *file, unsigned int cmd, unsigned long data, int unit);
 
 #if defined(CONFIG_DAHDI_MMX) || defined(ECHO_CAN_FP)
+#if (defined(CONFIG_X86) && !defined(CONFIG_X86_64)) || defined(CONFIG_I386)
+struct fpu_save_buf {
+	unsigned long cr0;
+	unsigned long fpu_buf[128];
+};
+
+static DEFINE_PER_CPU(struct fpu_save_buf, fpu_buf);
+
+/** dahdi_kernel_fpu_begin() - Save floating point registers
+ *
+ * This function is similar to kernel_fpu_begin() . However it is
+ * designed to work in an interrupt context. Restoring must be done with
+ * dahdi_kernel_fpu_end().
+ *
+ * Furthermore, the whole code between the call to
+ * dahdi_kernel_fpu_begin() and dahdi_kernel_fpu_end() must reside
+ * inside a spinlock. Otherwise the context might be restored to the
+ * wrong process.
+ *
+ * Current implementation is x86/ia32-specific and will not even build on 
+ * x86_64)
+ * */
+static inline void dahdi_kernel_fpu_begin(void)
+{
+	struct fpu_save_buf *buf = &__get_cpu_var(fpu_buf);
+	__asm__ __volatile__ ("movl %%cr0,%0; clts" : "=r" (buf->cr0));
+	__asm__ __volatile__ ("fnsave %0" : "=m" (buf->fpu_buf));
+}
+
+/** dahdi_kernel_fpu_end() - restore floating point context
+ *
+ * Must be used with context saved by dahdi_kernel_fpu_begin(). See its
+ * documentation for further information.
+ */
+static inline void dahdi_kernel_fpu_end(void)
+{
+	struct fpu_save_buf *buf = &__get_cpu_var(fpu_buf);
+	__asm__ __volatile__ ("frstor %0" : "=m" (buf->fpu_buf));
+	__asm__ __volatile__ ("movl %0,%%cr0" : : "r" (buf->cr0));
+}
+
+#else /* We haven't fixed FP context saving/restoring yet */
+/* Very strange things can happen when the context is not properly
+ * restored. OTOH, some people do report success with this. Hence we
+ * so far just issue a warning */
+#warning CONFIG_DAHDI_MMX may behave randomly on this platform
 #define dahdi_kernel_fpu_begin kernel_fpu_begin
+#define dahdi_kernel_fpu_end   kernel_fpu_end
+#endif
+
 #endif
 
 struct dahdi_timer {
@@ -6659,7 +6708,7 @@ static inline void __dahdi_ec_chunk(struct dahdi_chan *ss, unsigned char *rxchun
 
 		}
 #if defined(CONFIG_DAHDI_MMX) || defined(ECHO_CAN_FP)
-		kernel_fpu_end();
+		dahdi_kernel_fpu_end();
 #endif
 	}
 	spin_unlock_irqrestore(&ss->lock, flags);
@@ -6991,6 +7040,7 @@ static inline void __putbuf_chunk(struct dahdi_chan *ss, unsigned char *rxb, int
 	int abort=0;
 	int res;
 	int left, x;
+
 
 	while(bytes) {
 #if defined(CONFIG_DAHDI_NET)  || defined(CONFIG_DAHDI_PPP)
@@ -7553,7 +7603,7 @@ static void __dahdi_transmit_chunk(struct dahdi_chan *chan, unsigned char *buf)
 #endif
 		__dahdi_process_getaudio_chunk(chan, buf);
 #ifdef CONFIG_DAHDI_MMX
-		kernel_fpu_end();
+		dahdi_kernel_fpu_end();
 #endif
 	}
 }
@@ -7638,7 +7688,7 @@ static void __dahdi_receive_chunk(struct dahdi_chan *chan, unsigned char *buf)
 #endif
 		__dahdi_process_putaudio_chunk(chan, buf);
 #ifdef CONFIG_DAHDI_MMX
-		kernel_fpu_end();
+		dahdi_kernel_fpu_end();
 #endif
 	}
 	__dahdi_putbuf_chunk(chan, buf);
@@ -7860,7 +7910,7 @@ int dahdi_receive(struct dahdi_span *span)
 				}
 			}
 #ifdef CONFIG_DAHDI_MMX
-			kernel_fpu_end();
+			dahdi_kernel_fpu_end();
 #endif
 		}
 		/* do all the pseudo/conferenced channel transmits (putbuf's) */
