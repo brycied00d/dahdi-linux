@@ -6688,7 +6688,8 @@ static inline void __dahdi_ec_chunk(struct dahdi_chan *ss, unsigned char *rxchun
 					ss->ec_state->status.last_train_tap = 0;
 					ss->ec_state->status.mode = ECHO_MODE_TRAINING;
 				}
-				if (ss->ec_state->status.mode == ECHO_MODE_TRAINING) {
+				if ((ss->ec_state->status.mode == ECHO_MODE_TRAINING) &&
+				    (ss->ec_state->ops->echocan_traintap)) {
 					if (ss->ec_state->ops->echocan_traintap(ss->ec_state, ss->ec_state->status.last_train_tap++, rxlin)) {
 #if 0
 						module_printk(KERN_NOTICE, "Finished training (%d taps trained)!\n", ss->ec_state->status.last_train_tap);
