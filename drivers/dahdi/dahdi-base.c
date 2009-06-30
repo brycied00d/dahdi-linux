@@ -5272,14 +5272,18 @@ static int dahdi_chan_ioctl(struct inode *inode, struct file *file, unsigned int
 		if ((j < 0) || (j >= DAHDI_MAX_PRETRAINING))
 			return -EINVAL;
 		j <<= 3;
+		spin_lock_irqsave(&chan->lock, flags);
 		if (chan->ec_state) {
 			/* Start pretraining stage */
-			spin_lock_irqsave(&chan->lock, flags);
-			chan->ec_state->status.mode = ECHO_MODE_PRETRAINING;
-			chan->ec_state->status.pretrain_timer = j;
+			if (chan->ec_state->ops->echocan_traintap) {
+				chan->ec_state->status.mode = ECHO_MODE_PRETRAINING;
+				chan->ec_state->status.pretrain_timer = j;
+			}
 			spin_unlock_irqrestore(&chan->lock, flags);
-		} else
+		} else {
+			spin_unlock_irqrestore(&chan->lock, flags);
 			return -EINVAL;
+		}
 		break;
 	case DAHDI_ECHOCANCEL_FAX_MODE:
 		if (!chan->ec_state) {
