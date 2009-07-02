@@ -377,7 +377,6 @@
 #define HFC_T2					1
 #define HFC_T3					2
 
-#define WCB4XXP_MAGIC				0xb410c0de
 #define MAX_SPANS_PER_CARD			8
 
 #define WCB4XXP_CHANNELS_PER_SPAN		3	/* 2 B-channels and 1 D-Channel for each BRI span */
