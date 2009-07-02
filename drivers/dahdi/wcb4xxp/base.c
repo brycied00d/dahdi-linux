@@ -81,10 +81,10 @@
 #define DBG_HDLC		(debug & DEBUG_HDLC)
 #define DBG_ALARM		(debug & DEBUG_ALARM)
 
-#define DBG_SPANFILTER		((1 << bspan->port) & spanfilter)
+#define DBG_SPANFILTER		(BIT(bspan->port) & spanfilter)
 
 static int debug = 0;
-static int spanfilter = 15;
+static int spanfilter = 0xFF; /* Bitmap for ports 1-8 */
 #ifdef LOOPBACK_SUPPORTED
 static int loopback = 0;
 #endif
