@@ -1443,7 +1443,16 @@ static void hfc_init_all_st(struct b4xxp *b4)
 		s->parent = b4;
 		s->port = i;
 
-		nt = ((gpio & (1 << (i + 4))) == 0);		/* GPIO=0 = NT mode */
+		/* The way the Digium B410P card reads the NT/TE mode
+		 * jumper is the oposite of how other HFC-4S cards do:
+		 * - In B410P: GPIO=0: NT
+		 * - In Junghanns: GPIO=0: TE
+		 */
+		if (b4->card_type == B410P)
+			nt = ((gpio & (1 << (i + 4))) == 0);
+		else
+			nt = ((gpio & (1 << (i + 4))) != 0);
+
 		s->te_mode = !nt;
 
 		dev_info(b4->dev, "Port %d: %s mode\n", i + 1, (nt ? "NT" : "TE"));
@@ -1799,9 +1808,15 @@ static void b4xxp_init_stage1(struct b4xxp *b4)
 
 /*
  * set up the clock controller
- * we have a 24.576MHz crystal, so the PCM clock is 2x the incoming clock.
+ * B410P has a 24.576MHz crystal, so the PCM clock is 2x the incoming clock.
+ * Other cards have a 49.152Mhz crystal, so the PCM clock equals incoming clock.
  */
-	b4xxp_setreg8(b4, R_BRG_PCM_CFG, 0x02);
+
+	if (b4->card_type == B410P)
+		b4xxp_setreg8(b4, R_BRG_PCM_CFG, 0x02);
+	else
+		b4xxp_setreg8(b4, R_BRG_PCM_CFG, V_PCM_CLK);
+
 	flush_pci();
 
 	udelay(100);				/* wait a bit for clock to settle */
