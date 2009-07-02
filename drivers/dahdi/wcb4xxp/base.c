@@ -624,7 +624,7 @@ static void ec_init(struct b4xxp *b4)
 
 		dev_info(b4->dev, "VPM %d/%d init: chip ver %02x\n", i, NUM_EC - 1, b);
 
-		for (j=0; j < 4; j++) {
+		for (j=0; j < b4->numspans; j++) {
 			ec_write(b4, i, 0x1a8 + j, 0x00);	/* GPIO out */
 			ec_write(b4, i, 0x1ac + j, 0x00);	/* GPIO dir */
 			ec_write(b4, i, 0x1b0 + j, 0x00);	/* GPIO sel */
@@ -1210,7 +1210,7 @@ static void hfc_update_st_timers(struct b4xxp *b4)
 	int i, j;
 	struct b4xxp_span *s;
 
-	for (i=0; i < 4; i++) {
+	for (i=0; i < b4->numspans; i++) {
 		s = &b4->spans[i];
 
 		for (j=HFC_T1; j <= HFC_T3; j++) {
@@ -1413,7 +1413,7 @@ static void hfc_init_all_st(struct b4xxp *b4)
 
 	gpio = b4xxp_getreg8(b4, R_GPI_IN3);
 
-	for (i=0; i < 4; i++) {
+	for (i=0; i < b4->numspans; i++) {
 		s = &b4->spans[i];
 		s->parent = b4;
 		s->port = i;
@@ -2399,8 +2399,8 @@ static int b4xxp_proc_read_one(char *buf, struct b4xxp *b4)
 	sprintf(sBuf, "Card %d, PCI identifier %s, IRQ %d\n", b4->cardno + 1, b4->dev->bus_id, b4->irq);
 
 	strcat(sBuf,"Tx:\n");
-	for (j=0; j<8; j++) {
-		for (i=0; i<12; i++) {
+	for (j=0; j<(b4->numspans * 2) ; j++) {			/* B Channels */
+		for (i=0; i<(b4->numspans * 3) ; i++) {		/* All Channels */
 			chan = b4->spans[i/3].chans[i%3];
 			sprintf(str, "%02x ", chan->writechunk[j]);
 			strcat(sBuf, str);
@@ -2410,8 +2410,8 @@ static int b4xxp_proc_read_one(char *buf, struct b4xxp *b4)
 	}
 
 	strcat(sBuf, "\nRx:\n");
-	for (j=0; j < 8; j++) {
-		for (i=0; i < 12; i++) {
+	for (j=0; j < (b4->numspans * 2); j++) {		/* B Channels */
+		for (i=0; i < (b4->numspans * 3); i++) { 	/* All Channels */
 			chan = b4->spans[i / 3].chans[i % 3];
 			sprintf(str, "%02x%c", chan->readchunk[j], (i == 11) ? '\n' : ' ');
 			strcat(sBuf, str);
@@ -2419,7 +2419,7 @@ static int b4xxp_proc_read_one(char *buf, struct b4xxp *b4)
 	}
 
 	strcat(sBuf, "\nPort states:\n");
-	for (i=0; i < 4; i++) {
+	for (i=0; i < b4->numspans; i++) {
 		int state;
 		char *x;
 		struct b4xxp_span *s = &b4->spans[i];
