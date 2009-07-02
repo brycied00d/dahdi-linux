@@ -1937,6 +1937,79 @@ static void b4xxp_setleds(struct b4xxp *b4, unsigned char val)
 	ec_write(b4, 0, 0x1a8 + 3, val);
 }
 
+static void b4xxp_update_leds_hfc_8s(struct b4xxp *b4)
+{
+	unsigned long lled = 0; /* A bit set is a led OFF */
+	unsigned long leddw;
+	int j;
+	struct b4xxp_span *bspan;
+
+	b4->blinktimer++;
+	for (j = 7; j >= 0; j--) {
+		bspan = &b4->spans[7 - j];
+		if (!(bspan->span.flags & DAHDI_FLAG_RUNNING) ||
+				bspan->span.alarms) {
+			BIT_SET(lled, j);
+			continue;  /* Led OFF */
+		}
+
+		if (bspan->span.mainttimer || bspan->span.maintstat) {
+			/* Led Blinking in maint state */
+			if (b4->blinktimer >= 0x7f)
+				BIT_SET(lled, j);
+		}
+		/* Else: Led on */
+	}
+
+	/* Write Leds...*/
+	leddw = lled << 24 | lled << 16 | lled << 8 | lled;
+	b4xxp_setreg8(b4, R_BRG_PCM_CFG, 0x21);
+	iowrite16(0x4000, b4->ioaddr + 4);
+	iowrite32(leddw, b4->ioaddr);
+	b4xxp_setreg8(b4, R_BRG_PCM_CFG, 0x20);
+
+	if (b4->blinktimer == 0xff)
+		b4->blinktimer = -1;
+}
+
+/* So far only tested for OpenVox cards. Please test it for other hardware */
+static void b4xxp_update_leds_hfc(struct b4xxp *b4)
+{
+	int i;
+	int leds = 0, green_leds = 0; /* Default: off */
+	struct b4xxp_span *bspan;
+
+	b4->blinktimer++;
+	for (i=0; i < b4->numspans; i++) {
+		bspan = &b4->spans[i];
+
+		if (!(bspan->span.flags & DAHDI_FLAG_RUNNING))
+			continue; /* Leds are off */
+
+		if (bspan->span.alarms) {
+			/* Red blinking -> Alarm */
+			if (b4->blinktimer >= 0x7f)
+				BIT_SET(leds, i);
+		} else if (bspan->span.mainttimer || bspan->span.maintstat) {
+			/* Green blinking -> Maint status */
+			if (b4->blinktimer >= 0x7f)
+				BIT_SET(green_leds, i);
+		} else {
+			/* Steady grean -> No Alarm */
+			BIT_SET(green_leds, i);
+		}
+	}
+
+	/* Actually set them. for red: just set the bit in R_GPIO_EN1.
+	   For green: in both R_GPIO_EN1 and R_GPIO_OUT1. */
+	leds |= green_leds;
+	b4xxp_setreg8(b4, R_GPIO_EN1, leds);
+	b4xxp_setreg8(b4, R_GPIO_OUT1, green_leds);
+
+	if (b4->blinktimer == 0xff)
+		b4->blinktimer = -1;
+}
+
 static void b4xxp_set_span_led(struct b4xxp *b4, int span, unsigned char val)
 {
 	int shift, spanmask;
@@ -1953,6 +2026,18 @@ static void b4xxp_update_leds(struct b4xxp *b4)
 {
 	int i;
 	struct b4xxp_span *bspan;
+
+	if (b4->numspans == 8) {
+		/* Use the alternative function for non-Digium HFC-8S cards */
+		b4xxp_update_leds_hfc_8s(b4);
+		return;
+	}
+
+	if (b4->card_type != B410P) {
+		/* Use the alternative function for non-Digium HFC-4S cards */
+		b4xxp_update_leds_hfc(b4);
+		return;
+	}
 
 	b4->blinktimer++;
 	for (i=0; i < b4->numspans; i++) {
