@@ -425,7 +425,18 @@ static void hfc_gpio_init(struct b4xxp *b4)
 
 	mb();
 
-	b4xxp_setreg8(b4, R_GPIO_SEL, 0xf0);	/* GPIO0..7 S/T, 8..15 GPIO */
+	switch (b4->card_type) {
+	case OCTOBRI:  /* fall through */
+	case B800P_OV: /* fall through */
+	case BN8S0:
+		/* GPIO0..15 S/T - HFC-8S uses GPIO8-15 for S/T ports 5-8 */
+		b4xxp_setreg8(b4, R_GPIO_SEL, 0x00);
+		break;
+	default:
+		/* GPIO0..7 S/T, 8..15 GPIO */
+		b4xxp_setreg8(b4, R_GPIO_SEL, 0xf0);
+		break;
+	}
 
 	mb();
 
@@ -1033,7 +1044,18 @@ static void hfc_assign_dchan_fifo(struct b4xxp *b4, int port)
 	int fifo, hfc_chan;
 	unsigned long irq_flags;
 
-	fifo = port + 8;
+	switch (b4->card_type) {
+	case B800P_OV: /* fall through */
+	case OCTOBRI: /* fall through */
+	case BN8S0:
+		/* In HFC-8S cards we can't use ports 8-11 for dchan FIFOs */
+		fifo = port + 16;
+		break;
+	default:
+		fifo = port + 8;
+		break;
+	}
+
 	hfc_chan = (port * 4) + 2;
 
 /* record the host's FIFO # in the span fifo array */
@@ -1847,7 +1869,7 @@ static void b4xxp_init_stage2(struct b4xxp *b4)
 
 /*
  * set up the flow controller.
- * B channel map:
+ * B channel map: (4 ports cards with Hardware Echo Cancel present & active)
  * FIFO 0 connects Port 1 B0 using HFC channel 16 and PCM timeslots 0/1.
  * FIFO 1 connects Port 1 B1 using HFC channel 17 and PCM timeslots 4/5.
  * FIFO 2 connects Port 2 B0 using HFC channel 20 and PCM timeslots 8/9.
@@ -1862,10 +1884,31 @@ static void b4xxp_init_stage2(struct b4xxp *b4)
  *
  * D channels are handled by FIFOs 8-11.
  * FIFO 8 connects Port 1 D using HFC channel 3
- * FIFO 9 connects Port 1 D using HFC channel 7
- * FIFO 10 connects Port 1 D using HFC channel 11
- * FIFO 11 connects Port 1 D using HFC channel 15
+ * FIFO 9 connects Port 2 D using HFC channel 7
+ * FIFO 10 connects Port 3 D using HFC channel 11
+ * FIFO 11 connects Port 4 D using HFC channel 15
  *
+ * D channel FIFOs are operated in HDLC mode and interrupt on end of frame.
+ *
+ * B channel map: (8 ports cards without Hardware Echo Cancel)
+ * FIFO 0 connects Port 1 B0 using HFC channel 0
+ * FIFO 1 connects Port 1 B1 using HFC channel 1
+ * FIFO 2 connects Port 2 B0 using HFC channel 4
+ * FIFO 3 connects Port 2 B1 using HFC channel 5
+ * .........................
+ * FIFO 14 connects Port 8 B0 using HFC channel 28
+ * FIFO 15 connects Port 8 B1 using HFC channel 29
+ *
+ * All B channel FIFOs have their HDLC controller in transparent mode,
+ * and only the FIFO for B0 on each port has its interrupt operational.
+ *
+ * D channels are handled by FIFOs 16-23.
+ * FIFO 16 connects Port 1 D using HFC channel 3
+ * FIFO 17 connects Port 2 D using HFC channel 7
+ * FIFO 18 connects Port 3 D using HFC channel 11
+ * FIFO 19 connects Port 4 D using HFC channel 15
+ * ................
+ * FIFO 23 connects Port 8 D using HFC channel 31
  * D channel FIFOs are operated in HDLC mode and interrupt on end of frame.
  */
 	for (span=0; span < b4->numspans; span++) {
@@ -2316,13 +2359,21 @@ DAHDI_IRQ_HANDLER(b4xxp_interrupt)
 static void b4xxp_bottom_half(unsigned long data)
 {
 	struct b4xxp *b4 = (struct b4xxp *)data;
-	int i, j, k, gotrxfifo, fifo;
+	int i, j, k, gotrxfifo, fifo, fifo_low, fifo_high;
 	unsigned char b, b2;
 
 	if (b4->shutdown)
 		return;
 
 	gotrxfifo = 0;
+	/* HFC-4S d-chan fifos 8-11 *** HFC-8S d-chan fifos 16-23 */
+	if (b4->numspans == 8) {
+		fifo_low = 16;
+		fifo_high = 23;
+	} else {
+		fifo_low = 8;
+		fifo_high = 11;
+	}
 
 	for (i=0; i < 8; i++) {
 		b = b2 = b4->fifo_irqstatus[i];
@@ -2331,7 +2382,8 @@ static void b4xxp_bottom_half(unsigned long data)
 			fifo = i*4 + j;
 
 			if (b & V_IRQ_FIFOx_TX) {
-				if (fifo >=8 && fifo <= 11) {		/* d-chan fifo */
+				if (fifo >= fifo_low && fifo <= fifo_high) {
+					/* d-chan fifos */
 /*
  * WOW I don't like this.
  * It's bad enough that I have to send a fake frame to get an HDLC TX FIFO interrupt,
@@ -2340,7 +2392,7 @@ static void b4xxp_bottom_half(unsigned long data)
  * Yuck.  It works well, but yuck.
  */
 					do {
-						k = hdlc_tx_frame(&b4->spans[fifo - 8]);
+						k = hdlc_tx_frame(&b4->spans[fifo - fifo_low]);
 					}  while (k);
 				} else {
 					if (printk_ratelimit())
@@ -2349,7 +2401,7 @@ static void b4xxp_bottom_half(unsigned long data)
 			}
 
 			if (b & V_IRQ_FIFOx_RX) {
-				if (fifo >=8 && fifo <= 11) {
+				if (fifo >= fifo_low && fifo <= fifo_high) {	/* dchan fifos */
 /*
  * I have to loop here until hdlc_rx_frame says there are no more frames waiting.
  * for whatever reason, the HFC will not generate another interrupt if there are
@@ -2357,7 +2409,7 @@ static void b4xxp_bottom_half(unsigned long data)
  * i.e. I get an int when F1 changes, not when F1 != F2.
  */
 					do {
-						k = hdlc_rx_frame(&b4->spans[fifo - 8]);
+						k = hdlc_rx_frame(&b4->spans[fifo - fifo_low]);
 					} while (k);
 				} else {
 					if (printk_ratelimit())
