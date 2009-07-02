@@ -430,7 +430,6 @@ enum cards_ids {	/* Cards ==> Brand & Model 		*/
 
 /* This structure exists one per card */
 struct b4xxp {
-	unsigned magic;				/* magic value to make sure we're looking at our struct */
 	char *variety;
 	int chiprev;				/* revision of HFC-4S */
 
