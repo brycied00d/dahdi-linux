@@ -640,6 +640,9 @@ static void ec_init(struct b4xxp *b4)
 	unsigned char b;
 	unsigned int i, j, mask;
 
+	if (!CARD_HAS_EC(b4))
+		return;
+
 /* Setup GPIO */
 	for (i=0; i < NUM_EC; i++) {
 		b = ec_read(b4, i, 0x1a0);
@@ -1851,7 +1854,7 @@ static void b4xxp_init_stage2(struct b4xxp *b4)
  * D channel FIFOs are operated in HDLC mode and interrupt on end of frame.
  */
 	for (span=0; span < b4->numspans; span++) {
-		if (vpmsupport) {
+		if ((vpmsupport) && (CARD_HAS_EC(b4))) {
 			hfc_assign_bchan_fifo_ec(b4, span, 0);
 			hfc_assign_bchan_fifo_ec(b4, span, 1);
 		} else {
@@ -2191,7 +2194,7 @@ static void init_spans(struct b4xxp *b4)
 		bspan->span.close  = b4xxp_close;
 		bspan->span.ioctl = b4xxp_ioctl;
 		bspan->span.hdlc_hard_xmit = b4xxp_hdlc_hard_xmit;
-		if (vpmsupport)
+		if (vpmsupport && CARD_HAS_EC(b4))
 			bspan->span.echocan_create = echocan_create;
 
 /* HDLC stuff */
