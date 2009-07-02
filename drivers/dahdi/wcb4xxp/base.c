@@ -2694,7 +2694,6 @@ static int __devinit b4xx_probe(struct pci_dev *pdev, const struct pci_device_id
 	}
 
 /* card found, enabled and main struct allocated.  Fill it out. */
-	b4->magic = WCB4XXP_MAGIC;
 	b4->variety = dt->desc;
 	b4->card_type = dt->card_type;
 	b4->pdev = pdev;
@@ -2864,7 +2863,6 @@ static void __devexit b4xxp_remove(struct pci_dev *pdev)
 		pci_disable_device(pdev);
 
 		b4->ioaddr = b4->addr = NULL;
-		b4->magic = 0;
 
 		tasklet_kill(&b4->b4xxp_tlet);
 
