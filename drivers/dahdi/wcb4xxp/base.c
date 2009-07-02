@@ -47,6 +47,15 @@
 
 #include "wcb4xxp.h"
 
+#ifndef BIT     /* added in 2.6.24 */
+#define BIT(i)          (1UL << (i))
+#endif
+#define BIT_SET(x, i)    ((x) |= BIT(i))
+#define BIT_CLR(x, i)    ((x) &= ~BIT(i))
+#define IS_SET(x, i)     (((x) & BIT(i)) != 0)
+#define BITMASK(i)      (((u64)1 << (i)) - 1)
+
+
 #if (DAHDI_CHUNKSIZE != 8)
 #error Sorry, wcb4xxp does not support chunksize != 8
 #endif
