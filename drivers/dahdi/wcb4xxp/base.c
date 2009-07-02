@@ -123,9 +123,22 @@ static struct proc_dir_entry *myproc;
 struct devtype {
 	char *desc;
 	unsigned int flags;
+	int ports;   	/* Number of ports the card has */
+	enum cards_ids card_type;	/* Card type - Digium B410P, ... */
 };
 
-static struct devtype wcb4xxp = { "Wildcard B410P", 0 };
+static struct devtype wcb4xxp =  {"Wildcard B410P", .ports = 4, .card_type = B410P  };
+static struct devtype hfc2s =	 {"HFC-2S Junghanns.NET duoBRI PCI", .ports = 2, .card_type = DUOBRI };
+static struct devtype hfc4s =	 {"HFC-4S Junghanns.NET quadBRI PCI", .ports = 4, .card_type = QUADBRI };
+static struct devtype hfc8s =	 {"HFC-4S Junghanns.NET octoBRI PCI", .ports = 8, .card_type = OCTOBRI };
+static struct devtype hfc2s_OV = {"OpenVox B200P", .ports = 2, .card_type = B200P_OV };
+static struct devtype hfc4s_OV = {"OpenVox B400P", .ports = 4, .card_type = B400P_OV };
+static struct devtype hfc8s_OV = {"OpenVox B800P", .ports = 8, .card_type = B800P_OV };
+static struct devtype hfc2s_BN = {"BeroNet BN2S0", .ports = 2, .card_type = BN2S0 };
+static struct devtype hfc4s_BN = {"BeroNet BN4S0", .ports = 4, .card_type = BN4S0 };
+static struct devtype hfc8s_BN = {"BeroNet BN8S0", .ports = 8, .card_type = BN8S0 };
+ 
+#define CARD_HAS_EC(card) ((card)->card_type == B410P)
 
 static int echocan_create(struct dahdi_chan *chan, struct dahdi_echocanparams *ecp,
 			   struct dahdi_echocanparam *p, struct dahdi_echocan_state **ec);
@@ -2528,7 +2541,7 @@ static int __devinit b4xx_probe(struct pci_dev *pdev, const struct pci_device_id
 /* card found, enabled and main struct allocated.  Fill it out. */
 	b4->magic = WCB4XXP_MAGIC;
 	b4->variety = dt->desc;
-
+	b4->card_type = dt->card_type;
 	b4->pdev = pdev;
 	b4->dev = &pdev->dev;
 	pci_set_drvdata(pdev, b4);
@@ -2542,7 +2555,7 @@ static int __devinit b4xx_probe(struct pci_dev *pdev, const struct pci_device_id
 	spin_lock_init(&b4->fifolock);
 
 	x = b4xxp_getreg8(b4, R_CHIP_ID);
-	if (x != 0xc0) {				/* wrong chip? */
+	if ((x != 0xc0) && (x != 0x80)) {		/* wrong chip? */
 		dev_err(&pdev->dev, "Unknown/unsupported controller detected (R_CHIP_ID = 0x%02x)\n", x);
 		goto err_out_free_mem;
 	}
@@ -2557,7 +2570,7 @@ static int __devinit b4xx_probe(struct pci_dev *pdev, const struct pci_device_id
 */
 
 /* TODO: determine whether this is a 2, 4 or 8 port card */
-	b4->numspans = 4;
+	b4->numspans = dt->ports;
 	b4->syncspan = -1;		/* sync span is unknown */
 	if (b4->numspans > MAX_SPANS_PER_CARD) {
 		dev_err(b4->dev, "Driver does not know how to handle a %d span card!\n", b4->numspans);
@@ -2710,7 +2723,17 @@ static void __devexit b4xxp_remove(struct pci_dev *pdev)
 static struct pci_device_id b4xx_ids[] __devinitdata =
 {
 	{ 0xd161, 0xb410, PCI_ANY_ID, PCI_ANY_ID, 0, 0, (unsigned long)&wcb4xxp },
-	{ 0, }
+	{ 0x1397, 0x16b8, 0x1397, 0xe552, 0, 0, (unsigned long)&hfc8s },
+	{ 0x1397, 0x08b4, 0x1397, 0xb520, 0, 0, (unsigned long)&hfc4s },
+	{ 0x1397, 0x08b4, 0x1397, 0xb556, 0, 0, (unsigned long)&hfc2s },
+	{ 0x1397, 0x08b4, 0x1397, 0xe884, 0, 0, (unsigned long)&hfc2s_OV },
+	{ 0x1397, 0x08b4, 0x1397, 0xe888, 0, 0, (unsigned long)&hfc4s_OV },
+	{ 0x1397, 0x16b8, 0x1397, 0xe998, 0, 0, (unsigned long)&hfc8s_OV },
+	{ 0x1397, 0x08b4, 0x1397, 0xb566, 0, 0, (unsigned long)&hfc2s_BN },
+	{ 0x1397, 0x08b4, 0x1397, 0xb560, 0, 0, (unsigned long)&hfc4s_BN },
+	{ 0x1397, 0x16b8, 0x1397, 0xb562, 0, 0, (unsigned long)&hfc8s_BN },
+	{0, }
+
 };
 
 static struct pci_driver b4xx_driver = {
@@ -2770,7 +2793,7 @@ MODULE_PARM_DESC(timer_1_ms, "NT: msec to wait for link activation, TE: unused."
 MODULE_PARM_DESC(timer_3_ms, "TE: msec to wait for link activation, NT: unused.");
 
 MODULE_AUTHOR("Digium Incorporated <support@digium.com>");
-MODULE_DESCRIPTION("B410P quad-port BRI module driver.");
+MODULE_DESCRIPTION("B410P & Similars multi-port BRI module driver.");
 MODULE_LICENSE("GPL");
 
 MODULE_DEVICE_TABLE(pci, b4xx_ids);

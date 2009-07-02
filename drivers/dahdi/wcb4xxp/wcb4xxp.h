@@ -378,7 +378,7 @@
 #define HFC_T3					2
 
 #define WCB4XXP_MAGIC				0xb410c0de
-#define MAX_SPANS_PER_CARD			4
+#define MAX_SPANS_PER_CARD			8
 
 #define WCB4XXP_CHANNELS_PER_SPAN		3	/* 2 B-channels and 1 D-Channel for each BRI span */
 #define WCB4XXP_HDLC_BUF_LEN			32	/* arbitrary, just the max # of byts we will send to DAHDI per call */
@@ -414,6 +414,19 @@ struct b4xxp_span {
 	struct dahdi_echocan_state ec[WCB4XXP_CHANNELS_PER_SPAN]; /* echocan state for each channel */
 	struct dahdi_chan _chans[WCB4XXP_CHANNELS_PER_SPAN]; /* Backing memory */
 };
+
+enum cards_ids {	/* Cards ==> Brand & Model 		*/
+	B410P = 0,	/* Digium B410P 			*/
+	B200P_OV,	/* OpenVox B200P 			*/
+	B400P_OV,	/* OpenVox B400P 			*/
+	B800P_OV,	/* OpenVox B800P 			*/
+	DUOBRI,		/* HFC-2S Junghanns.NET duoBRI PCI 	*/
+	QUADBRI,	/* HFC-4S Junghanns.NET quadBRI PCI	*/
+	OCTOBRI,	/* HFC-8S Junghanns.NET octoBRI PCI	*/
+	BN2S0,		/* BeroNet BN2S0			*/
+	BN4S0,		/* Beronet BN4S0			*/
+	BN8S0		/* BeroNet BN8S0			*/
+	};
 
 /* This structure exists one per card */
 struct b4xxp {
@@ -453,6 +466,7 @@ struct b4xxp {
 	struct b4xxp_span spans[MAX_SPANS_PER_CARD];	/* Individual spans */
 	int order;				/* Order */
 	int flags;				/* Device flags */
+	enum cards_ids card_type;		/* For LED handling mostly */
 	int master;				/* Are we master */
 	int ledreg;				/* copy of the LED Register */
 	unsigned int gpio;
