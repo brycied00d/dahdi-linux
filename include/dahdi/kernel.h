@@ -1167,4 +1167,8 @@ static inline short dahdi_txtone_nextsample(struct dahdi_chan *ss)
 #define kzalloc(a, b) kcalloc(1, a, b)
 #endif
 
+#ifndef DMA_BIT_MASK
+#define DMA_BIT_MASK(n)	(((n) == 64) ? ~0ULL : ((1ULL<<(n))-1))
+#endif
+
 #endif /* _DAHDI_KERNEL_H */

@@ -3475,7 +3475,7 @@ wctc4xxp_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 
 	init_waitqueue_head(&wc->waitq);
 
-	if (pci_set_dma_mask(wc->pdev, DMA_32BIT_MASK)) {
+	if (pci_set_dma_mask(wc->pdev, DMA_BIT_MASK(32))) {
 		release_region(wc->iobase, 0xff);
 		DTE_PRINTK(WARNING, "No suitable DMA available.\n");
 		return -EIO;
