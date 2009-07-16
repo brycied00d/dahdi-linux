@@ -1314,7 +1314,7 @@ static void setchanconfig_from_state(struct vpmadt032 *vpm, int channel, GpakCha
 	chanconfig->MuteToneB = Disabled;
 	chanconfig->FaxCngDetB = Disabled;
 
-	chanconfig->SoftwareCompand = cmpPCMU;
+	chanconfig->SoftwareCompand = cmpNone;
 
 	chanconfig->FrameRate = rate10ms;
 
