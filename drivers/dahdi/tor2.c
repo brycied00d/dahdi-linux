@@ -200,7 +200,7 @@ static int tor2_spanconfig(struct dahdi_span *span, struct dahdi_lineconfig *lc)
 	if (debug)
 		printk(KERN_INFO "Tor2: Configuring span %d\n", span->spanno);
 
-	if ((lc->sync < 0) || (lc->sync >= SPANS_PER_CARD)) {
+	if ((lc->sync < 0) || (lc->sync > SPANS_PER_CARD)) {
 		printk(KERN_WARNING "%s %d: invalid span timing value %d.\n",
 				THIS_MODULE->name, span->spanno, lc->sync);
 		return -EINVAL;
