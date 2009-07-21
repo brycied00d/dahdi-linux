@@ -115,6 +115,12 @@
  */
 /* #define CONFIG_CAC_GROUNDSTART */
 
+/*
+ * Define CONFIG_DAHDI_CORE_TIMER if you would like dahdi to always provide a
+ * timing source regardless of which spans / drivers are configured.
+ */
+/* #define CONFIG_DAHDI_CORE_TIMER */
+
 /* 
  * Uncomment if you happen have an early TDM400P Rev H which 
  * sometimes forgets its PCI ID to have wcfxs match essentially all
@@ -166,5 +172,7 @@
  * Skip processing PCM if low-level driver won't use it anyway
  */
 /* #define	OPTIMIZE_CHANMUTE */
+
+
 
 #endif

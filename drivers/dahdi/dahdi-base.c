@@ -231,6 +231,19 @@ static struct {
 	int	dst;	/* dst conf number */
 } conf_links[DAHDI_MAX_CONF + 1];
 
+#ifdef CONFIG_DAHDI_CORE_TIMER
+
+static struct core_timer {
+	struct timer_list timer;
+	struct timespec start_interval;
+	atomic_t count;
+	atomic_t shutdown;
+	atomic_t last_count;
+} core_timer;
+
+#endif /* CONFIG_DAHDI_CORE_TIMER */
+
+
 
 /* There are three sets of conference sum accumulators. One for the current
 sample chunk (conf_sums), one for the next sample chunk (conf_sums_next), and
@@ -2718,12 +2731,22 @@ static int dahdi_specchan_release(struct inode *node, struct file *file, int uni
 	return res;
 }
 
+static int can_open_timer(void)
+{
+#ifdef CONFIG_DAHDI_CORE_TIMER
+	return 1;
+#else
+	return maxspans > 0;
+#endif
+}
+
 static struct dahdi_chan *dahdi_alloc_pseudo(void)
 {
 	struct dahdi_chan *pseudo;
 
-	/* Don't allow /dev/dahdi/pseudo to open if there are no spans */
-	if (maxspans < 1)
+	/* Don't allow /dev/dahdi/pseudo to open if there is not a timing
+	 * source. */
+	if (!can_open_timer())
 		return NULL;
 
 	if (!(pseudo = kzalloc(sizeof(*pseudo), GFP_KERNEL)))
@@ -2781,7 +2804,7 @@ static int dahdi_open(struct inode *inode, struct file *file)
 		return -ENXIO;
 	}
 	if (unit == 253) {
-		if (maxspans) {
+		if (can_open_timer()) {
 			return dahdi_timing_open(inode, file);
 		} else {
 			return -ENXIO;
@@ -2790,16 +2813,13 @@ static int dahdi_open(struct inode *inode, struct file *file)
 	if (unit == 254)
 		return dahdi_chan_open(inode, file);
 	if (unit == 255) {
-		if (maxspans) {
-			chan = dahdi_alloc_pseudo();
-			if (chan) {
-				file->private_data = chan;
-				return dahdi_specchan_open(inode, file, chan->channo);
-			} else {
-				return -ENXIO;
-			}
-		} else
+		chan = dahdi_alloc_pseudo();
+		if (chan) {
+			file->private_data = chan;
+			return dahdi_specchan_open(inode, file, chan->channo);
+		} else {
 			return -ENXIO;
+		}
 	}
 	return dahdi_specchan_open(inode, file, unit);
 }
@@ -7798,12 +7818,207 @@ int dahdi_transmit(struct dahdi_span *span)
 	return 0;
 }
 
+static void process_masterspan(void)
+{
+	unsigned long flags;
+	int x, y, z;
+
+#ifdef CONFIG_DAHDI_CORE_TIMER
+	/* We increment the calls since start here, so that if we switch over
+	 * to the core timer, we know how many times we need to call
+	 * process_masterspan in order to catch up since this function needs
+	 * to be called 1000 times per second. */
+	atomic_inc(&core_timer.count);
+#endif
+	/* Hold the big zap lock for the duration of major
+	   activities which touch all sorts of channels */
+	spin_lock_irqsave(&bigzaplock, flags);
+	read_lock(&chan_lock);
+	/* Process any timers */
+	process_timers();
+	/* If we have dynamic stuff, call the ioctl with 0,0 parameters to
+	   make it run */
+	if (dahdi_dynamic_ioctl)
+		dahdi_dynamic_ioctl(0, 0);
+
+	for (x = 1; x < maxchans; x++) {
+		if (chans[x] && chans[x]->confmode &&
+		    !(chans[x]->flags & DAHDI_FLAG_PSEUDO)) {
+			u_char *data;
+			spin_lock(&chans[x]->lock);
+			data = __buf_peek(&chans[x]->confin);
+			__dahdi_receive_chunk(chans[x], data);
+			if (data) {
+				__buf_pull(&chans[x]->confin, NULL, chans[x],
+					   "confreceive");
+			}
+			spin_unlock(&chans[x]->lock);
+		}
+	}
+	/* This is the master channel, so make things switch over */
+	rotate_sums();
+	/* do all the pseudo and/or conferenced channel receives (getbuf's) */
+	for (x = 1; x < maxchans; x++) {
+		if (chans[x] && (chans[x]->flags & DAHDI_FLAG_PSEUDO)) {
+			spin_lock(&chans[x]->lock);
+			__dahdi_transmit_chunk(chans[x], NULL);
+			spin_unlock(&chans[x]->lock);
+		}
+	}
+	if (maxlinks) {
+#ifdef CONFIG_DAHDI_MMX
+		dahdi_kernel_fpu_begin();
+#endif
+		/* process all the conf links */
+		for (x = 1; x <= maxlinks; x++) {
+			/* if we have a destination conf */
+			z = confalias[conf_links[x].dst];
+			if (z) {
+				y = confalias[conf_links[x].src];
+				if (y)
+					ACSS(conf_sums[z], conf_sums[y]);
+			}
+		}
+#ifdef CONFIG_DAHDI_MMX
+		dahdi_kernel_fpu_end();
+#endif
+	}
+	/* do all the pseudo/conferenced channel transmits (putbuf's) */
+	for (x = 1; x < maxchans; x++) {
+		if (chans[x] && (chans[x]->flags & DAHDI_FLAG_PSEUDO)) {
+			unsigned char tmp[DAHDI_CHUNKSIZE];
+			spin_lock(&chans[x]->lock);
+			__dahdi_getempty(chans[x], tmp);
+			__dahdi_receive_chunk(chans[x], tmp);
+			spin_unlock(&chans[x]->lock);
+		}
+	}
+	for (x = 1; x < maxchans; x++) {
+		if (chans[x] && chans[x]->confmode &&
+		    !(chans[x]->flags & DAHDI_FLAG_PSEUDO)) {
+			u_char *data;
+			spin_lock(&chans[x]->lock);
+			data = __buf_pushpeek(&chans[x]->confout);
+			__dahdi_transmit_chunk(chans[x], data);
+			if (data)
+				__buf_push(&chans[x]->confout, NULL,
+					   "conftransmit");
+			spin_unlock(&chans[x]->lock);
+		}
+	}
+#ifdef	DAHDI_SYNC_TICK
+	for (x = 0; x < maxspans; x++) {
+		struct dahdi_span *const s = spans[x];
+		if (s && s->sync_tick)
+			s->sync_tick(s, s == master);
+	}
+#endif
+	read_unlock(&chan_lock);
+	spin_unlock_irqrestore(&bigzaplock, flags);
+}
+
+#ifndef CONFIG_DAHDI_CORE_TIMER
+
+static void coretimer_init(void)
+{
+	return;
+}
+
+static void coretimer_cleanup(void)
+{
+	return;
+}
+
+#else
+
+static unsigned long core_diff_ms(struct timespec *t0, struct timespec *t1)
+{
+	long nanosec, sec;
+	unsigned long ms;
+	sec = (t1->tv_sec - t0->tv_sec);
+	nanosec = (t1->tv_nsec - t0->tv_nsec);
+	while (nanosec >= NSEC_PER_SEC) {
+		nanosec -= NSEC_PER_SEC;
+		++sec;
+	}
+	while (nanosec < 0) {
+		nanosec += NSEC_PER_SEC;
+		--sec;
+	}
+	ms = (sec * 1000) + (nanosec / 1000000L);
+	return ms;
+}
+
+static void coretimer_func(unsigned long param)
+{
+	unsigned long ms_since_start;
+	struct timespec now;
+	const unsigned long MAX_INTERVAL = 100000L;
+	const unsigned long FOURMS_INTERVAL = HZ/250;
+	const unsigned long ONESEC_INTERVAL = HZ;
+
+	now = current_kernel_time();
+
+	if (atomic_read(&core_timer.count) ==
+	    atomic_read(&core_timer.last_count)) {
+
+		/* This is the code path if a board driver is not calling
+		 * dahdi_receive, and therefore the core of dahdi needs to
+		 * perform the master span processing itself. */
+
+		if (!atomic_read(&core_timer.shutdown))
+			mod_timer(&core_timer.timer, jiffies + FOURMS_INTERVAL);
+
+		ms_since_start = core_diff_ms(&core_timer.start_interval, &now);
+		while (ms_since_start > atomic_read(&core_timer.count))
+			process_masterspan();
+
+		if (ms_since_start > MAX_INTERVAL) {
+			atomic_set(&core_timer.count, 0);
+			atomic_set(&core_timer.last_count, 0);
+			core_timer.start_interval = now;
+		} else {
+			atomic_set(&core_timer.last_count,
+				   atomic_read(&core_timer.count));
+		}
+
+	} else {
+
+		/* It looks like a board driver is calling dahdi_receive. We
+		 * will just check again in a second. */
+		atomic_set(&core_timer.count, 0);
+		atomic_set(&core_timer.last_count, 0);
+		core_timer.start_interval = now;
+		if (!atomic_read(&core_timer.shutdown))
+			mod_timer(&core_timer.timer, jiffies + ONESEC_INTERVAL);
+	}
+}
+
+static void coretimer_init(void)
+{
+	init_timer(&core_timer.timer);
+	core_timer.timer.function = coretimer_func;
+	core_timer.start_interval = current_kernel_time();
+	core_timer.timer.expires = jiffies + HZ;
+	atomic_set(&core_timer.count, 0);
+	atomic_set(&core_timer.shutdown, 0);
+	add_timer(&core_timer.timer);
+}
+
+static void coretimer_cleanup(void)
+{
+	atomic_set(&core_timer.shutdown, 1);
+	del_timer_sync(&core_timer.timer);
+}
+
+#endif /* CONFIG_DAHDI_CORE_TIMER */
+
+
 int dahdi_receive(struct dahdi_span *span)
 {
 	int x,y,z;
 	unsigned long flags;
 
-#if 1
 #ifdef CONFIG_DAHDI_WATCHDOG
 	span->watchcounter--;
 #endif
@@ -7883,87 +8098,9 @@ int dahdi_receive(struct dahdi_span *span)
 		}
 	}
 
-	if (span == master) {
-		/* Hold the big zap lock for the duration of major
-		   activities which touch all sorts of channels */
-		spin_lock_irqsave(&bigzaplock, flags);
-		read_lock(&chan_lock);
-		/* Process any timers */
-		process_timers();
-		/* If we have dynamic stuff, call the ioctl with 0,0 parameters to
-		   make it run */
-		if (dahdi_dynamic_ioctl)
-			dahdi_dynamic_ioctl(0,0);
-		for (x=1;x<maxchans;x++) {
-			if (chans[x] && chans[x]->confmode && !(chans[x]->flags & DAHDI_FLAG_PSEUDO)) {
-				u_char *data;
-				spin_lock(&chans[x]->lock);
-				data = __buf_peek(&chans[x]->confin);
-				__dahdi_receive_chunk(chans[x], data);
-				if (data)
-					__buf_pull(&chans[x]->confin, NULL,chans[x], "confreceive");
-				spin_unlock(&chans[x]->lock);
-			}
-		}
-		/* This is the master channel, so make things switch over */
-		rotate_sums();
-		/* do all the pseudo and/or conferenced channel receives (getbuf's) */
-		for (x=1;x<maxchans;x++) {
-			if (chans[x] && (chans[x]->flags & DAHDI_FLAG_PSEUDO)) {
-				spin_lock(&chans[x]->lock);
-				__dahdi_transmit_chunk(chans[x], NULL);
-				spin_unlock(&chans[x]->lock);
-			}
-		}
-		if (maxlinks) {
-#ifdef CONFIG_DAHDI_MMX
-			dahdi_kernel_fpu_begin();
-#endif
-			  /* process all the conf links */
-			for(x = 1; x <= maxlinks; x++) {
-				  /* if we have a destination conf */
-				if (((z = confalias[conf_links[x].dst]) > 0) &&
-				    ((y = confalias[conf_links[x].src]) > 0)) {
-					ACSS(conf_sums[z], conf_sums[y]);
-				}
-			}
-#ifdef CONFIG_DAHDI_MMX
-			dahdi_kernel_fpu_end();
-#endif
-		}
-		/* do all the pseudo/conferenced channel transmits (putbuf's) */
-		for (x=1;x<maxchans;x++) {
-			if (chans[x] && (chans[x]->flags & DAHDI_FLAG_PSEUDO)) {
-				unsigned char tmp[DAHDI_CHUNKSIZE];
-				spin_lock(&chans[x]->lock);
-				__dahdi_getempty(chans[x], tmp);
-				__dahdi_receive_chunk(chans[x], tmp);
-				spin_unlock(&chans[x]->lock);
-			}
-		}
-		for (x=1;x<maxchans;x++) {
-			if (chans[x] && chans[x]->confmode && !(chans[x]->flags & DAHDI_FLAG_PSEUDO)) {
-				u_char *data;
-				spin_lock(&chans[x]->lock);
-				data = __buf_pushpeek(&chans[x]->confout);
-				__dahdi_transmit_chunk(chans[x], data);
-				if (data)
-					__buf_push(&chans[x]->confout, NULL, "conftransmit");
-				spin_unlock(&chans[x]->lock);
-			}
-		}
-#ifdef	DAHDI_SYNC_TICK
-		for (x=0;x<maxspans;x++) {
-			struct dahdi_span	*s = spans[x];
+	if (span == master)
+		process_masterspan();
 
-			if (s && s->sync_tick)
-				s->sync_tick(s, s == master);
-		}
-#endif
-		read_unlock(&chan_lock);
-		spin_unlock_irqrestore(&bigzaplock, flags);
-	}
-#endif
 	return 0;
 }
 
@@ -8095,12 +8232,15 @@ static int __init dahdi_init(void)
 #ifdef CONFIG_DAHDI_WATCHDOG
 	watchdog_init();
 #endif
+	coretimer_init();
 	return res;
 }
 
 static void __exit dahdi_cleanup(void)
 {
 	int x;
+
+	coretimer_cleanup();
 
 	CLASS_DEV_DESTROY(dahdi_class, MKDEV(DAHDI_MAJOR, 253)); /* timer */
 	CLASS_DEV_DESTROY(dahdi_class, MKDEV(DAHDI_MAJOR, 254)); /* channel */
