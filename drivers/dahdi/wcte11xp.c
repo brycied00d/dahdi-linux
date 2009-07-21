@@ -5,7 +5,7 @@
  *            Matthew Fredrickson <creslin@digium.com>
  *            William Meadows <wmeadows@digium.com>
  *
- * Copyright (C) 2004-2009, Digium, Inc.
+ * Copyright (C) 2004, Digium, Inc.
  *
  * All rights reserved.
  */
@@ -1012,11 +1012,6 @@ static int t1xxp_software_init(struct t1 *wc)
 		printk(KERN_NOTICE "Unable to register span with DAHDI\n");
 		return -1;
 	}
-
-	/* Start off with the defaults so this card can provide timing to
-	 * Asterisk before being properly configured. */
-	t1xxp_startup(&wc->span);
-
 	return 0;
 }
 
