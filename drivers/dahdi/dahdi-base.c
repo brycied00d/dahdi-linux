@@ -2929,47 +2929,61 @@ static int dahdi_set_default_zone(int defzone)
 */
 static int ioctl_load_zone(unsigned long data)
 {
-	struct dahdi_tone *samples[MAX_TONES] = { NULL, };
-	short next[MAX_TONES] = { 0, };
-	struct dahdi_tone_def_header th;
-	struct dahdi_tone_def td;
-	struct dahdi_zone *z;
-	struct dahdi_tone *t;
-	void *slab, *ptr;
-	int x;
+	struct load_zone_workarea {
+		struct dahdi_tone *samples[MAX_TONES];
+		short next[MAX_TONES];
+		struct dahdi_tone_def_header th;
+		struct dahdi_tone_def td;
+	} *work;
+
 	size_t space;
 	size_t size;
 	int res;
+	int x;
+	void *slab, *ptr;
+	struct dahdi_zone *z;
+	struct dahdi_tone *t;
 
-	if (copy_from_user(&th, (struct dahdi_tone_def_header *) data, sizeof(th)))
+	work = kzalloc(sizeof(*work), GFP_KERNEL);
+	if (!work)
+		return -ENOMEM;
+
+	if (copy_from_user(&work->th, (struct dahdi_tone_def_header *) data, sizeof(work->th))) {
+		kfree(work);
 		return -EFAULT;
+	}
 
-	data += sizeof(th);
+	data += sizeof(work->th);
 
-	if ((th.count < 0) || (th.count > MAX_TONES)) {
+	if ((work->th.count < 0) || (work->th.count > MAX_TONES)) {
 		module_printk(KERN_NOTICE, "Too many tones included\n");
+		kfree(work);
 		return -EINVAL;
 	}
 
-	space = size = sizeof(*z) + th.count * sizeof(*t);
+	space = size = sizeof(*z) + work->th.count * sizeof(*t);
 
-	if (size > MAX_SIZE)
+	if (size > MAX_SIZE) {
+		kfree(work);
 		return -E2BIG;
+	}
 
-	if (!(z = ptr = slab = kzalloc(size, GFP_KERNEL)))
+	if (!(z = ptr = slab = kzalloc(size, GFP_KERNEL))) {
+		kfree(work);
 		return -ENOMEM;
+	}
 
 	ptr += sizeof(*z);
 	space -= sizeof(*z);
 
-	dahdi_copy_string(z->name, th.name, sizeof(z->name));
+	dahdi_copy_string(z->name, work->th.name, sizeof(z->name));
 
 	for (x = 0; x < DAHDI_MAX_CADENCE; x++)
-		z->ringcadence[x] = th.ringcadence[x];
+		z->ringcadence[x] = work->th.ringcadence[x];
 
 	atomic_set(&z->refcount, 0);
 
-	for (x = 0; x < th.count; x++) {
+	for (x = 0; x < work->th.count; x++) {
 		enum {
 			REGULAR_TONE,
 			DTMF_TONE,
@@ -2980,82 +2994,86 @@ static int ioctl_load_zone(unsigned long data)
 
 		if (space < sizeof(*t)) {
 			kfree(slab);
+			kfree(work);
 			module_printk(KERN_NOTICE, "Insufficient tone zone space\n");
 			return -EINVAL;
 		}
 
-		if (copy_from_user(&td, (struct dahdi_tone_def *) data, sizeof(td))) {
+		if (copy_from_user(&work->td, (struct dahdi_tone_def *) data, sizeof(work->td))) {
 			kfree(slab);
+			kfree(work);
 			return -EFAULT;
 		}
 
-		data += sizeof(td);
+		data += sizeof(work->td);
 
-		if ((td.tone >= 0) && (td.tone < DAHDI_TONE_MAX)) {
+		if ((work->td.tone >= 0) && (work->td.tone < DAHDI_TONE_MAX)) {
 			tone_type = REGULAR_TONE;
 
-			t = samples[x] = ptr;
+			t = work->samples[x] = ptr;
 
 			space -= sizeof(*t);
 			ptr += sizeof(*t);
 
-			/* Remember which sample is next */
-			next[x] = td.next;
+			/* Remember which sample is work->next */
+			work->next[x] = work->td.next;
 
 			/* Make sure the "next" one is sane */
-			if ((next[x] >= th.count) || (next[x] < 0)) {
-				module_printk(KERN_NOTICE, "Invalid 'next' pointer: %d\n", next[x]);
+			if ((work->next[x] >= work->th.count) || (work->next[x] < 0)) {
+				module_printk(KERN_NOTICE, "Invalid 'next' pointer: %d\n", work->next[x]);
 				kfree(slab);
+				kfree(work);
 				return -EINVAL;
 			}
-		} else if ((td.tone >= DAHDI_TONE_DTMF_BASE) &&
-			   (td.tone <= DAHDI_TONE_DTMF_MAX)) {
+		} else if ((work->td.tone >= DAHDI_TONE_DTMF_BASE) &&
+			   (work->td.tone <= DAHDI_TONE_DTMF_MAX)) {
 			tone_type = DTMF_TONE;
-			td.tone -= DAHDI_TONE_DTMF_BASE;
-			t = &z->dtmf[td.tone];
-		} else if ((td.tone >= DAHDI_TONE_MFR1_BASE) &&
-			   (td.tone <= DAHDI_TONE_MFR1_MAX)) {
+			work->td.tone -= DAHDI_TONE_DTMF_BASE;
+			t = &z->dtmf[work->td.tone];
+		} else if ((work->td.tone >= DAHDI_TONE_MFR1_BASE) &&
+			   (work->td.tone <= DAHDI_TONE_MFR1_MAX)) {
 			tone_type = MFR1_TONE;
-			td.tone -= DAHDI_TONE_MFR1_BASE;
-			t = &z->mfr1[td.tone];
-		} else if ((td.tone >= DAHDI_TONE_MFR2_FWD_BASE) &&
-			   (td.tone <= DAHDI_TONE_MFR2_FWD_MAX)) {
+			work->td.tone -= DAHDI_TONE_MFR1_BASE;
+			t = &z->mfr1[work->td.tone];
+		} else if ((work->td.tone >= DAHDI_TONE_MFR2_FWD_BASE) &&
+			   (work->td.tone <= DAHDI_TONE_MFR2_FWD_MAX)) {
 			tone_type = MFR2_FWD_TONE;
-			td.tone -= DAHDI_TONE_MFR2_FWD_BASE;
-			t = &z->mfr2_fwd[td.tone];
-		} else if ((td.tone >= DAHDI_TONE_MFR2_REV_BASE) &&
-			   (td.tone <= DAHDI_TONE_MFR2_REV_MAX)) {
+			work->td.tone -= DAHDI_TONE_MFR2_FWD_BASE;
+			t = &z->mfr2_fwd[work->td.tone];
+		} else if ((work->td.tone >= DAHDI_TONE_MFR2_REV_BASE) &&
+			   (work->td.tone <= DAHDI_TONE_MFR2_REV_MAX)) {
 			tone_type = MFR2_REV_TONE;
-			td.tone -= DAHDI_TONE_MFR2_REV_BASE;
-			t = &z->mfr2_rev[td.tone];
+			work->td.tone -= DAHDI_TONE_MFR2_REV_BASE;
+			t = &z->mfr2_rev[work->td.tone];
 		} else {
-			module_printk(KERN_NOTICE, "Invalid tone (%d) defined\n", td.tone);
+			module_printk(KERN_NOTICE, "Invalid tone (%d) defined\n", work->td.tone);
 			kfree(slab);
+			kfree(work);
 			return -EINVAL;
 		}
 
-		t->fac1 = td.fac1;
-		t->init_v2_1 = td.init_v2_1;
-		t->init_v3_1 = td.init_v3_1;
-		t->fac2 = td.fac2;
-		t->init_v2_2 = td.init_v2_2;
-		t->init_v3_2 = td.init_v3_2;
-		t->modulate = td.modulate;
+		t->fac1 = work->td.fac1;
+		t->init_v2_1 = work->td.init_v2_1;
+		t->init_v3_1 = work->td.init_v3_1;
+		t->fac2 = work->td.fac2;
+		t->init_v2_2 = work->td.init_v2_2;
+		t->init_v3_2 = work->td.init_v3_2;
+		t->modulate = work->td.modulate;
 
 		switch (tone_type) {
 		case REGULAR_TONE:
-			t->tonesamples = td.samples;
-			if (!z->tones[td.tone])
-				z->tones[td.tone] = t;
+			t->tonesamples = work->td.samples;
+			if (!z->tones[work->td.tone])
+				z->tones[work->td.tone] = t;
 			break;
 		case DTMF_TONE:
 			t->tonesamples = global_dialparams.dtmf_tonelen;
 			t->next = &dtmf_silence;
-			z->dtmf_continuous[td.tone] = *t;
-			z->dtmf_continuous[td.tone].next = &z->dtmf_continuous[td.tone];
+			z->dtmf_continuous[work->td.tone] = *t;
+			z->dtmf_continuous[work->td.tone].next = &z->dtmf_continuous[work->td.tone];
 			break;
 		case MFR1_TONE:
-			switch (td.tone + DAHDI_TONE_MFR1_BASE) {
+			switch (work->td.tone + DAHDI_TONE_MFR1_BASE) {
 			case DAHDI_TONE_MFR1_KP:
 			case DAHDI_TONE_MFR1_ST:
 			case DAHDI_TONE_MFR1_STP:
@@ -3073,31 +3091,32 @@ static int ioctl_load_zone(unsigned long data)
 		case MFR2_FWD_TONE:
 			t->tonesamples = global_dialparams.mfr2_tonelen;
 			t->next = &dtmf_silence;
-			z->mfr2_fwd_continuous[td.tone] = *t;
-			z->mfr2_fwd_continuous[td.tone].next = &z->mfr2_fwd_continuous[td.tone];
+			z->mfr2_fwd_continuous[work->td.tone] = *t;
+			z->mfr2_fwd_continuous[work->td.tone].next = &z->mfr2_fwd_continuous[work->td.tone];
 			break;
 		case MFR2_REV_TONE:
 			t->tonesamples = global_dialparams.mfr2_tonelen;
 			t->next = &dtmf_silence;
-			z->mfr2_rev_continuous[td.tone] = *t;
-			z->mfr2_rev_continuous[td.tone].next = &z->mfr2_rev_continuous[td.tone];
+			z->mfr2_rev_continuous[work->td.tone] = *t;
+			z->mfr2_rev_continuous[work->td.tone].next = &z->mfr2_rev_continuous[work->td.tone];
 			break;
 		}
 	}
 
-	for (x = 0; x < th.count; x++) {
-		if (samples[x])
-			samples[x]->next = samples[next[x]];
+	for (x = 0; x < work->th.count; x++) {
+		if (work->samples[x])
+			work->samples[x]->next = work->samples[work->next[x]];
 	}
 
-	if ((res = dahdi_register_tone_zone(th.zone, z))) {
+	if ((res = dahdi_register_tone_zone(work->th.zone, z))) {
 		kfree(slab);
 	} else {
 		if ( -1 == default_zone ) {
-			dahdi_set_default_zone(th.zone);
+			dahdi_set_default_zone(work->th.zone);
 		}
 	}
 
+	kfree(work);
 	return res;
 }
 
