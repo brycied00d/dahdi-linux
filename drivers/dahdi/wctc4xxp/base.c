@@ -2528,7 +2528,7 @@ wctc4xxp_receiveprep(struct wcdte *wc, struct tcb *cmd)
 		receive_csm_encaps_packet(wc, cmd);
 	} else {
 		DTE_DEBUG(DTE_DEBUG_GENERAL,
-		   "Unknown packet protocol recieved: %04x.\n",
+		   "Unknown packet protocol received: %04x.\n",
 		   be16_to_cpu(ethhdr->h_proto));
 		free_cmd(cmd);
 	}

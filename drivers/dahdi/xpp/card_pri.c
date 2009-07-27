@@ -1391,7 +1391,7 @@ static void PRI_card_pcm_fromspan(xbus_t *xbus, xpd_t *xpd, xpacket_t *pack)
 	spin_unlock_irqrestore(&xpd->lock, flags);
 }
 
-/*! Copy PCM chunks from the packet we recieved to the xpd struct.
+/*! Copy PCM chunks from the packet we received to the xpd struct.
  * \param xbus	xbus of target xpd.
  * \param xpd	target xpd.
  * \param pack	Source packet.
