@@ -1101,7 +1101,7 @@ static void t1xxp_check_alarms(struct t1xxp *wc)
 		start_alarm(wc);
 		if (!(alarms & (DAHDI_ALARM_RED | DAHDI_ALARM_BLUE | DAHDI_ALARM_LOOPBACK)) &&
 		    wc->sync) {
-			/* Use the recieve signalling */
+			/* Use the receive signalling */
 			wc->span.syncsrc = wc->span.spanno;
 			d |= 1;
 		} else {
