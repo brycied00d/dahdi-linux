@@ -3679,7 +3679,6 @@ retry:
 	}
 
 	spin_lock_init(&wc->reglock);
-	wc->curcard = -1;
 	wc->cards = NUM_CARDS;
 	wc->type = d->ports;
 	wc->pos = i;

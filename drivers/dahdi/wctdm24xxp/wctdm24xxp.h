@@ -144,8 +144,6 @@ struct wctdm {
 	char *variety;
 	char board_name[80];
 	struct dahdi_span span;
-	unsigned char ios;
-	unsigned int sdi;
 	unsigned int intcount;
 	unsigned int rxints;
 	unsigned int txints;
@@ -153,8 +151,6 @@ struct wctdm {
 	unsigned char rxident;
 	int pos;
 	int flags[NUM_CARDS];
-	int alt;
-	int curcard;
 	unsigned char ctlreg;
 	int cards;
 	int cardflag;		/* Bit-map of present cards */
