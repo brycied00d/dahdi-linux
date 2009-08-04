@@ -145,7 +145,7 @@ static void resend_cmds(struct t1 *wc)
 	spin_unlock_irqrestore(&wc->cmd_list_lock, flags);
 }
 
-static void cmd_dequeue(struct t1 *wc, volatile unsigned char *writechunk, int eframe, int slot)
+static void cmd_dequeue(struct t1 *wc, unsigned char *writechunk, int eframe, int slot)
 {
 	struct command *curcmd=NULL;
 	u16 address;
@@ -188,7 +188,7 @@ static void cmd_dequeue(struct t1 *wc, volatile unsigned char *writechunk, int e
 
 }
 
-static inline void cmd_decipher(struct t1 *wc, volatile unsigned char *readchunk)
+static inline void cmd_decipher(struct t1 *wc, unsigned char *readchunk)
 {
 	struct command *cmd = NULL;
 	unsigned long flags;
