@@ -1765,7 +1765,6 @@ static inline void wctdm_isr_misc(struct wctdm *wc)
 static void handle_receive(void* vbb, void* context)
 {
 	struct wctdm *wc = context;
-	wc->rxints++;
 	wctdm_receiveprep(wc, vbb);
 }
 
@@ -1773,7 +1772,6 @@ static void handle_transmit(void* vbb, void* context)
 {
 	struct wctdm *wc = context;
 	memset(vbb, 0, SFRAME_SIZE);
-	wc->txints++;
 	wctdm_transmitprep(wc, vbb);
 	wctdm_isr_misc(wc);
 	wc->intcount++;
