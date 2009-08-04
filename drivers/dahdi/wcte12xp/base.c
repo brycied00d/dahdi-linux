@@ -539,7 +539,7 @@ static void cmd_dequeue_vpmadt032(struct t1 *wc, unsigned char *writechunk, int 
 #endif
 }
 
-static inline int t1_setreg_full(struct t1 *wc, int addr, int val, int vpm_num)
+static inline int t1_setreg(struct t1 *wc, int addr, int val)
 {
 	struct command *cmd;
 	cmd = get_free_cmd(wc);
@@ -550,20 +550,11 @@ static inline int t1_setreg_full(struct t1 *wc, int addr, int val, int vpm_num)
 	cmd->address = addr;
 	cmd->data = val;
 	cmd->flags |= __CMD_WR;
-	if (vpm_num >= 0) {
-		cmd->flags |= __CMD_VPM;
-		cmd->vpm_num = vpm_num;
-	}
 	submit_cmd(wc, cmd);
 	return 0;
 }
 
-static inline int t1_setreg(struct t1 *wc, int addr, int val)
-{
-	return t1_setreg_full(wc, addr, val, NOT_VPM);
-}
-
-static inline int t1_getreg_full(struct t1 *wc, int addr, int vpm_num)
+static int t1_getreg(struct t1 *wc, int addr)
 {
 	struct command *cmd =  NULL;
 	int ret;
@@ -576,20 +567,11 @@ static inline int t1_getreg_full(struct t1 *wc, int addr, int vpm_num)
 	cmd->address = addr;
 	cmd->data = 0x00;
 	cmd->flags = __CMD_RD;
-	if (vpm_num > -1) {
-		cmd->flags |= __CMD_VPM;
-		cmd->vpm_num = vpm_num;
-	}
 	submit_cmd(wc, cmd);
 	wait_for_completion(&cmd->complete);
 	ret = cmd->data;
 	free_cmd(wc, cmd);
 	return ret;
-}
-
-static int t1_getreg(struct t1 *wc, int addr)
-{
-	return t1_getreg_full(wc, addr, NOT_VPM);
 }
 
 static void t1_setleds(struct t1 *wc, int leds)
@@ -637,7 +619,7 @@ static void __t1xxp_set_clear(struct t1 *wc, int channo)
 		if (((i % 8)==7) &&  /* write byte every 8 channels */
 		    ((channo < 0) ||    /* channo=-1 means all channels */ 
 		     (j == (channo-1)/8) )) { /* only the register for this channo */    
-			ret = t1_setreg_full(wc, 0x2f + j, val, NOT_VPM);
+			ret = t1_setreg(wc, 0x2f + j, val);
 			if (ret < 0)
 				module_printk("set_clear failed for chan %d!\n",i); 
 			val = 0;
@@ -973,7 +955,7 @@ static int t1xxp_rbsbits(struct dahdi_chan *chan, int bits)
 		wc->txsigs[b] = c;
 		spin_unlock_irqrestore(&wc->reglock, flags);
 		  /* output them to the chip */
-		t1_setreg_full(wc, 0x71 + b, c, NOT_VPM);
+		t1_setreg(wc, 0x71 + b, c);
 	} else if (wc->span.lineconfig & DAHDI_CONFIG_D4) {
 		n = chan->chanpos - 1;
 		b = (n / 4);
@@ -985,8 +967,8 @@ static int t1xxp_rbsbits(struct dahdi_chan *chan, int bits)
 		wc->txsigs[b] = c;
 		spin_unlock_irqrestore(&wc->reglock, flags);
 		/* output them to the chip */
-		t1_setreg_full(wc, 0x70 + b, c, NOT_VPM);
-		t1_setreg_full(wc, 0x70 + b + 6, c, NOT_VPM);
+		t1_setreg(wc, 0x70 + b, c);
+		t1_setreg(wc, 0x70 + b + 6, c);
 	} else if (wc->span.lineconfig & DAHDI_CONFIG_ESF) {
 		n = chan->chanpos - 1;
 		b = (n / 2);
@@ -998,7 +980,7 @@ static int t1xxp_rbsbits(struct dahdi_chan *chan, int bits)
 		wc->txsigs[b] = c;
 		spin_unlock_irqrestore(&wc->reglock, flags);
 		  /* output them to the chip */
-		t1_setreg_full(wc, 0x70 + b, c, NOT_VPM);
+		t1_setreg(wc, 0x70 + b, c);
 	} 
 	debug_printk(2,"Finished setting RBS bits\n");
 
@@ -1275,6 +1257,8 @@ static int t1_software_init(struct t1 *wc)
 	return 0;
 }
 
+#if 0
+
 #ifdef VPM_SUPPORT
 static inline unsigned char t1_vpm_in(struct t1 *wc, int unit, const unsigned int addr) 
 {
@@ -1283,9 +1267,10 @@ static inline unsigned char t1_vpm_in(struct t1 *wc, int unit, const unsigned in
 
 static inline unsigned char t1_vpm_out(struct t1 *wc, int unit, const unsigned int addr, const unsigned char val) 
 {
-		return t1_setreg_full(wc, addr, val, unit);
+		return t1_setreg(wc, addr, val, unit);
 }
 
+#endif
 #endif
 
 static void setchanconfig_from_state(struct vpmadt032 *vpm, int channel, GpakChannelConfig_t *chanconfig)
@@ -1432,16 +1417,16 @@ static inline void t1_check_alarms(struct t1 *wc)
 			   we haven't found a multiframe since last loss
 			   of frame */
 			if (!wc->flags.nmf) {
-				t1_setreg_full(wc, 0x20, 0x9f | 0x20, NOT_VPM);	/* LIM0: Force RAI High */
+				t1_setreg(wc, 0x20, 0x9f | 0x20);	/* LIM0: Force RAI High */
 				wc->flags.nmf = 1;
 				module_printk("NMF workaround on!\n");
 			}
-			t1_setreg_full(wc, 0x1e, 0xc3, NOT_VPM);	/* Reset to CRC4 mode */
-			t1_setreg_full(wc, 0x1c, 0xf2, NOT_VPM);	/* Force Resync */
-			t1_setreg_full(wc, 0x1c, 0xf0, NOT_VPM);	/* Force Resync */
+			t1_setreg(wc, 0x1e, 0xc3);	/* Reset to CRC4 mode */
+			t1_setreg(wc, 0x1c, 0xf2);	/* Force Resync */
+			t1_setreg(wc, 0x1c, 0xf0);	/* Force Resync */
 		} else if (!(c & 0x02)) {
 			if (wc->flags.nmf) {
-				t1_setreg_full(wc, 0x20, 0x9f, NOT_VPM);	/* LIM0: Clear forced RAI */
+				t1_setreg(wc, 0x20, 0x9f);	/* LIM0: Clear forced RAI */
 				wc->flags.nmf = 0;
 				module_printk("NMF workaround off!\n");
 			}
@@ -1451,8 +1436,8 @@ static inline void t1_check_alarms(struct t1 *wc)
 		if ((!wc->span.mainttimer) && (d & 0x08)) {
 			/* Loop-up code detected */
 			if ((wc->loopupcnt++ > 80)  && (wc->span.maintstat != DAHDI_MAINT_REMOTELOOP)) {
-				t1_setreg_full(wc, 0x36, 0x08, NOT_VPM);	/* LIM0: Disable any local loop */
-				t1_setreg_full(wc, 0x37, 0xf6, NOT_VPM);	/* LIM1: Enable remote loop */
+				t1_setreg(wc, 0x36, 0x08);	/* LIM0: Disable any local loop */
+				t1_setreg(wc, 0x37, 0xf6);	/* LIM1: Enable remote loop */
 				wc->span.maintstat = DAHDI_MAINT_REMOTELOOP;
 			}
 		} else
@@ -1461,8 +1446,8 @@ static inline void t1_check_alarms(struct t1 *wc)
 		if ((!wc->span.mainttimer) && (d & 0x10)) {
 			/* Loop-down code detected */
 			if ((wc->loopdowncnt++ > 80)  && (wc->span.maintstat == DAHDI_MAINT_REMOTELOOP)) {
-				t1_setreg_full(wc, 0x36, 0x08, NOT_VPM);	/* LIM0: Disable any local loop */
-				t1_setreg_full(wc, 0x37, 0xf0, NOT_VPM);	/* LIM1: Disable remote loop */
+				t1_setreg(wc, 0x36, 0x08);	/* LIM0: Disable any local loop */
+				t1_setreg(wc, 0x37, 0xf0);	/* LIM1: Disable remote loop */
 				wc->span.maintstat = DAHDI_MAINT_NONE;
 			}
 		} else
@@ -1500,12 +1485,12 @@ static inline void t1_check_alarms(struct t1 *wc)
 		module_printk("Setting yellow alarm\n");
 
 		/* We manually do yellow alarm to handle RECOVER and NOTOPEN, otherwise it's auto anyway */
-		t1_setreg_full(wc, 0x20, fmr4 | 0x20, NOT_VPM);
+		t1_setreg(wc, 0x20, fmr4 | 0x20);
 		wc->flags.sendingyellow = 1;
 	} else if (!alarms && wc->flags.sendingyellow) {
 		module_printk("Clearing yellow alarm\n");
 		/* We manually do yellow alarm to handle RECOVER  */
-		t1_setreg_full(wc, 0x20, fmr4 & ~0x20, NOT_VPM);
+		t1_setreg(wc, 0x20, fmr4 & ~0x20);
 		wc->flags.sendingyellow = 0;
 	}
 	

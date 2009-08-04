@@ -55,7 +55,6 @@
 
 #define NUM_EC 4
 
-#define __CMD_VPM  (1 << 16)		/* flag for VPM action */
 #define __CMD_PINS (1 << 18)		/* CPLD pin read */
 #define __CMD_LEDS (1 << 19)		/* LED Operation */
 #define __CMD_RD   (1 << 20)		/* Read Operation */
@@ -82,21 +81,18 @@
 #define TYPE_T1	1
 #define TYPE_E1	2
 
-#define NOT_VPM -1
-
 #define module_printk(fmt, args...) printk(KERN_INFO "%s: " fmt, te12xp_driver.name, ## args)
 #define debug_printk(level, fmt, args...) if (debug >= level) printk(KERN_DEBUG "%s (%s): " fmt, te12xp_driver.name, __FUNCTION__, ## args)
 extern spinlock_t ifacelock;
 
 struct command {
+	struct list_head node;
+	struct completion complete;
 	u8 data;
 	u8 ident;
 	u8 cs_slot;
-	u8 vpm_num; /* ignored for all but vpm commmands */
 	u16 address;
 	u32 flags;
-	struct list_head node;
-	struct completion complete;
 };
 
 struct vpm150m;
