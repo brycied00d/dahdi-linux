@@ -145,8 +145,6 @@ struct wctdm {
 	char board_name[80];
 	struct dahdi_span span;
 	unsigned int intcount;
-	unsigned int rxints;
-	unsigned int txints;
 	unsigned char txident;
 	unsigned char rxident;
 	int pos;
