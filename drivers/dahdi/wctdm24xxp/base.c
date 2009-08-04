@@ -2957,9 +2957,6 @@ static int wctdm_open(struct dahdi_chan *chan)
 
 	if (!(wc->cardflag & (1 << (chan->chanpos - 1))))
 		return -ENODEV;
-	if (wc->dead)
-		return -ENODEV;
-	wc->usecount++;
 	
 	/* Reset the mwi indicators */
 	spin_lock_irqsave(&wc->reglock, flags);
@@ -2982,7 +2979,6 @@ static int wctdm_close(struct dahdi_chan *chan)
 	struct wctdm *wc = chan->pvt;
 	int x;
 	signed char reg;
-	wc->usecount--;
 	for (x=0;x<wc->cards;x++) {
 		if (wc->modtype[x] == MOD_TYPE_FXS) {
 			wc->mods[x].fxs.idletxhookstate = POLARITY_XOR(x) ? 5 : 1;
@@ -3005,9 +3001,7 @@ static int wctdm_close(struct dahdi_chan *chan)
 			qrv_dosetup(chan,wc);
 		}
 	}
-	/* If we're dead, release us now */
-	if (!wc->usecount && wc->dead) 
-		wctdm_release(wc);
+
 	return 0;
 }
 
@@ -3800,14 +3794,9 @@ static void __devexit wctdm_remove_one(struct pci_dev *pdev)
 			wc->vpmadt032 = NULL;
 		}
 
-		/* Release span, possibly delayed */
-		if (!wc->usecount) {
-			wctdm_release(wc);
-			printk(KERN_INFO "Freed a Wildcard\n");
-		}
-		else {
-			wc->dead = 1;
-		}
+		/* Release span */
+		wctdm_release(wc);
+		printk(KERN_INFO "Freed a Wildcard\n");
 	}
 }
 

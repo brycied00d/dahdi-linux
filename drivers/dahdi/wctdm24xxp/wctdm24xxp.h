@@ -146,13 +146,11 @@ struct wctdm {
 	struct dahdi_span span;
 	unsigned char ios;
 	unsigned int sdi;
-	int usecount;
 	unsigned int intcount;
 	unsigned int rxints;
 	unsigned int txints;
 	unsigned char txident;
 	unsigned char rxident;
-	int dead;
 	int pos;
 	int flags[NUM_CARDS];
 	int alt;
