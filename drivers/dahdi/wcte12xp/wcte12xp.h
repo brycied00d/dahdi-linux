@@ -144,7 +144,4 @@ struct t1 {
 	struct work_struct timer_work;
 };
 
-
-int schluffen(wait_queue_head_t *q);
-
 #endif
