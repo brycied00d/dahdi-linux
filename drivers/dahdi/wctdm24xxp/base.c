@@ -161,17 +161,17 @@ static int ectrans[4] = { 0, 1, 3, 2 };
 #include "fxo_modes.h"
 
 struct wctdm_desc {
-	char *name;
-	int flags;
-	int ports;
+	const char *name;
+	const int flags;
+	const int ports;
 };
 
-static struct wctdm_desc wctdm2400 = { "Wildcard TDM2400P", 0, 24 };
-static struct wctdm_desc wctdm800 = { "Wildcard TDM800P", 0, 8 };
-static struct wctdm_desc wctdm410 = { "Wildcard TDM410P", 0, 4 };
-static struct wctdm_desc wcaex2400 = { "Wildcard AEX2400", FLAG_EXPRESS, 24 };
-static struct wctdm_desc wcaex800 = { "Wildcard AEX800", FLAG_EXPRESS, 8 };
-static struct wctdm_desc wcaex410 = { "Wildcard AEX410", FLAG_EXPRESS, 4 };
+static const struct wctdm_desc wctdm2400 = { "Wildcard TDM2400P", 0, 24 };
+static const struct wctdm_desc wctdm800 = { "Wildcard TDM800P", 0, 8 };
+static const struct wctdm_desc wctdm410 = { "Wildcard TDM410P", 0, 4 };
+static const struct wctdm_desc wcaex2400 = { "Wildcard AEX2400", FLAG_EXPRESS, 24 };
+static const struct wctdm_desc wcaex800 = { "Wildcard AEX800", FLAG_EXPRESS, 8 };
+static const struct wctdm_desc wcaex410 = { "Wildcard AEX410", FLAG_EXPRESS, 4 };
 
 static int acim2tiss[16] = { 0x0, 0x1, 0x4, 0x5, 0x7, 0x0, 0x0, 0x6, 0x0, 0x0, 0x0, 0x2, 0x0, 0x3 };
 
@@ -849,7 +849,7 @@ static inline void wctdm_transmitprep(struct wctdm *wc, unsigned char *writechun
 			}
 
 			if (likely(wc->initialized)) {
-				if (y < wc->type)
+				if (y < wc->desc->ports)
 					writechunk[y] = wc->chans[y]->writechunk[x];
 			}
 			cmd_dequeue(wc, writechunk, y, x);
@@ -877,7 +877,7 @@ static inline void wctdm_transmitprep(struct wctdm *wc, unsigned char *writechun
 			writechunk[EFRAME_SIZE] = wc->ctlreg;
 			writechunk[EFRAME_SIZE + 1] = wc->txident++;
 
-			if ((wc->type == 4) && ((wc->ctlreg & 0x10) || (wc->modtype[NUM_CARDS] == MOD_TYPE_NONE))) {
+			if ((wc->desc->ports == 4) && ((wc->ctlreg & 0x10) || (wc->modtype[NUM_CARDS] == MOD_TYPE_NONE))) {
 				writechunk[EFRAME_SIZE + 2] = 0;
 				for (y = 0; y < 4; y++) {
 					if (wc->modtype[y] == MOD_TYPE_NONE)
@@ -1031,11 +1031,8 @@ static inline void wctdm_receiveprep(struct wctdm *wc, unsigned char *readchunk)
 			}
 		}
 		for (y=0;y < wc->cards;y++) {
-			if (likely(wc->initialized)) {
-				if (y < wc->type) {
-					wc->chans[y]->readchunk[x] = readchunk[y];
-				}
-			}	
+			if (likely(wc->initialized) && (y < wc->desc->ports))
+				wc->chans[y]->readchunk[x] = readchunk[y];
 			cmd_decipher(wc, readchunk, y);
 		}
 		if (wc->vpm100) {
@@ -1049,7 +1046,7 @@ static inline void wctdm_receiveprep(struct wctdm *wc, unsigned char *readchunk)
 	}
 	/* XXX We're wasting 8 taps.  We should get closer :( */
 	if (likely(wc->initialized)) {
-		for (x=0;x<wc->type;x++) {
+		for (x = 0; x < wc->desc->ports; x++) {
 			if (wc->cardflag & (1 << x))
 				dahdi_ec_chunk(wc->chans[x], wc->chans[x]->readchunk, wc->chans[x]->writechunk);
 		}
@@ -3199,12 +3196,14 @@ static int wctdm_initialize(struct wctdm *wc)
 
 	/* DAHDI stuff */
 	sprintf(wc->span.name, "WCTDM/%d", wc->pos);
-	snprintf(wc->span.desc, sizeof(wc->span.desc) - 1, "%s Board %d", wc->variety, wc->pos + 1);
+	snprintf(wc->span.desc, sizeof(wc->span.desc) - 1,
+		 "%s Board %d", wc->desc->name, wc->pos + 1);
 	snprintf(wc->span.location, sizeof(wc->span.location) - 1,
 		 "PCI%s Bus %02d Slot %02d", (wc->flags[0] & FLAG_EXPRESS) ? " Express" : "",
 		 pdev->bus->number, PCI_SLOT(pdev->devfn) + 1);
 	wc->span.manufacturer = "Digium";
-	strncpy(wc->span.devicetype, wc->variety, sizeof(wc->span.devicetype) - 1);
+	strncpy(wc->span.devicetype, wc->desc->name,
+		sizeof(wc->span.devicetype) - 1);
 	if (alawoverride) {
 		printk(KERN_INFO "ALAW override parameter detected.  Device will be operating in ALAW\n");
 		wc->span.deflaw = DAHDI_LAW_ALAW;
@@ -3220,7 +3219,7 @@ static int wctdm_initialize(struct wctdm *wc)
 	}
 	wc->span.owner = THIS_MODULE;
 	wc->span.chans = wc->chans;
-	wc->span.channels = wc->type;
+	wc->span.channels = wc->desc->ports;
 	wc->span.irq = pdev->irq;
 	wc->span.hooksig = wctdm_hooksig;
 	wc->span.open = wctdm_open;
@@ -3379,7 +3378,7 @@ static int wctdm_vpm_init(struct wctdm *wc)
 	}
 
 	printk(KERN_INFO "Enabling VPM100 gain adjustments on any FXO ports found\n");
-	for (i = 0; i < wc->type; i++) {
+	for (i = 0; i < wc->desc->ports; i++) {
 		if (wc->modtype[i] == MOD_TYPE_FXO) {
 			/* Apply negative Tx gain of 4.5db to DAA */
 			wctdm_setreg(wc, i, 38, 0x14);	/* 4db */
@@ -3495,7 +3494,7 @@ static int wctdm_locate_modules(struct wctdm *wc)
 #endif	
 	/* Now that all the cards have been reset, we can stop checking them all if there aren't as many */
 	spin_lock_irqsave(&wc->reglock, flags);
-	wc->cards = wc->type;
+	wc->cards = wc->desc->ports;
 	spin_unlock_irqrestore(&wc->reglock, flags);
 
 	/* Reset modules */
@@ -3537,10 +3536,11 @@ retry:
  				wc->cardflag |= 1 << x;
  				printk(KERN_INFO "Port %d: Installed -- QRV DRI card\n",x + 1);
 			} else {
- 				if ((wc->type != 24) && ((x & 0x3) == 1) && !wc->altcs[x]) {
- 					spin_lock_irqsave(&wc->reglock, flags);
+				if ((wc->desc->ports != 24) &&
+				    ((x & 0x3) == 1) && !wc->altcs[x]) {
+					spin_lock_irqsave(&wc->reglock, flags);
 					wc->altcs[x] = 2;
-					if (wc->type == 4) {
+					if (wc->desc->ports == 4) {
 						wc->altcs[x+1] = 3;
 						wc->altcs[x+2] = 3;
 					}
@@ -3641,7 +3641,6 @@ static void free_wc(struct wctdm *wc)
 static int __devinit wctdm_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 {
 	struct wctdm *wc;
-	struct wctdm_desc *d = (struct wctdm_desc *)ent->driver_data;
 	int i;
 	int y;
 	int ret;
@@ -3654,6 +3653,7 @@ retry:
 	}
 
 	memset(wc, 0, sizeof(*wc));
+	wc->desc = (struct wctdm_desc *)ent->driver_data;
 	spin_lock(&ifacelock);	
 	/* \todo this is a candidate for removal... */
 	for (i = 0; i < WC_MAX_IFACES; ++i) {
@@ -3680,12 +3680,10 @@ retry:
 
 	spin_lock_init(&wc->reglock);
 	wc->cards = NUM_CARDS;
-	wc->type = d->ports;
 	wc->pos = i;
-	wc->variety = d->name;
 	wc->txident = 1;
 	for (y=0;y<NUM_CARDS;y++) {
-		wc->flags[y] = d->flags;
+		wc->flags[y] = wc->desc->flags;
 		wc->dacssrc[y] = -1;
 	}
 
@@ -3747,10 +3745,10 @@ retry:
 
 	wc->initialized = 1;
 
-	printk(KERN_INFO "Found a Wildcard TDM: %s (%d modules)\n", wc->variety, wc->type);
-	ret = 0;
+	printk(KERN_INFO "Found a Wildcard TDM: %s (%d modules)\n",
+	       wc->desc->name, wc->desc->ports);
 	
-	return ret;
+	return 0;
 }
 
 static void wctdm_release(struct wctdm *wc)

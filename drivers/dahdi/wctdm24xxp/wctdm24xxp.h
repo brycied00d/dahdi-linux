@@ -141,7 +141,7 @@ enum battery_state {
 };
 
 struct wctdm {
-	char *variety;
+	const struct wctdm_desc *desc;
 	char board_name[80];
 	struct dahdi_span span;
 	unsigned int intcount;
@@ -211,8 +211,6 @@ struct wctdm {
 	/* Set hook */
 	int sethook[NUM_CARDS + NUM_EC];
  	int dacssrc[NUM_CARDS];
-	/* Type is the maximum number of FXO/FXS ports supported */
- 	int type;
 
 	int vpm100;
 
