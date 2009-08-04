@@ -161,12 +161,31 @@ static void dahdi_dummy_timer(unsigned long param)
 	unsigned long ms_since_start;
 	struct timespec now;
 	const unsigned long MAX_INTERVAL = 100000L;
+	const unsigned long MS_LIMIT = 3000;
 
 	if (!atomic_read(&shutdown))
 		mod_timer(&timer, jiffies + JIFFIES_INTERVAL);
 
 	now = current_kernel_time();
 	ms_since_start = timespec_diff_ms(&ztd->start_interval, &now);
+	
+	/*
+	 * If the system time has changed, it is possible for us to be far
+	 * behind.  If we are more than MS_LIMIT milliseconds behind, just
+	 * reset our time base and continue so that we do not hang the system
+	 * here.
+	 *
+	 */
+	if (unlikely((ms_since_start - ztd->calls_since_start) > MS_LIMIT)) {
+		if (printk_ratelimit()) {
+			printk(KERN_INFO
+			       "dahdi_dummy: Detected time shift.\n");
+		}
+		ztd->calls_since_start = 0;
+		ztd->start_interval = now;
+		return;
+	}
+
 	while (ms_since_start > ztd->calls_since_start) {
 		ztd->calls_since_start++;
 		dahdi_receive(&ztd->span);
