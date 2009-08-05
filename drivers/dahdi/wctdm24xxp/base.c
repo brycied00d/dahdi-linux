@@ -1184,56 +1184,61 @@ static int wctdm_proslic_verify_indirect_regs(struct wctdm *wc, int card)
 
 static inline void wctdm_proslic_recheck_sanity(struct wctdm *wc, int card)
 {
+	struct fxs *const fxs = &wc->mods[card].fxs;
 	int res;
 #ifdef PAQ_DEBUG
 	res = wc->cmdq[card].isrshadow[1];
 	res &= ~0x3;
 	if (res) {
 		wc->cmdq[card].isrshadow[1]=0;
-		wc->mods[card].fxs.palarms++;
-		if (wc->mods[card].fxs.palarms < MAX_ALARMS) {
+		fxs->palarms++;
+		if (fxs->palarms < MAX_ALARMS) {
 			printk(KERN_NOTICE "Power alarm (%02x) on module %d, resetting!\n", res, card + 1);
-			if (wc->mods[card].fxs.lasttxhook == SLIC_LF_RINGING) {
-				wc->mods[card].fxs.lasttxhook = 0x10 | POLARITY_XOR(card) ? SLIC_LF_ACTIVE_REV : SLIC_LF_ACTIVE_FWD;
+			if (fxs->lasttxhook == SLIC_LF_RINGING) {
+				fxs->lasttxhook = 0x10 | POLARITY_XOR(card) ?
+							   SLIC_LF_ACTIVE_REV :
+							   SLIC_LF_ACTIVE_FWD;
 			}
 			wc->sethook[card] = CMD_WR(19, res);
 #if 0
-			wc->sethook[card] = CMD_WR(64, wc->mods[card].fxs.lasttxhook);
+			wc->sethook[card] = CMD_WR(64, fxs->lasttxhook);
 #endif
 
-			/* wctdm_setreg_intr(wc, card, 64, wc->mods[card].fxs.lasttxhook); */
+			/* wctdm_setreg_intr(wc, card, 64, fxs->lasttxhook); */
 			/* Update shadow register to avoid extra power alarms until next read */
 			wc->cmdq[card].isrshadow[1] = 0;
 		} else {
-			if (wc->mods[card].fxs.palarms == MAX_ALARMS)
+			if (fxs->palarms == MAX_ALARMS)
 				printk(KERN_NOTICE "Too many power alarms on card %d, NOT resetting!\n", card + 1);
 		}
 	}
 #else
 	res = wc->cmdq[card].isrshadow[1];
 	/* This makes sure the lasthook was put in reg 64 the linefeed reg */
-	if (((res & 0x0f) | 0x10) == wc->mods[card].fxs.lasttxhook) 
-		wc->mods[card].fxs.lasttxhook &= 0x0f;
+	if (((res & 0x0f) | 0x10) == fxs->lasttxhook)
+		fxs->lasttxhook &= 0x0f;
 
 	res = !res &&    /* reg 64 has to be zero at last isr read */
-		!(wc->mods[card].fxs.lasttxhook & 0x10 ) && /* not a transition */
-		wc->mods[card].fxs.lasttxhook; /* not an intended zero */
+		!(fxs->lasttxhook & 0x10) && /* not a transition */
+		fxs->lasttxhook; /* not an intended zero */
 	
 	if (res) {
-		wc->mods[card].fxs.palarms++;
-		if (wc->mods[card].fxs.palarms < MAX_ALARMS) {
+		fxs->palarms++;
+		if (fxs->palarms < MAX_ALARMS) {
 			printk(KERN_NOTICE "Power alarm on module %d, resetting!\n", card + 1);
-			if (wc->mods[card].fxs.lasttxhook == SLIC_LF_RINGING) {
-				wc->mods[card].fxs.lasttxhook = POLARITY_XOR(card) ? SLIC_LF_ACTIVE_REV : SLIC_LF_ACTIVE_FWD;;
+			if (fxs->lasttxhook == SLIC_LF_RINGING) {
+				fxs->lasttxhook = POLARITY_XOR(card) ?
+							SLIC_LF_ACTIVE_REV :
+							SLIC_LF_ACTIVE_FWD;;
 			}
-			wc->mods[card].fxs.lasttxhook |= 0x10;
-			wc->sethook[card] = CMD_WR(64, wc->mods[card].fxs.lasttxhook);
+			fxs->lasttxhook |= 0x10;
+			wc->sethook[card] = CMD_WR(64, fxs->lasttxhook);
 
-			/* wctdm_setreg_intr(wc, card, 64, wc->mods[card].fxs.lasttxhook); */
+			/* wctdm_setreg_intr(wc, card, 64, fxs->lasttxhook); */
 			/* Update shadow register to avoid extra power alarms until next read */
-			wc->cmdq[card].isrshadow[1] = wc->mods[card].fxs.lasttxhook;
+			wc->cmdq[card].isrshadow[1] = fxs->lasttxhook;
 		} else {
-			if (wc->mods[card].fxs.palarms == MAX_ALARMS)
+			if (fxs->palarms == MAX_ALARMS)
 				printk(KERN_NOTICE "Too many power alarms on card %d, NOT resetting!\n", card + 1);
 		}
 	}
@@ -1564,8 +1569,40 @@ static inline void wctdm_voicedaa_check_hook(struct wctdm *wc, int card)
 #undef MS_PER_CHECK_HOOK
 }
 
-static inline void wctdm_proslic_check_hook(struct wctdm *wc, int card)
+static void wctdm_fxs_off_hook(struct wctdm *wc, const int card)
 {
+	struct fxs *const fxs = &wc->mods[card].fxs;
+
+	if (debug & DEBUG_CARD)
+		printk(KERN_DEBUG "wctdm: Card %d Going off hook\n", card);
+	switch (fxs->lasttxhook) {
+	case SLIC_LF_RINGING:		/* Ringing */
+	case SLIC_LF_OHTRAN_FWD:	/* Forward On Hook Transfer */
+	case SLIC_LF_OHTRAN_REV:	/* Reverse On Hook Transfer */
+		/* just detected OffHook, during Ringing or OnHookTransfer */
+		fxs->idletxhookstate = POLARITY_XOR(card) ?
+						SLIC_LF_ACTIVE_REV :
+						SLIC_LF_ACTIVE_FWD;
+		break;
+	}
+	dahdi_hooksig(wc->chans[card], DAHDI_RXSIG_OFFHOOK);
+	if (robust)
+		wctdm_init_proslic(wc, card, 1, 0, 1);
+	fxs->oldrxhook = 1;
+}
+
+static void wctdm_fxs_on_hook(struct wctdm *wc, const int card)
+{
+	struct fxs *const fxs = &wc->mods[card].fxs;
+	if (debug & DEBUG_CARD)
+		printk(KERN_DEBUG "wctdm: Card %d Going on hook\n", card);
+	dahdi_hooksig(wc->chans[card], DAHDI_RXSIG_ONHOOK);
+	fxs->oldrxhook = 0;
+}
+
+static inline void wctdm_proslic_check_hook(struct wctdm *wc, const int card)
+{
+	struct fxs *const fxs = &wc->mods[card].fxs;
 	char res;
 	int hook;
 
@@ -1575,53 +1612,35 @@ static inline void wctdm_proslic_check_hook(struct wctdm *wc, int card)
 	res = wc->cmdq[card].isrshadow[0];	/* Hook state */
 	hook = (res & 1);
 	
-	if (hook != wc->mods[card].fxs.lastrxhook) {
+	if (hook != fxs->lastrxhook) {
 		/* Reset the debounce (must be multiple of 4ms) */
-		wc->mods[card].fxs.debounce = 8 * (4 * 8);
+		fxs->debounce = 8 * (4 * 8);
 #if 0
-		printk(KERN_DEBUG "Resetting debounce card %d hook %d, %d\n", card, hook, wc->mods[card].fxs.debounce);
+		printk(KERN_DEBUG "Resetting debounce card %d hook %d, %d\n",
+		       card, hook, fxs->debounce);
 #endif
 	} else {
-		if (wc->mods[card].fxs.debounce > 0) {
-			wc->mods[card].fxs.debounce-= 4 * DAHDI_CHUNKSIZE;
+		if (fxs->debounce > 0) {
+			fxs->debounce -= 4 * DAHDI_CHUNKSIZE;
 #if 0
-			printk(KERN_DEBUG "Sustaining hook %d, %d\n", hook, wc->mods[card].fxs.debounce);
+			printk(KERN_DEBUG "Sustaining hook %d, %d\n",
+			       hook, fxs->debounce);
 #endif
-			if (!wc->mods[card].fxs.debounce) {
+			if (!fxs->debounce) {
 #if 0
 				printk(KERN_DEBUG "Counted down debounce, newhook: %d...\n", hook);
 #endif
-				wc->mods[card].fxs.debouncehook = hook;
+				fxs->debouncehook = hook;
 			}
-			if (!wc->mods[card].fxs.oldrxhook && wc->mods[card].fxs.debouncehook) {
-				/* Off hook */
-				if (debug & DEBUG_CARD)
-					printk(KERN_DEBUG "wctdm: Card %d Going off hook\n", card);
-				switch ( wc->mods[card].fxs.lasttxhook ) {
-					case SLIC_LF_RINGING:      /* Ringing */
-					case SLIC_LF_OHTRAN_FWD:      /* Forward On Hook Transfer */
-					case SLIC_LF_OHTRAN_REV:      /* Reverse On Hook Transfer */
-						/* just detected OffHook, during Ringing or OnHookTransfer */
-						wc->mods[card].fxs.idletxhookstate = POLARITY_XOR(card) ? SLIC_LF_ACTIVE_REV : SLIC_LF_ACTIVE_FWD;	/* Active */
-						break;
-				}
-				dahdi_hooksig(wc->chans[card], DAHDI_RXSIG_OFFHOOK);
-				if (robust)
-					wctdm_init_proslic(wc, card, 1, 0, 1);
-				wc->mods[card].fxs.oldrxhook = 1;
-			
-			} else if (wc->mods[card].fxs.oldrxhook && !wc->mods[card].fxs.debouncehook) {
-				/* On hook */
-				if (debug & DEBUG_CARD)
-					printk(KERN_DEBUG "wctdm: Card %d Going on hook\n", card);
-				dahdi_hooksig(wc->chans[card], DAHDI_RXSIG_ONHOOK);
-				wc->mods[card].fxs.oldrxhook = 0;
-			}
+
+			if (!fxs->oldrxhook && fxs->debouncehook)
+				wctdm_fxs_off_hook(wc, card);
+			else if (fxs->oldrxhook && !fxs->debouncehook)
+				wctdm_fxs_on_hook(wc, card);
 		}
 	}
-	wc->mods[card].fxs.lastrxhook = hook;
+	fxs->lastrxhook = hook;
 }
-
 
 static inline void wctdm_vpm_check(struct wctdm *wc, int x)
 {
@@ -1714,6 +1733,48 @@ static void echocan_free(struct dahdi_chan *chan, struct dahdi_echocan_state *ec
 	}
 }
 
+static void wctdm_isr_misc_fxs(struct wctdm *wc, int card)
+{
+	struct fxs *const fxs = &wc->mods[card].fxs;
+
+	if (!(wc->intcount % 10000)) {
+		/* Accept an alarm once per 10 seconds */
+		if (fxs->palarms)
+			fxs->palarms--;
+	}
+	wctdm_proslic_check_hook(wc, card);
+	if (!(wc->intcount & 0xfc))
+		wctdm_proslic_recheck_sanity(wc, card);
+	if (SLIC_LF_RINGING == fxs->lasttxhook) {
+		/* RINGing, prepare for OHT */
+		fxs->ohttimer = OHT_TIMER << 3;
+		/* OHT mode when idle */
+		fxs->idletxhookstate = POLARITY_XOR(card) ? SLIC_LF_OHTRAN_REV :
+							    SLIC_LF_OHTRAN_FWD;
+	} else if (fxs->ohttimer) {
+		fxs->ohttimer -= DAHDI_CHUNKSIZE;
+		if (fxs->ohttimer)
+			return;
+
+		/* Switch to active */
+		fxs->idletxhookstate = POLARITY_XOR(card) ? SLIC_LF_ACTIVE_REV :
+							    SLIC_LF_ACTIVE_FWD;
+		if (SLIC_LF_OHTRAN_FWD == fxs->lasttxhook) {
+			/* Apply the change if appropriate */
+			fxs->lasttxhook = 0x10 | SLIC_LF_ACTIVE_FWD;
+			/* Data enqueued here */
+			wc->sethook[card] = CMD_WR(64, fxs->lasttxhook);
+			/* wctdm_setreg_intr(wc, x, 64, fxs->lasttxhook); */
+		} else if (SLIC_LF_OHTRAN_REV == fxs->lasttxhook) {
+			/* Apply the change if appropriate */
+			fxs->lasttxhook = 0x10 | SLIC_LF_ACTIVE_REV;
+			/* Data enqueued here */
+			wc->sethook[card] = CMD_WR(64, fxs->lasttxhook);
+			/* wctdm_setreg_intr(wc, x, 64, fxs->lasttxhook); */
+		}
+	}
+}
+
 static inline void wctdm_isr_misc(struct wctdm *wc)
 {
 	int x;
@@ -1725,37 +1786,7 @@ static inline void wctdm_isr_misc(struct wctdm *wc)
 	for (x=0;x<wc->cards;x++) {
 		if (wc->cardflag & (1 << x)) {
 			if (wc->modtype[x] == MOD_TYPE_FXS) {
-				if (!(wc->intcount % 10000)) {
-					/* Accept an alarm once per 10 seconds */
-					if (wc->mods[x].fxs.palarms)
-						wc->mods[x].fxs.palarms--;
-				}
-				wctdm_proslic_check_hook(wc, x);
-				if (!(wc->intcount & 0xfc))
-					wctdm_proslic_recheck_sanity(wc, x);
-				if (wc->mods[x].fxs.lasttxhook == SLIC_LF_RINGING) {
-					/* RINGing, prepare for OHT */
-					wc->mods[x].fxs.ohttimer = OHT_TIMER << 3;
-					wc->mods[x].fxs.idletxhookstate = POLARITY_XOR(x) ? SLIC_LF_OHTRAN_REV : SLIC_LF_OHTRAN_FWD; /* OHT mode when idle */
-				} else {
-					if (wc->mods[x].fxs.ohttimer) {
-						wc->mods[x].fxs.ohttimer-= DAHDI_CHUNKSIZE;
-						if (!wc->mods[x].fxs.ohttimer) {
-							wc->mods[x].fxs.idletxhookstate = POLARITY_XOR(x) ? SLIC_LF_ACTIVE_REV : SLIC_LF_ACTIVE_FWD; 	/* Switch to active */
-							if (wc->mods[x].fxs.lasttxhook == SLIC_LF_OHTRAN_FWD) {	
-								/* Apply the change if appropriate */
-								wc->mods[x].fxs.lasttxhook = 0x10 | SLIC_LF_ACTIVE_FWD;
-								wc->sethook[x] = CMD_WR(64, wc->mods[x].fxs.lasttxhook);	/* Data enqueued here */  
-								/* wctdm_setreg_intr(wc, x, 64, wc->mods[x].fxs.lasttxhook); */
-							} else if (wc->mods[x].fxs.lasttxhook == SLIC_LF_OHTRAN_REV) {
-								/* Apply the change if appropriate */
-								wc->mods[x].fxs.lasttxhook = 0x10 | SLIC_LF_ACTIVE_REV;
-								wc->sethook[x] = CMD_WR(64, wc->mods[x].fxs.lasttxhook);	/* Data enqueued here */  
-								/* wctdm_setreg_intr(wc, x, 64, wc->mods[x].fxs.lasttxhook); */
-							}
-						}
-					}
-				}
+				wctdm_isr_misc_fxs(wc, x);
 			} else if (wc->modtype[x] == MOD_TYPE_FXO) {
 				wctdm_voicedaa_check_hook(wc, x);
 			} else if (wc->modtype[x] == MOD_TYPE_QRV) {
@@ -2124,39 +2155,41 @@ static int wctdm_set_hwgain(struct wctdm *wc, int card, __s32 gain, __u32 tx)
 static int set_vmwi(struct wctdm *wc, int chan_idx)
 {
 	int x;
+	struct fxs *const fxs = &wc->mods[chan_idx].fxs;
+
 	/* Presently only supports line reversal MWI */
-	if (wc->mods[chan_idx].fxs.vmwi_active_messages && wc->mods[chan_idx].fxs.vmwisetting.vmwi_type & DAHDI_VMWI_LREV){
-		wc->mods[chan_idx].fxs.vmwi_linereverse = 1;
-	} else {
-		wc->mods[chan_idx].fxs.vmwi_linereverse = 0;
-	}
+	if ((fxs->vmwi_active_messages) &&
+	    (fxs->vmwisetting.vmwi_type & DAHDI_VMWI_LREV))
+		fxs->vmwi_linereverse = 1;
+	else
+		fxs->vmwi_linereverse = 0;
+
 	/* Set line polarity for new VMWI state */
 	if (POLARITY_XOR(chan_idx)) {
-		wc->mods[chan_idx].fxs.idletxhookstate |= 0x10 | SLIC_LF_REVMASK;
+		fxs->idletxhookstate |= 0x10 | SLIC_LF_REVMASK;
 		/* Do not set while currently ringing or open */
-		if (wc->mods[chan_idx].fxs.lasttxhook != SLIC_LF_RINGING  &&
-				  wc->mods[chan_idx].fxs.lasttxhook != SLIC_LF_OPEN) {
-			wc->mods[chan_idx].fxs.lasttxhook |= 0x10 | SLIC_LF_REVMASK;
-			wc->sethook[chan_idx] = CMD_WR(64, wc->mods[chan_idx].fxs.lasttxhook);
+		if ((fxs->lasttxhook != SLIC_LF_RINGING)  &&
+		    (fxs->lasttxhook != SLIC_LF_OPEN)) {
+			fxs->lasttxhook |= 0x10 | SLIC_LF_REVMASK;
+			wc->sethook[chan_idx] = CMD_WR(64, fxs->lasttxhook);
 		}
 	} else {
-		wc->mods[chan_idx].fxs.idletxhookstate &= ~SLIC_LF_REVMASK;
+		fxs->idletxhookstate &= ~SLIC_LF_REVMASK;
 		/* Do not set while currently ringing or open */
-		if (wc->mods[chan_idx].fxs.lasttxhook != SLIC_LF_RINGING &&
-				  wc->mods[chan_idx].fxs.lasttxhook != SLIC_LF_OPEN) {
-			x = wc->mods[chan_idx].fxs.lasttxhook;
+		if ((fxs->lasttxhook != SLIC_LF_RINGING) &&
+		    (fxs->lasttxhook != SLIC_LF_OPEN)) {
+			x = fxs->lasttxhook;
 			x &= ~SLIC_LF_REVMASK;
 			x |= 0x10;
-			wc->mods[chan_idx].fxs.lasttxhook = x;
-			wc->sethook[chan_idx] = CMD_WR(64, wc->mods[chan_idx].fxs.lasttxhook);
+			fxs->lasttxhook = x;
+			wc->sethook[chan_idx] = CMD_WR(64, fxs->lasttxhook);
 		}
 	}
 	if (debug) {
-		printk(KERN_DEBUG "Setting VMWI on channel %d, messages=%d, lrev=%d\n",
-				chan_idx,
-	  			wc->mods[chan_idx].fxs.vmwi_active_messages,
-				wc->mods[chan_idx].fxs.vmwi_linereverse
-			  );
+		printk(KERN_DEBUG
+		       "Setting VMWI on channel %d, messages=%d, lrev=%d\n",
+		       chan_idx, fxs->vmwi_active_messages,
+		       fxs->vmwi_linereverse);
 	}
 	return 0;
 }
@@ -2655,6 +2688,7 @@ static int wctdm_ioctl(struct dahdi_chan *chan, unsigned int cmd, unsigned long 
 		struct dahdi_radio_stat s;
 		struct dahdi_radio_param p;
 	} stack;
+	struct fxs *const fxs = &wc->mods[chan->chanpos - 1].fxs;
 
 	switch (cmd) {
 	case DAHDI_ONHOOKTRANSFER:
@@ -2662,19 +2696,34 @@ static int wctdm_ioctl(struct dahdi_chan *chan, unsigned int cmd, unsigned long 
 			return -EINVAL;
 		if (get_user(x, (__user int *) data))
 			return -EFAULT;
-		wc->mods[chan->chanpos - 1].fxs.ohttimer = x << 3;
-		wc->mods[chan->chanpos - 1].fxs.idletxhookstate = POLARITY_XOR(chan->chanpos - 1) ? SLIC_LF_ACTIVE_REV : SLIC_LF_ACTIVE_FWD;	/* Active mode when idle */
-		if (wc->mods[chan->chanpos - 1].fxs.lasttxhook == SLIC_LF_ACTIVE_FWD || wc->mods[chan->chanpos - 1].fxs.lasttxhook == SLIC_LF_ACTIVE_REV) {
+		fxs->ohttimer = x << 3;
+
+		/* Active mode when idle */
+		fxs->idletxhookstate = POLARITY_XOR(chan->chanpos - 1) ?
+						SLIC_LF_ACTIVE_REV :
+						SLIC_LF_ACTIVE_FWD;
+
+		if ((fxs->lasttxhook == SLIC_LF_ACTIVE_FWD) ||
+		    (fxs->lasttxhook == SLIC_LF_ACTIVE_REV)) {
+
 			/* Apply the change if appropriate */
-			wc->mods[chan->chanpos - 1].fxs.lasttxhook = 0x10 | POLARITY_XOR(chan->chanpos -1) ? SLIC_LF_OHTRAN_REV : SLIC_LF_OHTRAN_FWD;
-			wc->sethook[chan->chanpos - 1] = CMD_WR(64, wc->mods[chan->chanpos - 1].fxs.lasttxhook);
-			/* wctdm_setreg(wc, chan->chanpos - 1, 64, wc->mods[chan->chanpos - 1].fxs.lasttxhook); */
+			fxs->lasttxhook = 0x10 |
+				POLARITY_XOR(chan->chanpos - 1) ?
+					SLIC_LF_OHTRAN_REV :
+					SLIC_LF_OHTRAN_FWD;
+
+			wc->sethook[chan->chanpos - 1] =
+						CMD_WR(64, fxs->lasttxhook);
+			/* wctdm_setreg(wc, chan->chanpos - 1, 64,
+			 * 		fxs->lasttxhook); */
 		}
 		break;
 	case DAHDI_VMWI_CONFIG:
 		if (wc->modtype[chan->chanpos - 1] != MOD_TYPE_FXS)
 			return -EINVAL;
-		if (copy_from_user(&(wc->mods[chan->chanpos - 1].fxs.vmwisetting), (__user void *) data, sizeof(wc->mods[chan->chanpos - 1].fxs.vmwisetting)))
+		if (copy_from_user(&(fxs->vmwisetting),
+				   (__user void *)data,
+				   sizeof(fxs->vmwisetting)))
 			return -EFAULT;
 		set_vmwi(wc, chan->chanpos - 1);
 		break;
@@ -2685,7 +2734,7 @@ static int wctdm_ioctl(struct dahdi_chan *chan, unsigned int cmd, unsigned long 
 			return -EFAULT;
 		if (0 > x)
 			return -EFAULT;
-		wc->mods[chan->chanpos - 1].fxs.vmwi_active_messages = x;
+		fxs->vmwi_active_messages = x;
 		set_vmwi(wc, chan->chanpos - 1);
 		break;
 	case WCTDM_GET_STATS:
@@ -2731,7 +2780,7 @@ static int wctdm_ioctl(struct dahdi_chan *chan, unsigned int cmd, unsigned long 
 		} else {
 			regop.val &= 0xff;
 			if (regop.reg == 64)
-				wc->mods[chan->chanpos-1].fxs.lasttxhook = (regop.val & 0x0f) |  0x10;
+				fxs->lasttxhook = (regop.val & 0x0f) |  0x10;
 			
 			printk(KERN_INFO "Setting direct %d to %04x on %d\n", regop.reg, regop.val, chan->chanpos);
 			wctdm_setreg(wc, chan->chanpos - 1, regop.reg, regop.val);
@@ -2785,25 +2834,23 @@ static int wctdm_ioctl(struct dahdi_chan *chan, unsigned int cmd, unsigned long 
 		if (wc->modtype[chan->chanpos - 1] != MOD_TYPE_FXS)
 			return -EINVAL;
 		/* Can't change polarity while ringing or when open */
-		if ((wc->mods[chan->chanpos -1 ].fxs.lasttxhook == SLIC_LF_RINGING) ||
-						(wc->mods[chan->chanpos -1 ].fxs.lasttxhook == SLIC_LF_OPEN))
+		if ((fxs->lasttxhook == SLIC_LF_RINGING) ||
+		    (fxs->lasttxhook == SLIC_LF_OPEN))
 			return -EINVAL;
-		if (x) {
-			wc->mods[chan->chanpos -1 ].fxs.reversepolarity = 1;
-		} else {
-			wc->mods[chan->chanpos -1 ].fxs.reversepolarity = 0;
-		}
+
+		fxs->reversepolarity = (x) ? 1 : 0;
+
 		if (POLARITY_XOR(chan->chanpos -1)) {
-			wc->mods[chan->chanpos -1 ].fxs.idletxhookstate |= SLIC_LF_REVMASK;
-			wc->mods[chan->chanpos -1 ].fxs.lasttxhook |= 0x10 | SLIC_LF_REVMASK;
+			fxs->idletxhookstate |= SLIC_LF_REVMASK;
+			fxs->lasttxhook |= 0x10 | SLIC_LF_REVMASK;
 		} else {
-			wc->mods[chan->chanpos -1 ].fxs.idletxhookstate &= ~SLIC_LF_REVMASK;
-			x = wc->mods[chan->chanpos -1 ].fxs.lasttxhook;
+			fxs->idletxhookstate &= ~SLIC_LF_REVMASK;
+			x = fxs->lasttxhook;
 			x &= ~SLIC_LF_REVMASK;
 			x |= 0x10;
-			wc->mods[chan->chanpos -1 ].fxs.lasttxhook = x;
+			fxs->lasttxhook = x;
 		}
-		wc->sethook[chan->chanpos - 1] = CMD_WR(64, wc->mods[chan->chanpos - 1].fxs.lasttxhook);
+		wc->sethook[chan->chanpos - 1] = CMD_WR(64, fxs->lasttxhook);
 		break;
 	case DAHDI_RADIO_GETPARAM:
 		if (wc->modtype[chan->chanpos - 1] != MOD_TYPE_QRV) 
@@ -2984,7 +3031,9 @@ static int wctdm_close(struct dahdi_chan *chan)
 	signed char reg;
 	for (x=0;x<wc->cards;x++) {
 		if (wc->modtype[x] == MOD_TYPE_FXS) {
-			wc->mods[x].fxs.idletxhookstate = POLARITY_XOR(x) ? SLIC_LF_ACTIVE_REV : SLIC_LF_ACTIVE_FWD;
+			wc->mods[x].fxs.idletxhookstate =
+				POLARITY_XOR(x) ? SLIC_LF_ACTIVE_REV :
+						  SLIC_LF_ACTIVE_FWD;
 		}
 		if (wc->modtype[x] == MOD_TYPE_QRV)
 		{
@@ -3047,20 +3096,23 @@ static int wctdm_hooksig(struct dahdi_chan *chan, enum dahdi_txsig txsig)
 			printk(KERN_NOTICE "wctdm24xxp: Can't set tx state to %d\n", txsig);
 		}
 	} else {
+		struct fxs *const fxs = &wc->mods[chan->chanpos - 1].fxs;
 		switch(txsig) {
 		case DAHDI_TXSIG_ONHOOK:
 			switch(chan->sig) {
 			case DAHDI_SIG_EM:
 			case DAHDI_SIG_FXOKS:
 			case DAHDI_SIG_FXOLS:
-				wc->mods[chan->chanpos - 1].fxs.lasttxhook = 0x10 |
-					wc->mods[chan->chanpos - 1].fxs.idletxhookstate;
+				fxs->lasttxhook = 0x10 |
+					fxs->idletxhookstate;
 				break;
 			case DAHDI_SIG_FXOGS:
 				if (POLARITY_XOR(chan->chanpos -1)) {
-					wc->mods[chan->chanpos - 1].fxs.lasttxhook = 0x10 | SLIC_LF_RING_OPEN;
+					fxs->lasttxhook = 0x10 |
+						SLIC_LF_RING_OPEN;
 				} else {
-					wc->mods[chan->chanpos - 1].fxs.lasttxhook = 0x10 | SLIC_LF_TIP_OPEN;
+					fxs->lasttxhook = 0x10 |
+						SLIC_LF_TIP_OPEN;
 				}
 				break;
 			}
@@ -3069,22 +3121,24 @@ static int wctdm_hooksig(struct dahdi_chan *chan, enum dahdi_txsig txsig)
 			switch(chan->sig) {
 			case DAHDI_SIG_EM:
 				if (POLARITY_XOR(chan->chanpos -1)) {
-					wc->mods[chan->chanpos - 1].fxs.lasttxhook = 0x10 | SLIC_LF_ACTIVE_FWD;
+					fxs->lasttxhook = 0x10 |
+						SLIC_LF_ACTIVE_FWD;
 				} else {
-					wc->mods[chan->chanpos - 1].fxs.lasttxhook = 0x10 | SLIC_LF_ACTIVE_REV;
+					fxs->lasttxhook = 0x10 |
+						SLIC_LF_ACTIVE_REV;
 				}
 				break;
 			default:
-				wc->mods[chan->chanpos - 1].fxs.lasttxhook = 0x10 |
-					wc->mods[chan->chanpos - 1].fxs.idletxhookstate;
+				fxs->lasttxhook = 0x10 |
+					fxs->idletxhookstate;
 				break;
 			}
 			break;
 		case DAHDI_TXSIG_START:
-			wc->mods[chan->chanpos - 1].fxs.lasttxhook = 0x10 | SLIC_LF_RINGING;
+			fxs->lasttxhook = 0x10 | SLIC_LF_RINGING;
 			break;
 		case DAHDI_TXSIG_KEWL:
-			wc->mods[chan->chanpos - 1].fxs.lasttxhook = 0x10 | SLIC_LF_OPEN;
+			fxs->lasttxhook = 0x10 | SLIC_LF_OPEN;
 			break;
 		default:
 			printk(KERN_NOTICE "wctdm24xxp: Can't set tx state to %d\n", txsig);
@@ -3093,8 +3147,8 @@ static int wctdm_hooksig(struct dahdi_chan *chan, enum dahdi_txsig txsig)
 			printk(KERN_DEBUG "Setting FXS hook state to %d (%02x)\n", txsig, reg);
 
 		
-		wc->sethook[chan->chanpos - 1] = CMD_WR(64, wc->mods[chan->chanpos - 1].fxs.lasttxhook);
-		/* wctdm_setreg(wc, chan->chanpos - 1, 64, wc->mods[chan->chanpos - 1].fxs.lasttxhook); */
+		wc->sethook[chan->chanpos - 1] = CMD_WR(64, fxs->lasttxhook);
+		/* wctdm_setreg(wc, chan->chanpos - 1, 64, fxs->lasttxhook); */
 	}
 	return 0;
 }
