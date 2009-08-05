@@ -38,14 +38,15 @@ typedef struct {
 /* Proslic Linefeed options for register 64 - Linefeed Control */
 #define SLIC_LF_OPEN		0x0
 #define SLIC_LF_ACTIVE_FWD	0x1
-#define SLIC_LF_OHTRAN_FWD	0x2
+#define SLIC_LF_OHTRAN_FWD	0x2 /* Forward On Hook Transfer */
 #define SLIC_LF_TIP_OPEN	0x3
 #define SLIC_LF_RINGING		0x4
 #define SLIC_LF_ACTIVE_REV	0x5
-#define SLIC_LF_OHTRAN_REV	0x6
+#define SLIC_LF_OHTRAN_REV	0x6 /* Reverse On Hook Transfer */
 #define SLIC_LF_RING_OPEN	0x7
 
-/* Mask used to reverse the linefeed mode between forward and reverse polarity */
+/* Mask used to reverse the linefeed mode between forward and
+ * reverse polarity. */
 #define SLIC_LF_REVMASK 	0x4
 
 #define IDA_LO  28
