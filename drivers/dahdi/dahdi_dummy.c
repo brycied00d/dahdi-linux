@@ -168,7 +168,7 @@ static void dahdi_dummy_timer(unsigned long param)
 
 	now = current_kernel_time();
 	ms_since_start = timespec_diff_ms(&ztd->start_interval, &now);
-	
+
 	/*
 	 * If the system time has changed, it is possible for us to be far
 	 * behind.  If we are more than MS_LIMIT milliseconds behind, just
