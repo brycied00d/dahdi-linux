@@ -212,12 +212,6 @@ struct wctdm {
 
 	int vpm100;
 
-	unsigned long dtmfactive;
-	unsigned long dtmfmask;
-	unsigned long dtmfmutemask;
-	short dtmfenergy[NUM_CARDS];
-	short dtmfdigit[NUM_CARDS];
-
 	struct vpmadt032 *vpmadt032;
 #ifdef FANCY_ECHOCAN
 	int echocanpos;
