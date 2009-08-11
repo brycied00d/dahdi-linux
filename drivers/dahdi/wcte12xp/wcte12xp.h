@@ -71,10 +71,6 @@
 #define UNSET_LED_ORANGE(a) (a & ~__LED_ORANGE)
 #define UNSET_LED_REDGREEN(a) (a | __LED_RED | __LED_GREEN)
 
-#define CMD_WR(a,b) (((a) << 8) | (b) | __CMD_WR)
-#define CMD_RD(a) (((a) << 8) | __CMD_RD)
-#define CMD_LEDS(a) (((a) << 8) | __CMD_LEDS)
-//#define CMD_BYTE(slot, a) (slot*6)+(a*2) /* only even slots */
 #define CMD_BYTE(slot, a, is_vpm) (slot*6)+(a*2)+is_vpm /* only even slots */
 //TODO: make a separate macro
 
