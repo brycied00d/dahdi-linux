@@ -1056,7 +1056,6 @@ int dahdi_register_xpd(xpd_t *xpd)
 	const xops_t	*xops;
 
 	BUG_ON(!xpd);
-	WARN_ON(!xpd->span.owner);
 
 	xops = xpd->xops;
 	xbus = xpd->xbus;
@@ -1129,6 +1128,10 @@ int dahdi_register_xpd(xpd_t *xpd)
 			xbus->num, xpd->addr.unit, xpd->addr.subunit, xpd->type_name);
 	XPD_DBG(GENERAL, xpd, "Registering span '%s'\n", xpd->span.desc);
 	xpd->xops->card_dahdi_preregistration(xpd, 1);
+	if(!xpd->span.owner) {
+		XPD_ERR(xpd, "NO span.owner field -- bug in low-level driver\n");
+		WARN_ON(!xpd->span.owner);
+	}
 	if(dahdi_register(&xpd->span, prefmaster)) {
 		XPD_ERR(xpd, "Failed to dahdi_register span\n");
 		return -ENODEV;
