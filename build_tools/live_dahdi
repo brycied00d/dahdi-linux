@@ -70,7 +70,12 @@ set_modules_to_load() {
 			fi
 			MODULES_LOAD="$MODULES_LOAD xpp/xpp_usb"
 			;;
-		wctdm24xxp | wct4xxp | wcte12xp | wctc4xp)
+		wctdm24xxp | wcte12xp)
+			# FIXME: better automation of the voicebus
+			# dependency:
+			MODULES_LOAD="$MODULES_LOAD voicebus/dahdi_voicebus $mod/$mod"
+				;;
+		wct4xxp | wcte12xp | wctc4xp | wcb4xxp)
 			MODULES_LOAD="$MODULES_LOAD $mod/$mod"
 				;;
 		wanpipe)
