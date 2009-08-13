@@ -1084,7 +1084,7 @@ static int wait_access(struct wctdm *wc, int card)
 static unsigned char translate_3215(unsigned char address)
 {
 	int x;
-	for (x=0;x<sizeof(indirect_regs)/sizeof(indirect_regs[0]);x++) {
+	for (x = 0; x < ARRAY_SIZE(indirect_regs); x++) {
 		if (indirect_regs[x].address == address) {
 			address = indirect_regs[x].altaddr;
 			break;
@@ -1141,7 +1141,7 @@ static int wctdm_proslic_init_indirect_regs(struct wctdm *wc, int card)
 {
 	unsigned char i;
 
-	for (i=0; i<sizeof(indirect_regs) / sizeof(indirect_regs[0]); i++)
+	for (i = 0; i < ARRAY_SIZE(indirect_regs); i++)
 	{
 		if(wctdm_proslic_setreg_indirect(wc, card, indirect_regs[i].address,indirect_regs[i].initial))
 			return -1;
@@ -1156,7 +1156,7 @@ static int wctdm_proslic_verify_indirect_regs(struct wctdm *wc, int card)
 	unsigned short i, initial;
 	int j;
 
-	for (i=0; i<sizeof(indirect_regs) / sizeof(indirect_regs[0]); i++) 
+	for (i = 0; i < ARRAY_SIZE(indirect_regs); i++) 
 	{
 		if((j = wctdm_proslic_getreg_indirect(wc, card, (unsigned char) indirect_regs[i].address)) < 0) {
 			printk(KERN_NOTICE "Failed to read indirect register %d\n", i);
@@ -3688,7 +3688,7 @@ static void free_wc(struct wctdm *wc)
 {
 	unsigned int x;
 
-	for (x = 0; x < sizeof(wc->chans)/sizeof(wc->chans[0]); x++) {
+	for (x = 0; x < ARRAY_SIZE(wc->chans); x++) {
 		if (wc->chans[x]) {
 			kfree(wc->chans[x]);
 		}
@@ -3881,15 +3881,15 @@ static int __init wctdm_init(void)
 	int res;
 	int x;
 
-	for (x = 0; x < (sizeof(fxo_modes) / sizeof(fxo_modes[0])); x++) {
+	for (x = 0; x < ARRAY_SIZE(fxo_modes); x++) {
 		if (!strcmp(fxo_modes[x].name, opermode))
 			break;
 	}
-	if (x < sizeof(fxo_modes) / sizeof(fxo_modes[0])) {
+	if (x < ARRAY_SIZE(fxo_modes)) {
 		_opermode = x;
 	} else {
 		printk(KERN_NOTICE "Invalid/unknown operating mode '%s' specified.  Please choose one of:\n", opermode);
-		for (x = 0; x < sizeof(fxo_modes) / sizeof(fxo_modes[0]); x++)
+		for (x = 0; x < ARRAY_SIZE(fxo_modes); x++)
 			printk(KERN_NOTICE "  %s\n", fxo_modes[x].name);
 		printk(KERN_NOTICE "Note this option is CASE SENSITIVE!\n");
 		return -ENODEV;
