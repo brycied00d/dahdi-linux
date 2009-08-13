@@ -3400,19 +3400,16 @@ wctc4xxp_add_to_device_list(struct wcdte *wc)
 struct wctc4xxp_desc {
 	const char *short_name;
 	const char *long_name;
-	int flags;
 };
 
 static struct wctc4xxp_desc wctc400p = {
 	.short_name = "tc400b",
 	.long_name = "Wildcard TC400P+TC400M",
-	.flags = 0,
 };
 
 static struct wctc4xxp_desc wctce400 = {
 	.short_name = "tce400",
 	.long_name = "Wildcard TCE400+TC400M",
-	.flags = 0,
 };
 
 static int __devinit
