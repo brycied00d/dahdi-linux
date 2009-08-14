@@ -3925,6 +3925,13 @@ static int dahdi_ctl_ioctl(struct inode *inode, struct file *file, unsigned int 
 				spin_lock_irqsave(&spans[j]->chans[x]->lock, flags);
 				dahdi_hangup(spans[j]->chans[x]);
 				spin_unlock_irqrestore(&spans[j]->chans[x]->lock, flags);
+				/*
+				 * Set the rxhooksig back to
+				 * DAHDI_RXSIG_INITIAL so that new events are
+				 * queued on the channel with the actual
+				 * recieved hook state.
+				 * 
+				 */
 				spans[j]->chans[x]->rxhooksig = DAHDI_RXSIG_INITIAL;
 			}
 		}
