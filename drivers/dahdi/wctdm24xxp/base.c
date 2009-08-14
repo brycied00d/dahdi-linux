@@ -1405,6 +1405,21 @@ static inline void wctdm_voicedaa_check_hook(struct wctdm *wc, int card)
 		}
 	}
 
+	if (unlikely(DAHDI_RXSIG_INITIAL == wc->chans[card]->rxhooksig)) {
+		/*
+		 * dahdi-base will set DAHDI_RXSIG_INITIAL after a
+		 * DAHDI_STARTUP or DAHDI_CHANCONFIG ioctl so that new events
+		 * will be queued on the channel with the current received
+		 * hook state.  Channels that use robbed-bit signalling always
+		 * report the current received state via the dahdi_rbsbits
+		 * call. Since we only call dahdi_hooksig when we've detected
+		 * a change to report, let's forget our current state in order
+		 * to force us to report it again via dahdi_hooksig.
+		 *
+		 */
+		fxo->battery = BATTERY_UNKNOWN;
+	}
+
 	if (abs_voltage < battthresh) {
 		/* possible existing states:
 		   battery lost, no debounce timer
