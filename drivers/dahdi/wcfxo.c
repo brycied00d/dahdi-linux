@@ -674,6 +674,16 @@ static int wcfxo_hardware_init(struct wcfxo *wc)
 	/* Hardware stuff */
 	/* Reset PCI Interface chip and registers */
 	outb(0x0e, wc->ioaddr + WC_CNTL);
+
+	/* Set all to outputs except AUX 4, which is an input */
+	outb(0xef, wc->ioaddr + WC_AUXC);
+
+	/* Reset the DAA (DAA uses AUX5 for reset) */
+	outb(0x00, wc->ioaddr + WC_AUXD);
+	set_current_state(TASK_INTERRUPTIBLE);
+	schedule_timeout(1 + HZ / 800);
+
+	/* Set hook state to on hook & un-reset the DAA */
 	if (wc->flags & FLAG_RESET_ON_AUX5) {
 		/* Set hook state to on hook for when we switch.
 		   Make sure reset is high */
@@ -682,8 +692,6 @@ static int wcfxo_hardware_init(struct wcfxo *wc)
 		/* Set hook state to on hook for when we switch */
 		outb(0x24, wc->ioaddr + WC_AUXD);
 	}
-	/* Set all to outputs except AUX 4, which is an input */
-	outb(0xef, wc->ioaddr + WC_AUXC);
 
 	/* Back to normal, with automatic DMA wrap around */
 	outb(0x01, wc->ioaddr + WC_CNTL);
