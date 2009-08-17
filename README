@@ -528,16 +528,11 @@ cost.
 Known Issues
 ------------
 
-Removing echocan modules
-~~~~~~~~~~~~~~~~~~~~~~~~
-Before unloading an echo-canceller module you must remove an reference to it.
-Using '/etc/init.d/dahdi stop' is the preferred method.
-
-However if, for some reason, you want to unload just a single dahdi_echocan_*
-module that you use, you must first edit /etc/dahdi/system.conf and change any
-echocan lines referring to it to refer to a different echo canceller module.
-
-https://issues.asterisk.org/view.php?id=15327[0015327: oops after removing an echocan module that is in use]
+KB1 does not function when echocancel > 128
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+KB1 was not designed to function at greater than 128 taps, and if configured
+this way, will result in the destruction of audio.  Ideally DAHDI would return
+an error when a KB1 echocanceller is configured with greater than 128 taps.
 
 
 Reporting Bugs
