@@ -130,8 +130,7 @@ install-include:
 	for hdr in $(INST_HEADERS); do \
 		install -D -m 644 include/dahdi/$$hdr $(DESTDIR)/usr/include/dahdi/$$hdr; \
 	done
-	-@rm -f $(DESTDIR)/usr/include/zaptel/*.h
-	-@rmdir $(DESTDIR)/usr/include/zaptel
+	@rm -rf $(DESTDIR)/usr/include/zaptel
 
 uninstall-include:
 	for hdr in $(INST_HEADERS); do \
