@@ -1581,6 +1581,24 @@ static int t4_close(struct dahdi_chan *chan)
 	return 0;
 }
 
+static void set_span_devicetype(struct t4 *wc)
+{
+	int x;
+	struct t4_span *ts;
+
+	for (x = 0; x < wc->numspans; x++) {
+		ts = wc->tspans[x];
+		dahdi_copy_string(ts->span.devicetype, wc->variety, sizeof(ts->span.devicetype));
+		if (wc->vpm == T4_VPM_PRESENT) {
+			if (!wc->vpm450m)
+				strncat(ts->span.devicetype, " (VPM400M)", sizeof(ts->span.devicetype) - 1);
+			else
+				strncat(ts->span.devicetype, (wc->numspans > 2) ? " (VPMOCT128)" : " (VPMOCT064)",
+					sizeof(ts->span.devicetype) - 1);
+		}
+	}
+}
+
 /* The number of cards we have seen with each
    possible 'order' switch setting.
 */
@@ -1602,14 +1620,6 @@ static void init_spans(struct t4 *wc)
 		snprintf(ts->span.desc, sizeof(ts->span.desc) - 1,
 			 "T%dXXP (PCI) Card %d Span %d", wc->numspans, wc->num, x+1);
 		ts->span.manufacturer = "Digium";
-		dahdi_copy_string(ts->span.devicetype, wc->variety, sizeof(ts->span.devicetype));
-		if (wc->vpm == T4_VPM_PRESENT) {
-			if (!wc->vpm450m)
-				strncat(ts->span.devicetype, " with VPM400M", sizeof(ts->span.devicetype) - 1);
-			else
-				strncat(ts->span.devicetype, (wc->numspans > 2) ? " with VPMOCT128" : " with VPMOCT064",
-					sizeof(ts->span.devicetype) - 1);
-		}
 		if (order_index[wc->order] == 1)
 			snprintf(ts->span.location, sizeof(ts->span.location) - 1, "Board ID Switch %d", wc->order);
 		else
@@ -1682,6 +1692,7 @@ static void init_spans(struct t4 *wc)
 			}
 		}
 	}
+	set_span_devicetype(wc);
 }
 
 static void t4_serial_setup(struct t4 *wc, int unit)
@@ -2150,6 +2161,8 @@ static int t4_startup(struct dahdi_span *span)
 			t4_vpm450_init(wc);
 		wc->dmactrl |= wc->vpm;
 		t4_pci_out(wc, WC_DMACTRL, wc->dmactrl);
+		if (wc->vpm)
+			set_span_devicetype(wc);
 	}
 #endif
 	printk(KERN_INFO "Completed startup!\n");
