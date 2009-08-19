@@ -3332,9 +3332,9 @@ static void wctdm_post_initialize(struct wctdm *wc)
 	}
 
 	if (wc->vpm100) {
-		strncat(wc->span.devicetype, " with VPM100M", sizeof(wc->span.devicetype) - 1);
+		strncat(wc->span.devicetype, " (VPM100M)", sizeof(wc->span.devicetype) - 1);
 	} else if (wc->vpmadt032) {
-		strncat(wc->span.devicetype, " with VPMADT032", sizeof(wc->span.devicetype) - 1);
+		strncat(wc->span.devicetype, " (VPMADT032)", sizeof(wc->span.devicetype) - 1);
 	}
 }
 

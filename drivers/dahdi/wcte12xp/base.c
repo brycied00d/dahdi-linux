@@ -1169,6 +1169,16 @@ static void echocan_free(struct dahdi_chan *chan, struct dahdi_echocan_state *ec
 	vpmadt032_echocan_free(wc->vpmadt032, chan, ec);
 }
 
+static void set_span_devicetype(struct t1 *wc)
+{
+	strncpy(wc->span.devicetype, wc->variety, sizeof(wc->span.devicetype) - 1);
+
+#if defined(VPM_SUPPORT)
+	if (wc->vpmadt032)
+		strncat(wc->span.devicetype, " (VPMADT032)", sizeof(wc->span.devicetype) - 1);
+#endif
+}
+
 static int t1_software_init(struct t1 *wc)
 {
 	int x;
@@ -1194,12 +1204,7 @@ static int t1_software_init(struct t1 *wc)
 	sprintf(wc->span.name, "WCT1/%d", num);
 	snprintf(wc->span.desc, sizeof(wc->span.desc) - 1, "%s Card %d", wc->variety, num);
 	wc->span.manufacturer = "Digium";
-	strncpy(wc->span.devicetype, wc->variety, sizeof(wc->span.devicetype) - 1);
-
-#if defined(VPM_SUPPORT)
-	if (wc->vpmadt032)
-		strncat(wc->span.devicetype, " with VPMADT032", sizeof(wc->span.devicetype) - 1);
-#endif
+	set_span_devicetype(wc);
 
 	snprintf(wc->span.location, sizeof(wc->span.location) - 1,
 		"PCI Bus %02d Slot %02d", dev->bus->number, PCI_SLOT(dev->devfn) + 1);
@@ -1377,6 +1382,7 @@ static int t1_hardware_post_init(struct t1 *wc)
 
 		config_vpmadt032(wc->vpmadt032);
 
+		set_span_devicetype(wc);
 		module_printk("VPM present and operational (Firmware version %x)\n", wc->vpmadt032->version);
 		wc->ctlreg |= 0x10; /* turn on vpm (RX audio from vpm module) */
 		if (vpmtsisupport) {
