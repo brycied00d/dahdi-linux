@@ -2719,9 +2719,11 @@ static int dahdi_specchan_release(struct inode *node, struct file *file, int uni
 		spin_unlock_irqrestore(&chan->lock, flags);
 		close_channel(chan);
 		if (chan->span) {
+			struct module *owner = chan->span->owner;
+
 			if (chan->span->close)
 				res = chan->span->close(chan);
-			module_put(chan->span->owner);
+			module_put(owner);
 		}
 		/* The channel might be destroyed by low-level driver span->close() */
 		if (chans[unit])
