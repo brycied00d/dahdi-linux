@@ -461,7 +461,7 @@ static int config_vpmadt032(struct vpmadt032 *vpm)
 }
 
 
-static inline void cmd_dequeue_vpmadt032(struct wctdm *wc, unsigned char *writechunk, int whichframe)
+static inline void cmd_dequeue_vpmadt032(struct wctdm *wc, u8 *writechunk, int whichframe)
 {
 	unsigned long flags;
 	struct vpmadt032_cmd *curcmd = NULL;
@@ -580,7 +580,7 @@ static inline void cmd_dequeue_vpmadt032(struct wctdm *wc, unsigned char *writec
 	spin_unlock_irqrestore(&wc->reglock, flags);
 }
 
-static inline void cmd_dequeue(struct wctdm *wc, volatile unsigned char *writechunk, int card, int pos)
+static inline void cmd_dequeue(struct wctdm *wc, unsigned char *writechunk, int card, int pos)
 {
 	unsigned long flags;
 	unsigned int curcmd=0;
@@ -751,7 +751,7 @@ static inline void cmd_decipher_vpmadt032(struct wctdm *wc, unsigned char *readc
 #endif
 }
 
-static inline void cmd_decipher(struct wctdm *wc, volatile unsigned char *readchunk, int card)
+static inline void cmd_decipher(struct wctdm *wc, u8 *readchunk, int card)
 {
 	unsigned long flags;
 	unsigned char ident;
