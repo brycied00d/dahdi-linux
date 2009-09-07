@@ -3510,16 +3510,136 @@ static int dahdi_timer_ioctl(struct inode *node, struct file *file, unsigned int
 	return 0;
 }
 
+static int dahdi_ioctl_getgains(struct inode *node, struct file *file,
+				unsigned int cmd, unsigned long data, int unit)
+{
+	int res = 0;
+	struct dahdi_gains *gain;
+	int i, j;
+
+	gain = kzalloc(sizeof(*gain), GFP_KERNEL);
+	if (!gain)
+		return -ENOMEM;
+
+	if (copy_from_user(gain, (struct dahdi_gains *)data, sizeof(*gain))) {
+		res = -EFAULT;
+		goto cleanup;
+	}
+	i = gain->chan;  /* get channel no */
+	   /* if zero, use current channel no */
+	if (!i)
+		i = unit;
+
+	  /* make sure channel number makes sense */
+	if ((i < 0) || (i > DAHDI_MAX_CHANNELS) || !chans[i]) {
+		res = -EINVAL;
+		goto cleanup;
+	}
+
+	if (!(chans[i]->flags & DAHDI_FLAG_AUDIO)) {
+		res = -EINVAL;
+		goto cleanup;
+	}
+	gain->chan = i; /* put the span # in here */
+	for (j = 0; j < 256; ++j)  {
+		gain->txgain[j] = chans[i]->txgain[j];
+		gain->rxgain[j] = chans[i]->rxgain[j];
+	}
+	if (copy_to_user((struct dahdi_gains *)data, gain, sizeof(*gain))) {
+		res = -EFAULT;
+		goto cleanup;
+	}
+cleanup:
+
+	kfree(gain);
+	return 0;
+}
+
+static int dahdi_ioctl_setgains(struct inode *node, struct file *file,
+				unsigned int cmd, unsigned long data, int unit)
+{
+	int res = 0;
+	struct dahdi_gains *gain;
+	unsigned char *txgain, *rxgain;
+	int i, j;
+	unsigned long flags;
+	const int GAIN_TABLE_SIZE = sizeof(defgain);
+
+	gain = kzalloc(sizeof(*gain), GFP_KERNEL);
+	if (!gain)
+		return -ENOMEM;
+
+	if (copy_from_user(gain, (struct dahdi_gains *)data, sizeof(*gain))) {
+		res = -EFAULT;
+		goto cleanup;
+	}
+	i = gain->chan;  /* get channel no */
+	   /* if zero, use current channel no */
+	if (!i)
+		i = unit;
+	  /* make sure channel number makes sense */
+	if ((i < 0) || (i > DAHDI_MAX_CHANNELS) || !chans[i]) {
+		res = -EINVAL;
+		goto cleanup;
+	}
+	if (!(chans[i]->flags & DAHDI_FLAG_AUDIO)) {
+		res = -EINVAL;
+		goto cleanup;
+	}
+
+	rxgain = kzalloc(GAIN_TABLE_SIZE*2, GFP_KERNEL);
+	if (!rxgain) {
+		res = -ENOMEM;
+		goto cleanup;
+	}
+
+	gain->chan = i; /* put the span # in here */
+	txgain = rxgain + GAIN_TABLE_SIZE;
+
+	for (j = 0; j < GAIN_TABLE_SIZE; ++j) {
+		rxgain[j] = gain->rxgain[j];
+		txgain[j] = gain->txgain[j];
+	}
+
+	if (!memcmp(rxgain, defgain, GAIN_TABLE_SIZE) &&
+	    !memcmp(txgain, defgain, GAIN_TABLE_SIZE)) {
+		kfree(rxgain);
+		spin_lock_irqsave(&chans[i]->lock, flags);
+		if (chans[i]->gainalloc)
+			kfree(chans[i]->rxgain);
+		chans[i]->gainalloc = 0;
+		chans[i]->rxgain = defgain;
+		chans[i]->txgain = defgain;
+		spin_unlock_irqrestore(&chans[i]->lock, flags);
+	} else {
+		/* This is a custom gain setting */
+		spin_lock_irqsave(&chans[i]->lock, flags);
+		if (chans[i]->gainalloc)
+			kfree(chans[i]->rxgain);
+		chans[i]->gainalloc = 1;
+		chans[i]->rxgain = rxgain;
+		chans[i]->txgain = txgain;
+		spin_unlock_irqrestore(&chans[i]->lock, flags);
+	}
+
+	if (copy_to_user((struct dahdi_gains *)data, gain, sizeof(*gain))) {
+		res = -EFAULT;
+		goto cleanup;
+	}
+cleanup:
+
+	kfree(gain);
+	return 0;
+}
+
 static int dahdi_common_ioctl(struct inode *node, struct file *file, unsigned int cmd, unsigned long data, int unit)
 {
 	union {
-		struct dahdi_gains gain;
 		struct dahdi_spaninfo spaninfo;
 		struct dahdi_params param;
 	} stack;
 	struct dahdi_chan *chan;
 	unsigned long flags;
-	unsigned char *txgain, *rxgain;
 	int i,j;
 	int return_master = 0;
 	size_t size_to_copy;
@@ -3645,68 +3765,9 @@ static int dahdi_common_ioctl(struct inode *node, struct file *file, unsigned in
 		break;
 	case DAHDI_GETGAINS_V1: /* Intentional drop through. */
 	case DAHDI_GETGAINS:  /* get gain stuff */
-		if (copy_from_user(&stack.gain,(struct dahdi_gains *) data,sizeof(stack.gain)))
-			return -EFAULT;
-		i = stack.gain.chan;  /* get channel no */
-		   /* if zero, use current channel no */
-		if (!i) i = unit;
-		  /* make sure channel number makes sense */
-		if ((i < 0) || (i > DAHDI_MAX_CHANNELS) || !chans[i]) return(-EINVAL);
-
-		if (!(chans[i]->flags & DAHDI_FLAG_AUDIO)) return (-EINVAL);
-		stack.gain.chan = i; /* put the span # in here */
-		for (j=0;j<256;j++)  {
-			stack.gain.txgain[j] = chans[i]->txgain[j];
-			stack.gain.rxgain[j] = chans[i]->rxgain[j];
-		}
-		if (copy_to_user((struct dahdi_gains *) data,&stack.gain,sizeof(stack.gain)))
-			return -EFAULT;
-		break;
+		return dahdi_ioctl_getgains(node, file, cmd, data, unit);
 	case DAHDI_SETGAINS:  /* set gain stuff */
-		if (copy_from_user(&stack.gain,(struct dahdi_gains *) data,sizeof(stack.gain)))
-			return -EFAULT;
-		i = stack.gain.chan;  /* get channel no */
-		   /* if zero, use current channel no */
-		if (!i) i = unit;
-		  /* make sure channel number makes sense */
-		if ((i < 0) || (i > DAHDI_MAX_CHANNELS) || !chans[i]) return(-EINVAL);
-		if (!(chans[i]->flags & DAHDI_FLAG_AUDIO)) return (-EINVAL);
-
-		if (!(rxgain = kmalloc(512, GFP_KERNEL)))
-			return -ENOMEM;
-
-		stack.gain.chan = i; /* put the span # in here */
-		txgain = rxgain + 256;
-
-		for (j=0;j<256;j++) {
-			rxgain[j] = stack.gain.rxgain[j];
-			txgain[j] = stack.gain.txgain[j];
-		}
-
-		if (!memcmp(rxgain, defgain, 256) &&
-		    !memcmp(txgain, defgain, 256)) {
-			if (rxgain)
-				kfree(rxgain);
-			spin_lock_irqsave(&chans[i]->lock, flags);
-			if (chans[i]->gainalloc)
-				kfree(chans[i]->rxgain);
-			chans[i]->gainalloc = 0;
-			chans[i]->rxgain = defgain;
-			chans[i]->txgain = defgain;
-			spin_unlock_irqrestore(&chans[i]->lock, flags);
-		} else {
-			/* This is a custom gain setting */
-			spin_lock_irqsave(&chans[i]->lock, flags);
-			if (chans[i]->gainalloc)
-				kfree(chans[i]->rxgain);
-			chans[i]->gainalloc = 1;
-			chans[i]->rxgain = rxgain;
-			chans[i]->txgain = txgain;
-			spin_unlock_irqrestore(&chans[i]->lock, flags);
-		}
-		if (copy_to_user((struct dahdi_gains *) data,&stack.gain,sizeof(stack.gain)))
-			return -EFAULT;
-		break;
+		return dahdi_ioctl_setgains(node, file, cmd, data, unit);
 	case DAHDI_SPANSTAT:
 		size_to_copy = sizeof(struct dahdi_spaninfo);
 		if (copy_from_user(&stack.spaninfo, (struct dahdi_spaninfo *) data, size_to_copy))
