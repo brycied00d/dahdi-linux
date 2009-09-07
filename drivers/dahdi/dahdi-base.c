@@ -77,6 +77,10 @@
 
 #include "hpec/hpec_user.h"
 
+#if defined(EMPULSE) && defined(EMFLASH)
+#error "You cannot define both EMPULSE and EMFLASH"
+#endif
+
 /* Get helper arithmetic */
 #include "arith.h"
 #if defined(CONFIG_DAHDI_MMX) || defined(ECHO_CAN_FP)
