@@ -2345,7 +2345,7 @@ static void dahdi_rbs_sethook(struct dahdi_chan *chan, int txsig, int txstate,
 	if (!chan->span)
 		return;
 
-	if (!chan->span->flags & DAHDI_FLAG_RBS) {
+	if (!(chan->span->flags & DAHDI_FLAG_RBS)) {
 		module_printk(KERN_NOTICE, "dahdi_rbs: Tried to set RBS hook state on non-RBS channel %s\n", chan->name);
 		return;
 	}
