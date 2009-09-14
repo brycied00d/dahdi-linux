@@ -393,7 +393,7 @@ int main(int argc, char *argv[])
 	if (*(argv[1]) == '/')
 		dahdi_copy_string(fn, argv[1], sizeof(fn));
 	else
-		snprintf(fn, sizeof(fn), "/dev/zap/%d", atoi(argv[1]));
+		snprintf(fn, sizeof(fn), "/dev/dahdi/%d", atoi(argv[1]));
 	fd = open(fn, O_RDWR);
 	if (fd <0) {
 		fprintf(stderr, "Unable to open '%s': %s\n", fn, strerror(errno));
