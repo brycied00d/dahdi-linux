@@ -4094,9 +4094,6 @@ static int dahdi_ctl_ioctl(struct inode *inode, struct file *file, unsigned int 
 		if ((sigcap & ch.sigtype) != ch.sigtype)
 			res = -EINVAL;
 
-		if (!res && chans[ch.chan]->span->chanconfig)
-			res = chans[ch.chan]->span->chanconfig(chans[ch.chan], ch.sigtype);
-
 		if (chans[ch.chan]->master != chans[ch.chan]) {
 			struct dahdi_chan *oldmaster = chans[ch.chan]->master;
 
@@ -4167,6 +4164,12 @@ static int dahdi_ctl_ioctl(struct inode *inode, struct file *file, unsigned int 
 			else
 				chans[ch.chan]->flags &= ~DAHDI_FLAG_MTP2;
 		}
+
+		if (!res && chans[ch.chan]->span->chanconfig){
+			res = chans[ch.chan]->span->chanconfig(chans[ch.chan],
+							       ch.sigtype);
+		}
+
 #ifdef CONFIG_DAHDI_NET
 		if (!res &&
 		    (newmaster == chans[ch.chan]) &&
