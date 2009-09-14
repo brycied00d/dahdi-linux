@@ -45,6 +45,9 @@ typedef struct {
 #define SLIC_LF_OHTRAN_REV	0x6 /* Reverse On Hook Transfer */
 #define SLIC_LF_RING_OPEN	0x7
 
+#define SLIC_LF_SETMASK		0x7
+#define SLIC_LF_OPPENDING 	0x10
+
 /* Mask used to reverse the linefeed mode between forward and
  * reverse polarity. */
 #define SLIC_LF_REVMASK 	0x4
