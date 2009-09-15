@@ -4165,7 +4165,7 @@ static int dahdi_ctl_ioctl(struct inode *inode, struct file *file, unsigned int 
 				chans[ch.chan]->flags &= ~DAHDI_FLAG_MTP2;
 		}
 
-		if (!res && chans[ch.chan]->span->chanconfig){
+		if (!res && chans[ch.chan]->span->chanconfig) {
 			res = chans[ch.chan]->span->chanconfig(chans[ch.chan],
 							       ch.sigtype);
 		}
