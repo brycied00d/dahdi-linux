@@ -440,10 +440,14 @@ static void wctdm_restart_dma(struct wctdm *wc);
 
 static inline void __write_8bits(struct wctdm *wc, unsigned char bits)
 {
-	/* Drop chip select */
+/*	Out BIT_CS    --\________________________________/----		*/
+/*	Out BIT_SCLK  ---\_/-\_/-\_/-\_/-\_/-\_/-\_/-\_/------		*/
+/*	Out BIT_SDI   ---\___/---\___/---\___/---\___/--------		*/
+/*	Data Bit            7   6   5   4   3   2   1   0		*/
+/*	Data written        0   1   0   1   0   1   0   1		*/
+
 	int x;
-	wc->ios |= BIT_SCLK;
-	outb(wc->ios, wc->ioaddr + WC_AUXD);
+	/* Drop chip select */
 	wc->ios &= ~BIT_CS;
 	outb(wc->ios, wc->ioaddr + WC_AUXD);
 	for (x=0;x<8;x++) {
@@ -454,6 +458,7 @@ static inline void __write_8bits(struct wctdm *wc, unsigned char bits)
 			wc->ios &= ~BIT_SDI;
 		wc->ios &= ~BIT_SCLK;
 		outb(wc->ios, wc->ioaddr + WC_AUXD);
+
 		/* Now raise SCLK high again and repeat */
 		wc->ios |= BIT_SCLK;
 		outb(wc->ios, wc->ioaddr + WC_AUXD);
@@ -462,7 +467,6 @@ static inline void __write_8bits(struct wctdm *wc, unsigned char bits)
 	/* Finally raise CS back high again */
 	wc->ios |= BIT_CS;
 	outb(wc->ios, wc->ioaddr + WC_AUXD);
-	
 }
 
 static inline void __reset_spi(struct wctdm *wc)
@@ -492,30 +496,35 @@ static inline void __reset_spi(struct wctdm *wc)
 
 static inline unsigned char __read_8bits(struct wctdm *wc)
 {
+/*	Out BIT_CS	--\________________________________________/----*/
+/*	Out BIT_SCLK	---\_/--\_/--\_/--\_/--\_/--\_/--\_/--\_/-------*/
+/*	In  BIT_SDO	????/1111\0000/1111\0000/1111\0000/1111\0000/???*/
+/*	Data bit	       7    6    5    4    3    2    1    0	*/
+/*	Data Read	       1    0    1    0    1    0    1    0	*/
+
+/*	Note: Clock High time is 2x Low time, due to input read		*/
+
 	unsigned char res=0, c;
 	int x;
-	wc->ios |= BIT_SCLK;
-	outb(wc->ios, wc->ioaddr + WC_AUXD);
 	/* Drop chip select */
 	wc->ios &= ~BIT_CS;
 	outb(wc->ios, wc->ioaddr + WC_AUXD);
 	for (x=0;x<8;x++) {
 		res <<= 1;
-		/* Get SCLK */
+		/* Drop SCLK */
 		wc->ios &= ~BIT_SCLK;
 		outb(wc->ios, wc->ioaddr + WC_AUXD);
+		/* Now raise SCLK high again */
+		wc->ios |= BIT_SCLK;
+		outb(wc->ios, wc->ioaddr + WC_AUXD);
+
 		/* Read back the value */
 		c = inb(wc->ioaddr + WC_AUXR);
 		if (c & BIT_SDO)
 			res |= 1;
-		/* Now raise SCLK high again */
-		wc->ios |= BIT_SCLK;
-		outb(wc->ios, wc->ioaddr + WC_AUXD);
 	}
 	/* Finally raise CS back high again */
 	wc->ios |= BIT_CS;
-	outb(wc->ios, wc->ioaddr + WC_AUXD);
-	wc->ios &= ~BIT_SCLK;
 	outb(wc->ios, wc->ioaddr + WC_AUXD);
 
 	/* And return our result */
