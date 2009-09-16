@@ -2612,8 +2612,9 @@ static void t4_do_counters(struct t4 *wc)
 		int docheck=0;
 
 		spin_lock(&wc->reglock);
-		if (ts->loopupcnt || ts->loopdowncnt)
+		if (ts->loopupcnt || ts->loopdowncnt || ts->alarmcount)
 			docheck++;
+
 		if (ts->alarmtimer) {
 			if (!--ts->alarmtimer) {
 				docheck++;
