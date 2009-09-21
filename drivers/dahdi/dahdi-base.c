@@ -3556,7 +3556,7 @@ static int dahdi_ioctl_getgains(struct inode *node, struct file *file,
 cleanup:
 
 	kfree(gain);
-	return 0;
+	return res;
 }
 
 static int dahdi_ioctl_setgains(struct inode *node, struct file *file,
@@ -3633,7 +3633,7 @@ static int dahdi_ioctl_setgains(struct inode *node, struct file *file,
 cleanup:
 
 	kfree(gain);
-	return 0;
+	return res;
 }
 
 static int dahdi_common_ioctl(struct inode *node, struct file *file, unsigned int cmd, unsigned long data, int unit)
