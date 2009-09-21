@@ -1970,7 +1970,7 @@ static void dahdi_chan_unreg(struct dahdi_chan *chan)
 	write_unlock_irqrestore(&chan_lock, flags);
 }
 
-static ssize_t dahdi_chan_read(struct file *file, char *usrbuf, size_t count, int unit)
+static ssize_t dahdi_chan_read(struct file *file, char __user *usrbuf, size_t count, int unit)
 {
 	struct dahdi_chan *chan = chans[unit];
 	int amnt;
@@ -2096,7 +2096,7 @@ static int num_filled_bufs(struct dahdi_chan *chan)
 	return range1 + range2;
 }
 
-static ssize_t dahdi_chan_write(struct file *file, const char *usrbuf, size_t count, int unit)
+static ssize_t dahdi_chan_write(struct file *file, const char __user *usrbuf, size_t count, int unit)
 {
 	unsigned long flags;
 	struct dahdi_chan *chan = chans[unit];
@@ -2842,7 +2842,7 @@ static int dahdi_open(struct inode *inode, struct file *file)
 }
 #endif
 
-static ssize_t dahdi_read(struct file *file, char *usrbuf, size_t count, loff_t *ppos)
+static ssize_t dahdi_read(struct file *file, char __user *usrbuf, size_t count, loff_t *ppos)
 {
 	int unit = UNIT(file);
 	struct dahdi_chan *chan;
@@ -2876,7 +2876,7 @@ static ssize_t dahdi_read(struct file *file, char *usrbuf, size_t count, loff_t 
 	return dahdi_chan_read(file, usrbuf, count, unit);
 }
 
-static ssize_t dahdi_write(struct file *file, const char *usrbuf, size_t count, loff_t *ppos)
+static ssize_t dahdi_write(struct file *file, const char __user *usrbuf, size_t count, loff_t *ppos)
 {
 	int unit = UNIT(file);
 	struct dahdi_chan *chan;
