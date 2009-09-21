@@ -5,20 +5,20 @@ TOOLS_DIR=${TOOLS_DIR:=../dahdi-tools}
 DESTDIR=$PWD/live
 KVERS=${KVERS:-`uname -r`}
 MODULES_DIR="$DESTDIR/lib/modules/$KVERS/dahdi"
-XPP_SYNC=auto
-AST_SCRIPT=/etc/init.d/asterisk
+XPP_SYNC=${XPP_SYNC:-auto}
+AST_SCRIPT=${AST_SCRIPT:-/etc/init.d/asterisk}
 # Use this file to pass options to modules:
 PERLLIBDIR=`perl -V:sitelib | cut -d "'" -f 2`
 
 # Manual list of modules. They will be loaded by insmod.
 # If reside in a subdir, add it explicitly.
 
-MODULES_LOAD="dahdi dahdi_echocan_mg2"
+MODULES_LOAD="${MODULES_LOAD:-dahdi dahdi_echocan_mg2}"
 
 # this one *is* resolved recusively. 
 # the only reason to set a different value is if you use hpec / oslec,
 # as Zaptel depends on them.
-REMOVE_MODULES="dahdi" # "dahdi oslec"?
+REMOVE_MODULES="${REMOVE_MODULES:-dahdi}" # "dahdi oslec"?
 
 if [ -r $DESTDIR/live.conf ]; then . $DESTDIR/live.conf; fi
 
@@ -146,13 +146,13 @@ usage() {
 	echo "$me: Run DAHDI in a test environment"
 	echo 'Version: $Id$'
 	echo ''
-	echo "Usage:           equivalent of:"
-	echo "$me configure  ./configure"
-	echo "$me install    make install"
-	echo "$me config     make config"
-	echo "$me unload     /etc/init.d/dahdi stop"
-	echo "$me load       /etc/init.d/dahdi start"
-	echo "$me reload     /etc/init.d/dahdi restart"
+	echo "Usage:                    equivalent of:"
+	echo "$me configure      ./configure"
+	echo "$me install        make install"
+	echo "$me config         make config"
+	echo "$me unload         /etc/init.d/dahdi stop"
+	echo "$me load           /etc/init.d/dahdi start"
+	echo "$me reload         /etc/init.d/dahdi restart"
 	echo "$me xpp-firm       (Reset and load xpp firmware)"
 	echo "$me rsync TARGET   (copy filea to /tmp/live in host TARGET)"
 	echo "$me exec  COMMAND  (Run COMMAND in 'live' environment)"
