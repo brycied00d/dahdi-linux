@@ -1,10 +1,7 @@
 #!/bin/sh
 
-set -e
-
 LINUX_DIR=${LINUX_DIR:=.}
-LINUX_DIR_FULL=`(cd $LINUX_DIR; pwd)`
-TOOLS_DIR=${TOOLS_DIR:=`(cd ../dahdi-tools; pwd)`}
+TOOLS_DIR=${TOOLS_DIR:=../dahdi-tools}
 DESTDIR=$PWD/live
 KVERS=${KVERS:-`uname -r`}
 MODULES_DIR="$DESTDIR/lib/modules/$KVERS/dahdi"
@@ -24,6 +21,19 @@ MODULES_LOAD="dahdi dahdi_echocan_mg2"
 REMOVE_MODULES="dahdi" # "dahdi oslec"?
 
 if [ -r $DESTDIR/live.conf ]; then . $DESTDIR/live.conf; fi
+
+if [ ! -d "$LINUX_DIR" ]; then
+	echo >&2 "$0:dahdi-linux dir '$LINUX_DIR' does not exits.  Aborting".
+	exit 1
+fi
+
+if [ ! -d "$TOOLS_DIR" ]; then
+	echo >&2 "$0:dahdi-tools dir '$TOOLS_DIR' does not exits.  Aborting".
+	exit 1
+fi
+set -e
+LINUX_DIR_FULL=`(cd $LINUX_DIR; pwd)`
+TOOLS_DIR_FULL=`(cd $TOOLS_DIR; pwd)`
 
 # Give priority to our installed binaries:
 PATH=$DESTDIR/sbin:$DESTDIR/usr/sbin:$PATH
@@ -96,7 +106,7 @@ xpp_startup() {
 	if ! grep -q connected /proc/xpp/xbuses 2>/dev/null; then return 0; fi
 
 	echo "Waiting for Astribank devices to initialize:"
-	$TOOLS_DIR/xpp/waitfor_xpds # Asusmes a recent dahdi-tools
+	$TOOLS_DIR_FULL/xpp/waitfor_xpds # Asusmes a recent dahdi-tools
 	
 	# overriding locales for the above two, as perl can be noisy
 	# when locales are missing.
@@ -159,7 +169,7 @@ configure)
 install)
 	shift
 	cd "$LINUX_DIR"; make install DESTDIR=$DESTDIR "$@"
-	cd "$TOOLS_DIR"; make install DESTDIR=$DESTDIR DYNFS=yes "$@"
+	cd "$TOOLS_DIR_FULL"; make install DESTDIR=$DESTDIR DYNFS=yes "$@"
 	;;
 config)
 	shift
@@ -229,7 +239,7 @@ xpp-firm)
 	XPP_FIRMWARE_DIR=$FIRMWARE_DIR \
 		sh "$TOOLS_DIR"/xpp/xpp_fxloader load
 	;;
-help)
+help|'')
 	usage
 	;;
 *)
