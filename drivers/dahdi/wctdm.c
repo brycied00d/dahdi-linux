@@ -1952,6 +1952,7 @@ static int wctdm_ioctl(struct dahdi_chan *chan, unsigned int cmd, unsigned long 
 			wctdm_setreg(wc, chan->chanpos - 1,
 				      LINE_STATE, fxs->lasttxhook);
 		}
+		break;
 	case DAHDI_SETPOLARITY:
 		if (wc->modtype[chan->chanpos - 1] != MOD_TYPE_FXS)
 			return -EINVAL;
