@@ -446,7 +446,6 @@ int xproto_register(const xproto_table_t *proto_table)
 	CHECK_XOP(card_pcm_tospan);
 	CHECK_XOP(card_dahdi_preregistration);
 	CHECK_XOP(card_dahdi_postregistration);
-	CHECK_XOP(card_hooksig);
 	// CHECK_XOP(card_ioctl);	// optional method -- call after testing
 	CHECK_XOP(card_register_reply);
 	CHECK_XOP(XPD_STATE);
