@@ -118,7 +118,7 @@ static DEVICE_ATTR_READER(timing_show, dev, buf)
 	do_gettimeofday(&now);
 	xbus = dev_to_xbus(dev);
 	driftinfo = &xbus->drift;
-	len += snprintf(buf + len, PAGE_SIZE - len, "DRIFT: %-3s", sync_mode_name(xbus->sync_mode));
+	len += snprintf(buf + len, PAGE_SIZE - len, "%-3s", sync_mode_name(xbus->sync_mode));
 	if(xbus->sync_mode == SYNC_MODE_PLL) {
 		len += snprintf(buf + len, PAGE_SIZE - len,
 				" %5d: jitter %4d median %4d calc_drift %3d lost (%4d,%4d) : ",
@@ -636,6 +636,22 @@ static DEVICE_ATTR_READER(offhook_show, dev, buf)
 	return len;
 }
 
+static DEVICE_ATTR_READER(timing_priority_show, dev, buf)
+{
+	xpd_t			*xpd;
+	unsigned long		flags;
+	int			len = 0;
+
+	BUG_ON(!dev);
+	xpd = dev_to_xpd(dev);
+	if(!xpd)
+		return -ENODEV;
+	spin_lock_irqsave(&xpd->lock, flags);
+	len += sprintf(buf + len, "%d\n", xpd->timing_priority);
+	spin_unlock_irqrestore(&xpd->lock, flags);
+	return len;
+}
+
 static int xpd_match(struct device *dev, struct device_driver *driver)
 {
 	struct xpd_driver	*xpd_driver;
@@ -659,6 +675,7 @@ static struct device_attribute xpd_dev_attrs[] = {
 	__ATTR(span,		S_IRUGO | S_IWUSR, span_show, span_store),
         __ATTR_RO(type),
         __ATTR_RO(offhook),
+        __ATTR_RO(timing_priority),
         __ATTR_NULL,
 };
 
