@@ -40,23 +40,37 @@ static DEF_PARM(int, debug, 0, 0644, "Print DBG statements");	/* must be before 
 static DEF_PARM(uint, poll_interval, 500, 0644, "Poll channel state interval in milliseconds (0 - disable)");
 
 #define	PRI_LINES_BITMASK	BITMASK(31)
-#define	PRI_DCHAN_SIGCAP	(			  \
-					DAHDI_SIG_EM	| \
-					DAHDI_SIG_CLEAR	| \
-					DAHDI_SIG_FXSLS	| \
-					DAHDI_SIG_FXSGS	| \
-					DAHDI_SIG_FXSKS	| \
-					DAHDI_SIG_FXOLS	| \
-					DAHDI_SIG_FXOGS	| \
-					DAHDI_SIG_FXOKS	| \
-					DAHDI_SIG_CAS	| \
-					DAHDI_SIG_DACS	| \
-					DAHDI_SIG_SF	  \
-				)
-#define	PRI_BCHAN_SIGCAP	(DAHDI_SIG_CLEAR | DAHDI_SIG_DACS | DAHDI_SIG_CAS)
+#define	PRI_SIGCAP	(		\
+			DAHDI_SIG_EM		| \
+			DAHDI_SIG_CLEAR		| \
+			DAHDI_SIG_FXSLS		| \
+			DAHDI_SIG_FXSGS		| \
+			DAHDI_SIG_FXSKS		| \
+			DAHDI_SIG_HARDHDLC	| \
+			DAHDI_SIG_MTP2		| \
+			DAHDI_SIG_FXOLS		| \
+			DAHDI_SIG_FXOGS		| \
+			DAHDI_SIG_FXOKS		| \
+			DAHDI_SIG_CAS		| \
+			DAHDI_SIG_EM_E1		| \
+			DAHDI_SIG_DACS_RBS	\
+			)
+
+static bool is_sigtype_dchan(int sigtype)
+{
+	if((sigtype & DAHDI_SIG_HDLCRAW) == DAHDI_SIG_HDLCRAW)
+		return 1;
+	if((sigtype & DAHDI_SIG_HDLCFCS) == DAHDI_SIG_HDLCFCS)
+		return 1;
+	if((sigtype & DAHDI_SIG_HARDHDLC) == DAHDI_SIG_HARDHDLC)
+		return 1;
+	return 0;
+}
+
 #define	MAX_SLAVES		4		/* we have MUX of 4 clocks */
 
 #define	PRI_PORT(xpd)	((xpd)->addr.subunit)
+#define	CHAN_PER_REGS(p)	(((p)->is_esf) ? 2 : 4)
 
 /*---------------- PRI Protocol Commands ----------------------------------*/
 
@@ -129,7 +143,7 @@ static int pri_linecompat(enum pri_protocol pri_protocol)
 			DAHDI_CONFIG_AMI | DAHDI_CONFIG_HDB3,
 		[PRI_PROTO_T1] =
 			/* coding */
-			// DAHDI_CONFIG_D4 |
+			DAHDI_CONFIG_D4 |
 			DAHDI_CONFIG_ESF |
 			/* framing */
 			DAHDI_CONFIG_AMI | DAHDI_CONFIG_B8ZS,
@@ -180,8 +194,7 @@ struct pri_leds {
 #define	REG_FRS1	0x4D	/* Framer Receive Status Register 1 */
 
 #define	REG_LIM0	0x36
-#define	REG_LIM0_MAS	BIT(0)	/* Master Mode, DCO-R circuitry is frequency
-                                                                                          synchronized to the clock supplied by SYNC */
+#define	REG_LIM0_MAS	BIT(0)	/* Master Mode, DCO-R circuitry is frequency synchronized to the clock supplied by SYNC */
 #define	REG_LIM0_RTRS	BIT(5)	/*
 				 * Receive Termination Resistance Selection:
 				 * integrated resistor to create 75 Ohm termination (100 || 300 = 75)
@@ -189,9 +202,6 @@ struct pri_leds {
 				 * 1 = 75 Ohm
 				 */
 #define	REG_LIM0_LL	BIT(1)	/* LL (Local Loopback) */
-
-#define	REG_IMR0_E	0x14	/* Interrupt Mask Register 0 */
-#define	REG_IMR0_E_CASC	BIT(3)
 
 #define	REG_FMR0	0x1C
 #define	REG_FMR0_E_RC0	BIT(4)	/* Receive Code - LSB */
@@ -251,6 +261,14 @@ struct pri_leds {
 #define	REG_XSP_E_AXS	BIT(3)	/* Automatic Transmission of Submultiframe Status  */
 #define	REG_XSP_E_EBP	BIT(4)	/* E-Bit Polarity, Si-bit position of every outgoing CRC multiframe  */
 #define	REG_XSP_E_CASEN	BIT(6)	/* CAS: Channel Associated Signaling Enable  */
+#define	REG_FMR5_T_EIBR	BIT(6)	/* CAS: Enable Internal Bit Robbing Access   */
+
+#define REG_XC0_T	0x22	/* Transmit Control 0 */
+#define REG_XC0_BRIF	BIT(5)	/* Bit Robbing Idle Function */
+
+#define REG_CMDR_E	0x02	/* Command Register */
+#define REG_CMDR_RRES	BIT(6)	/* Receiver    reset */
+#define REG_CMDR_XRES	BIT(4)	/* Transmitter reset */
 
 #define	REG_RC0		0x24
 #define	REG_RC0_SJR	BIT(7)	/* T1 = 0, J1 = 1 */
@@ -286,7 +304,7 @@ struct pri_leds {
 #define	VAL_PC_GPOH	0x0A	/* General Purpose Output, high level */
 #define	VAL_PC_GPOL	0x0B	/* General Purpose Output, low level */
 
-#define	NUM_CAS_RS	(REG_RS16_E - REG_RS2_E + 1)
+#define	NUM_CAS_RS	(REG_RS16_E - REG_RS1_E + 1)
 
 struct PRI_priv_data {
 	bool				clock_source;
@@ -297,10 +315,18 @@ struct PRI_priv_data {
 	int				deflaw;
 	unsigned int			dchan_num;
 	bool				initialized;
-	bool				is_cas;
+	int				is_cas;
+
+	unsigned int			chanconfig_dchan;
+#define	NO_DCHAN	(0)
+#define	DCHAN(p)	((p)->chanconfig_dchan)
+#define	VALID_DCHAN(p)	(DCHAN(p) != NO_DCHAN)
+#define	SET_DCHAN(p,d)	do { DCHAN(p) = (d); } while(0);
+
 	byte				cas_rs_e[NUM_CAS_RS];
 	byte				cas_ts_e[NUM_CAS_RS];
 	uint				cas_replies;
+	bool				is_esf;
 	bool				local_loopback;
 	uint				poll_noreplies;
 	uint				layer1_replies;
@@ -457,9 +483,11 @@ static void pri_pcm_update(xpd_t *xpd)
 
 	priv = xpd->priv;
 	if(priv->is_cas) {
-		/* CAS: Don't send PCM to D-Channel */
-		channels--;
-		mask &= ~BIT(PRI_DCHAN_IDX(priv));
+		if(priv->pri_protocol == PRI_PROTO_E1) {
+			/* CAS: Don't send PCM to D-Channel */
+			channels--;
+			mask &= ~BIT(PRI_DCHAN_IDX(priv));
+		}
 	}
 	pcm_len = RPACKET_HEADERSIZE + sizeof(xpp_line_t)  +  channels * DAHDI_CHUNKSIZE;
 	spin_lock_irqsave(&xpd->lock_recompute_pcm, flags);
@@ -501,7 +529,7 @@ static int set_pri_proto(xpd_t *xpd, enum pri_protocol set_proto)
 		case PRI_PROTO_E1:
 			deflaw = DAHDI_LAW_ALAW;
 			dchan_num = 16;
-			default_lineconfig = DAHDI_CONFIG_CRC4 | DAHDI_CONFIG_HDB3;
+			default_lineconfig = DAHDI_CONFIG_CCS | DAHDI_CONFIG_CRC4 | DAHDI_CONFIG_HDB3;
 			break;
 		case PRI_PROTO_T1:
 			deflaw = DAHDI_LAW_MULAW;
@@ -523,6 +551,7 @@ static int set_pri_proto(xpd_t *xpd, enum pri_protocol set_proto)
 			return -EINVAL;
 	}
 	priv->pri_protocol = set_proto;
+	priv->is_cas = -1;
 	xpd->channels = pri_num_channels(set_proto);
 	pri_pcm_update(xpd);
 	priv->deflaw = deflaw;
@@ -614,7 +643,7 @@ static void set_clocking(xpd_t *xpd)
 	}
 	/* Now set it */
 	if(best_xpd && ((struct PRI_priv_data *)(best_xpd->priv))->clock_source == 0) {
-		byte	reg_pc_init[] = { VAL_PC_SYPR, VAL_PC_GPI, VAL_PC_GPI };
+		byte	reg_pc_init[] = { VAL_PC_GPI, VAL_PC_GPI, VAL_PC_GPI };
 
 		for(i = 0; i < ARRAY_SIZE(reg_pc_init); i++) {
 			byte	reg_pc = reg_pc_init[i];
@@ -707,7 +736,7 @@ static const struct {
 	const int	flags;
 } valid_spanconfigs[sizeof(unsigned int)*8] = {
 	/* These apply to T1 */
-//	VALID_CONFIG(4, DAHDI_CONFIG_D4, "D4"),	FIXME: should support
+	VALID_CONFIG(4, DAHDI_CONFIG_D4, "D4"),
 	VALID_CONFIG(5, DAHDI_CONFIG_ESF, "ESF"),
 	VALID_CONFIG(6, DAHDI_CONFIG_AMI, "AMI"),
 	VALID_CONFIG(7, DAHDI_CONFIG_B8ZS, "B8ZS"),
@@ -716,6 +745,29 @@ static const struct {
 	VALID_CONFIG(9, DAHDI_CONFIG_HDB3, "HDB3"),
 	VALID_CONFIG(10, DAHDI_CONFIG_CRC4, "CRC4"),
 };
+
+static int set_mode_cas(xpd_t *xpd, bool want_cas)
+{
+	struct PRI_priv_data	*priv;
+	byte			xsp  = 0;
+
+	priv = xpd->priv;
+	XPD_INFO(xpd, "Setting TDM to %s\n", (want_cas) ? "CAS" : "PRI");
+	if(priv->pri_protocol == PRI_PROTO_E1) {
+		xsp |= REG_XSP_E_EBP | REG_XSP_E_AXS | REG_XSP_E_XSIF;
+	} else if(priv->pri_protocol == PRI_PROTO_T1) {
+		xsp &= ~REG_FMR5_T_XTM;
+	}
+	if(want_cas) {
+		xsp |= REG_XSP_E_CASEN;	/* Same as REG_FMR5_T_EIBR for T1 */
+		priv->is_cas = 1;
+	} else {
+		priv->is_cas = 0;
+	}
+	XPD_DBG(GENERAL, xpd, "%s: xsp(0x%02X) = 0x%02X\n", __FUNCTION__, REG_XSP_E, xsp);
+	write_subunit(xpd, REG_XSP_E, xsp);
+	return 0;
+}
 
 static int pri_lineconfig(xpd_t *xpd, int lineconfig)
 {
@@ -727,14 +779,11 @@ static int pri_lineconfig(xpd_t *xpd, int lineconfig)
 	byte			rc0 = 0;	/* FIXME: PCM offsets */
 #endif
 	byte			fmr0 = 0;
-	byte			fmr1 =
-					REG_FMR1_AFR |
-					REG_FMR1_ECM;
+	byte			fmr1 = REG_FMR1_ECM;
 	byte			fmr2 = 0;
 	byte			fmr3 = 0;	/* write only for CRC4 */
 	byte			fmr4 = 0;
-	byte			imr0 = 0;
-	byte			xsp = 0;
+	byte                    cmdr = REG_CMDR_RRES | REG_CMDR_XRES;
 	unsigned int		bad_bits;
 	int			i;
 
@@ -771,14 +820,13 @@ static int pri_lineconfig(xpd_t *xpd, int lineconfig)
 	if(bad_bits)
 		goto bad_lineconfig;
 	if(priv->pri_protocol == PRI_PROTO_E1) {
+		fmr1 |= REG_FMR1_AFR;
 		fmr2 = REG_FMR2_E_AXRA | REG_FMR2_E_ALMF;	/* 0x03 */
 		fmr4 = 0x9F;								/*  E1.XSW:  All spare bits = 1*/
-		xsp |= REG_XSP_E_EBP | REG_XSP_E_AXS | REG_XSP_E_XSIF;
 	} else if(priv->pri_protocol == PRI_PROTO_T1) {
 		fmr1 |= REG_FMR1_PMOD | REG_FMR1_T_CRC;
 		fmr2 = REG_FMR2_T_SSP | REG_FMR2_T_AXRA;	/* 0x22 */
 		fmr4 = 0x0C;
-		xsp |= REG_FMR5_T_XTM;
 	} else if(priv->pri_protocol == PRI_PROTO_J1) {
 		fmr1 |= REG_FMR1_PMOD;
 		fmr4 = 0x1C;
@@ -802,23 +850,20 @@ static int pri_lineconfig(xpd_t *xpd, int lineconfig)
 		return -EINVAL;
 	}
 	/* then coding */
+	priv->is_esf = 0;
 	if (lineconfig & DAHDI_CONFIG_ESF) {
 		codingstr = "ESF";
-		priv->is_cas = 0;
 		fmr4 |= REG_FMR4_FM1;
 		fmr2 |= REG_FMR2_T_AXRA | REG_FMR2_T_MCSP | REG_FMR2_T_SSP;
+		priv->is_esf = 1;
 	} else if (lineconfig & DAHDI_CONFIG_D4) {
 		codingstr = "D4";
-		priv->is_cas = 0;
 	} else if (lineconfig & DAHDI_CONFIG_CCS) {
 		codingstr = "CCS";
-		priv->is_cas = 0;
-		/* do nothing */
-	} else {	/* CAS */
-		codingstr = "CAS";
-		imr0 |= REG_IMR0_E_CASC;
-		xsp |= REG_XSP_E_CASEN;
-		priv->is_cas = 1;
+		set_mode_cas(xpd, 0);	/* In E1 we know right from the span statement. */
+	} else {
+		codingstr = "CAS";	/* In E1 we know right from the span statement. */
+		set_mode_cas(xpd, 1);
 	}
 	pri_pcm_update(xpd);
 	/*
@@ -846,20 +891,18 @@ static int pri_lineconfig(xpd_t *xpd, int lineconfig)
 	write_subunit(xpd, REG_FMR0, fmr0);
 	XPD_DBG(GENERAL, xpd, "%s: fmr4(0x%02X) = 0x%02X\n", __FUNCTION__, REG_FMR4, fmr4);
 	write_subunit(xpd, REG_FMR4, fmr4);
-	XPD_DBG(GENERAL, xpd, "%s: xsp(0x%02X) = 0x%02X\n", __FUNCTION__, REG_XSP_E, xsp);
-	write_subunit(xpd, REG_XSP_E, xsp);
 	if(fmr3) {
 		XPD_DBG(GENERAL, xpd, "%s: fmr3(0x%02X) = 0x%02X\n", __FUNCTION__, REG_FMR3, fmr3);
 		write_subunit(xpd, REG_FMR3, fmr3);
 	}
+	XPD_DBG(GENERAL, xpd, "%s: cmdr(0x%02X) = 0x%02X\n", __FUNCTION__, REG_CMDR_E, cmdr);
+	write_subunit(xpd, REG_CMDR_E, cmdr);
 #ifdef JAPANEZE_SUPPORT
 	if(rc0) {
 		XPD_DBG(GENERAL, xpd, "%s: rc0(0x%02X) = 0x%02X\n", __FUNCTION__, REG_RC0, rc0);
 		write_subunit(xpd, REG_RC0, rc0);
 	}
 #endif
-	XPD_DBG(GENERAL, xpd, "%s: imr0(0x%02X) = 0x%02X\n", __FUNCTION__, REG_IMR0_E, imr0);
-	write_subunit(xpd, REG_IMR0_E, imr0);
 	return 0;
 bad_lineconfig:
 	XPD_ERR(xpd, "Bad lineconfig. Abort\n");
@@ -906,7 +949,34 @@ static int pri_spanconfig(struct dahdi_span *span, struct dahdi_lineconfig *lc)
  */
 static int pri_chanconfig(struct dahdi_chan *chan, int sigtype)
 {
+	xpd_t			*xpd;
+	struct PRI_priv_data	*priv;
+
+	xpd = chan->span->pvt;
+	BUG_ON(!xpd);
+	priv = xpd->priv;
 	DBG(GENERAL, "channel %d (%s) -> %s\n", chan->channo, chan->name, sig2str(sigtype));
+	if(is_sigtype_dchan(sigtype)) {
+		if(VALID_DCHAN(priv)) {
+			ERR("channel %d (%s) marked DChan but also channel %d.\n",
+				chan->channo, chan->name, DCHAN(priv));
+			return -EINVAL;
+		} else {
+			DBG(GENERAL, "channel %d (%s) marked as DChan\n", chan->channo, chan->name);
+			SET_DCHAN(priv, chan->channo);
+			/* In T1, we don't know before-hand */
+			if(priv->pri_protocol != PRI_PROTO_E1 && priv->is_cas != 0)
+				set_mode_cas(xpd, 0);
+		}
+	} else {
+		if(DCHAN(priv) == chan->channo) {
+			DBG(GENERAL, "channel %d (%s) marked a not DChan\n", chan->channo, chan->name);
+			SET_DCHAN(priv, NO_DCHAN);
+		}
+		/* In T1, we don't know before-hand */
+		if(priv->pri_protocol != PRI_PROTO_E1 && priv->is_cas != 1)
+			set_mode_cas(xpd, 1);
+	}
 	// FIXME: sanity checks:
 	// - should be supported (within the sigcap)
 	// - should not replace fxs <->fxo ??? (covered by previous?)
@@ -961,6 +1031,7 @@ static int PRI_card_init(xbus_t *xbus, xpd_t *xpd)
 		if(ret < 0)
 			goto err;
 	}
+	SET_DCHAN(priv, NO_DCHAN);
 	/*
 	 * initialization script should have set correct
 	 * operating modes.
@@ -972,7 +1043,7 @@ static int PRI_card_init(xbus_t *xbus, xpd_t *xpd)
 	xpd->type_name = type_name(priv->pri_protocol);
 	xpd->direction = TO_PSTN;
 	XPD_DBG(DEVICES, xpd, "%s\n", xpd->type_name);
-	xpd->timing_priority = 1;		/* SLAVE */
+	xpd->timing_priority = 1;		/* High priority SLAVE */
 	set_master_mode(__FUNCTION__, xpd);
 	for(ret = 0; ret < NUM_LEDS; ret++) {
 		DO_LED(xpd, ret, PRI_LED_ON);
@@ -1035,13 +1106,14 @@ static int PRI_card_dahdi_preregistration(xpd_t *xpd, bool on)
 				xpd->type_name, xbus->num, xpd->addr.unit, xpd->addr.subunit, i);
 		cur_chan->chanpos = i + 1;
 		cur_chan->pvt = xpd;
+		cur_chan->sigcap = PRI_SIGCAP;
 		if(is_dchan && !priv->is_cas) {	/* D-CHAN */
-			cur_chan->sigcap = PRI_DCHAN_SIGCAP;
 			//FIXME: cur_chan->flags |= DAHDI_FLAG_PRIDCHAN;
 			cur_chan->flags &= ~DAHDI_FLAG_HDLC;
-		} else
-			cur_chan->sigcap = PRI_BCHAN_SIGCAP;
+		}
 	}
+	if(!priv->is_cas)
+		clear_bit(DAHDI_FLAGBIT_RBS, &xpd->span.flags);
 	xpd->offhook_state = xpd->wanted_pcm_mask;
 	xpd->span.spanconfig = pri_spanconfig;
 	xpd->span.chanconfig = pri_chanconfig;
@@ -1065,12 +1137,6 @@ static int PRI_card_dahdi_postregistration(xpd_t *xpd, bool on)
 	return(0);
 }
 
-static int PRI_card_hooksig(xbus_t *xbus, xpd_t *xpd, int pos, enum dahdi_txsig txsig)
-{
-	LINE_DBG(SIGNAL, xpd, pos, "%s\n", txsig2str(txsig));
-	return 0;
-}
-
 static void dchan_state(xpd_t *xpd, bool up)
 {
 	struct PRI_priv_data	*priv;
@@ -1078,6 +1144,9 @@ static void dchan_state(xpd_t *xpd, bool up)
 	BUG_ON(!xpd);
 	priv = xpd->priv;
 	BUG_ON(!priv);
+	if(priv->is_cas) {
+		return;
+	}
 	if(priv->dchan_alive == up)
 		return;
 	if(!priv->layer1_up)	/* No layer1, kill dchan */
@@ -1212,6 +1281,8 @@ static int PRI_card_ioctl(xpd_t *xpd, int pos, unsigned int cmd, unsigned long a
 			 * call. Silently ignore it.
 			 */
 			LINE_DBG(SIGNAL, xpd, pos, "PRI: Starting a call\n");
+			/* fall-through */
+		case DAHDI_ONHOOKTRANSFER:
 			return -ENOTTY;
 		default:
 			report_bad_ioctl(THIS_MODULE->name, xpd, pos, cmd);
@@ -1269,31 +1340,19 @@ static int pri_shutdown(struct dahdi_span *span)
 	return 0;
 }
 
-static int pri_rbsbits(struct dahdi_chan *chan, int bits)
+static int encode_rbsbits_e1(xpd_t *xpd, int pos, int bits)
 {
-	xpd_t			*xpd;
 	struct PRI_priv_data	*priv;
-	int			pos;
 	byte			val;
 	int			reg_pos;
 	int			regnum;
 	unsigned long		flags;
 	
 
-	xpd = chan->pvt;
 	BUG_ON(!xpd);
-	pos = chan->chanpos - 1;
 	priv = xpd->priv;
 	BUG_ON(!priv);
-	if(!priv->layer1_up) {
-		XPD_DBG(SIGNAL, xpd, "RBS: TX: No layer1. Ignore.\n");
-		return 0;
-	}
-	if(priv->pri_protocol != PRI_PROTO_E1) {
-		XPD_NOTICE(xpd, "%s: protocol %s is not supported yet with CAS\n",
-			__FUNCTION__, pri_protocol_name(priv->pri_protocol));
-		return 0;
-	}
+	BUG_ON(priv->pri_protocol != PRI_PROTO_E1);
 	if(pos == 15)
 		return 0;	/* Don't write dchan in CAS */
 	if(pos < 0 || pos > 31) {
@@ -1312,11 +1371,93 @@ static int pri_rbsbits(struct dahdi_chan *chan, int bits)
 	}
 	regnum = REG_RS2_E + reg_pos;
 	priv->cas_ts_e[reg_pos] = val;
-	priv->dchan_tx_counter++;
 	spin_unlock_irqrestore(&xpd->lock, flags);
 	LINE_DBG(SIGNAL, xpd, pos, "RBS: TX: bits=0x%X (reg=0x%X val=0x%02X)\n",
 		bits, regnum, val);
 	write_subunit(xpd, regnum, val);
+	return 0;
+}
+
+static int encode_rbsbits_t1(xpd_t *xpd, int pos, int bits)
+{
+	struct PRI_priv_data	*priv;
+	int			rsnum;
+	int			chan_per_reg;
+	int			offset;
+	int			width;
+	uint			tx_bits = bits;
+	uint			mask;
+
+	BUG_ON(!xpd);
+	priv = xpd->priv;
+	BUG_ON(!priv);
+	BUG_ON(priv->pri_protocol != PRI_PROTO_T1);
+	if(pos < 0 || pos >= xpd->channels) {
+		XPD_ERR(xpd, "%s: Bad pos=%d\n", __FUNCTION__, pos);
+		return 0;
+	}
+	chan_per_reg = CHAN_PER_REGS(priv);
+	width = 8 / chan_per_reg;
+	rsnum = pos / chan_per_reg;
+	offset = pos % chan_per_reg;
+	mask = BITMASK(width) << (chan_per_reg - offset - 1) * width;
+	if (!priv->is_esf)
+		tx_bits >>= 2;
+	tx_bits &= BITMASK(width);
+	tx_bits <<= (chan_per_reg - offset - 1) * width;
+	if((priv->cas_ts_e[rsnum] & mask) == tx_bits) {
+#if 0
+		LINE_DBG(SIGNAL, xpd, pos, "RBS: TX: RS%02d(0x%02X, 0x%02X): REPEAT 0x%02X\n",
+			rsnum+1, mask, tx_bits, bits);
+#endif
+		return 0;
+	}
+	priv->cas_ts_e[rsnum] &= ~mask;
+	priv->cas_ts_e[rsnum] |= tx_bits;
+	LINE_DBG(SIGNAL, xpd, pos,
+		"bits=0x%02X RS%02d(%s) offset=%d tx_bits=0x%02X\n",
+		bits, rsnum+1,
+		(priv->is_esf) ? "esf" : "d4",
+		offset, tx_bits);
+	write_subunit(xpd, REG_RS1_E + rsnum , priv->cas_ts_e[rsnum]);
+	if (!priv->is_esf) {
+		/* same data should be copied to RS7..12 in D4 only */
+		write_subunit(xpd, REG_RS7_E + rsnum , priv->cas_ts_e[rsnum]);
+	}
+	priv->dchan_tx_counter++;
+	return 0;
+}
+
+static int pri_rbsbits(struct dahdi_chan *chan, int bits)
+{
+	xpd_t			*xpd;
+	struct PRI_priv_data	*priv;
+	int			pos;
+
+	xpd = chan->pvt;
+	BUG_ON(!xpd);
+	pos = chan->chanpos - 1;
+	priv = xpd->priv;
+	BUG_ON(!priv);
+	if(!priv->layer1_up) {
+		XPD_DBG(SIGNAL, xpd, "RBS: TX: No layer1. Ignore.\n");
+		return 0;
+	}
+	if(!priv->is_cas) {
+		XPD_NOTICE(xpd, "RBS: TX: not in CAS mode. Ignore.\n");
+		return 0;
+	}
+	if(priv->pri_protocol == PRI_PROTO_E1) {
+		if(encode_rbsbits_e1(xpd, pos, bits) < 0)
+			return -EINVAL;
+	} else if(priv->pri_protocol == PRI_PROTO_T1) {
+		if(encode_rbsbits_t1(xpd, pos, bits) < 0)
+			return -EINVAL;
+	} else {
+		XPD_NOTICE(xpd, "%s: protocol %s is not supported yet with CAS\n",
+			__FUNCTION__, pri_protocol_name(priv->pri_protocol));
+		return -EINVAL;
+	}
 	return 0;
 }
 
@@ -1395,7 +1536,7 @@ static void PRI_card_pcm_fromspan(xbus_t *xbus, xpd_t *xpd, xpacket_t *pack)
 	spin_unlock_irqrestore(&xpd->lock, flags);
 }
 
-/*! Copy PCM chunks from the packet we received to the xpd struct.
+/*! Copy PCM chunks from the packet we recieved to the xpd struct.
  * \param xbus	xbus of target xpd.
  * \param xpd	target xpd.
  * \param pack	Source packet.
@@ -1518,8 +1659,11 @@ static void layer1_state(xpd_t *xpd, byte data_low)
 		priv->layer1_up = 0;
 #endif
 	priv->alarms = alarms;
-	if(!priv->layer1_up)
+	if(!priv->layer1_up) {
+		memset(priv->cas_rs_e, 0, NUM_CAS_RS);
+		memset(priv->cas_ts_e, 0, NUM_CAS_RS);
 		dchan_state(xpd, 0);
+	}
 	if(SPAN_REGISTERED(xpd) && xpd->span.alarms != alarms) {
 		char	str1[MAX_PROC_WRITE];
 		char	str2[MAX_PROC_WRITE];
@@ -1538,7 +1682,7 @@ static void layer1_state(xpd_t *xpd, byte data_low)
 	XPD_DBG(REGS, xpd, "subunit=%d data_low=0x%02X\n", xpd->addr.subunit, data_low);
 }
 
-static void process_cas_dchan(xpd_t *xpd, byte regnum, byte data_low)
+static int decode_cas_e1(xpd_t *xpd, byte regnum, byte data_low)
 {
 	struct PRI_priv_data	*priv;
 	uint			pos = regnum - REG_RS2_E;
@@ -1547,13 +1691,27 @@ static void process_cas_dchan(xpd_t *xpd, byte regnum, byte data_low)
 	int			chan2 = pos + 16;
 
 	priv = xpd->priv;
-	if(!priv->is_cas)
-		return;
+	BUG_ON(!priv->is_cas);
+	BUG_ON(priv->pri_protocol != PRI_PROTO_E1);
+	XPD_DBG(SIGNAL, xpd, "RBS: RX: data_low=0x%02X\n", data_low);
 	if(pos < 0 || pos >= NUM_CAS_RS) {
 		XPD_ERR(xpd, "%s: got bad pos=%d [0-%d]\n", __FUNCTION__, pos, NUM_CAS_RS);
-		return;
+		return -EINVAL;
 	}
-	priv->cas_replies++;
+	if(chan1 < 0 || chan1 > xpd->channels) {
+		XPD_NOTICE(xpd, "%s: %s CAS: Bad chan1 number (%d)\n",
+			__FUNCTION__,
+			pri_protocol_name(priv->pri_protocol),
+			chan1);
+		return -EINVAL;
+	}
+	if(chan2 < 0 || chan2 > xpd->channels) {
+		XPD_NOTICE(xpd, "%s: %s CAS: Bad chan2 number (%d)\n",
+			__FUNCTION__,
+			pri_protocol_name(priv->pri_protocol),
+			chan2);
+		return -EINVAL;
+	}
 	if(priv->cas_rs_e[pos] != data_low) {
 		int	old1 = (priv->cas_rs_e[pos] >> 4) & 0xF;
 		int	old2 = priv->cas_rs_e[pos] & 0xF;
@@ -1561,7 +1719,7 @@ static void process_cas_dchan(xpd_t *xpd, byte regnum, byte data_low)
 		int	new2 = data_low & 0xF;
 
 		XPD_DBG(SIGNAL, xpd, "RBS: RX: RS%02d (channel %2d, channel %2d): 0x%02X -> 0x%02X\n",
-			rsnum, chan1+1, chan2+1, priv->cas_rs_e[pos], data_low);
+				rsnum, chan1+1, chan2+1, priv->cas_rs_e[pos], data_low);
 		if(SPAN_REGISTERED(xpd)) {
 			if(old1 != new1)
 				dahdi_rbsbits(XPD_CHAN(xpd, chan1), new1);
@@ -1571,9 +1729,121 @@ static void process_cas_dchan(xpd_t *xpd, byte regnum, byte data_low)
 		priv->dchan_rx_counter++;
 		priv->cas_rs_e[pos] = data_low;
 	} else {
+#if 0
 		XPD_DBG(SIGNAL, xpd, "RBS: RX: RS%02d (channel %2d, channel %2d): REPEAT 0x%02X\n",
 			rsnum, chan1+1, chan2+1, priv->cas_rs_e[pos]);
+#endif
 	}
+	return 0;
+}
+
+static int decode_cas_t1(xpd_t *xpd, byte regnum, byte data_low)
+{
+	struct PRI_priv_data	*priv;
+	uint			rsnum;
+	uint			chan_per_reg;
+	uint			width;
+	int			i;
+
+	priv = xpd->priv;
+	BUG_ON(!priv->is_cas);
+	BUG_ON(priv->pri_protocol != PRI_PROTO_T1);
+	rsnum = regnum - REG_RS1_E;
+	if(rsnum < 0 || rsnum >= 12) {
+		XPD_ERR(xpd, "Bad rsnum=%d\n", rsnum);
+		return 0;
+	}
+	if(!priv->is_esf)
+		rsnum = rsnum % 6;	/* 2 identical banks of 6 registers */
+	chan_per_reg = CHAN_PER_REGS(priv);
+	width = 8 / chan_per_reg;
+	if(priv->cas_rs_e[rsnum] == data_low) {
+#if 0
+		XPD_DBG(SIGNAL, xpd, "RBS: RX: RS%02d: REPEAT 0x%02X\n",
+			rsnum+1, data_low);
+#endif
+		return 0;
+	}
+	XPD_DBG(SIGNAL, xpd,
+		"RBS: RX(%s,%d): RS%02d data_low=0x%02X\n",
+		(priv->is_esf) ? "esf" : "d4",
+		chan_per_reg,
+		rsnum+1, data_low);
+	for(i = 0; i < chan_per_reg; i++) {
+		uint			rxsig = (data_low >> (i * width)) & BITMASK(width);
+		int			pos;
+		struct dahdi_chan	*chan;
+
+		if (!priv->is_esf)
+			rxsig <<= 2;
+		pos = rsnum * chan_per_reg + chan_per_reg - i - 1;
+		if(pos < 0 || pos >= xpd->channels) {
+			XPD_ERR(xpd, "%s: Bad pos=%d\n", __FUNCTION__, pos);
+			continue;
+		}
+		chan = XPD_CHAN(xpd, pos);
+		if(!chan) {
+			XPD_ERR(xpd, "%s: Null channel in pos=%d\n", __FUNCTION__, pos);
+			continue;
+		}
+		if(chan->rxsig != rxsig) {
+			LINE_DBG(SIGNAL, xpd, pos, "i=%d rxsig=0x%02X\n", i, rxsig);
+			dahdi_rbsbits(chan, rxsig);
+		}
+	}
+	priv->cas_rs_e[rsnum] = data_low;
+	return 0;
+}
+
+static void process_cas_dchan(xpd_t *xpd, byte regnum, byte data_low)
+{
+	struct PRI_priv_data	*priv;
+
+	priv = xpd->priv;
+	if(!priv->is_cas) {
+		static int	rate_limit;
+
+		if((rate_limit++ % 10003) == 0)
+			XPD_NOTICE(xpd, "RBS: RX: not in CAS mode. Ignore.\n");
+		return;
+	}
+	if(!priv->layer1_up) {
+		static int	rate_limit;
+
+		if((rate_limit++ % 10003) == 0)
+			XPD_NOTICE(xpd, "RBS: RX: No layer1. Ignore.\n");
+		return;
+	}
+	if(!SPAN_REGISTERED(xpd)) {
+		static int	rate_limit;
+
+		if((rate_limit++ % 10003) == 0)
+			XPD_DBG(SIGNAL, xpd, "RBS: RX: Span not registered. Ignore.\n");
+		return;
+	}
+	if(priv->pri_protocol == PRI_PROTO_E1) {
+		if(regnum < REG_RS2_E) {
+			XPD_NOTICE(xpd,
+				"%s: received register 0x%X in protocol %s. Ignore\n",
+				__FUNCTION__, regnum, pri_protocol_name(priv->pri_protocol));
+			return;
+		}
+		if(decode_cas_e1(xpd, regnum, data_low) < 0)
+			return;
+	} else if(priv->pri_protocol == PRI_PROTO_T1) {
+		if(regnum > REG_RS12_E) {
+			XPD_NOTICE(xpd,
+				"%s: received register 0x%X in protocol %s. Ignore\n",
+				__FUNCTION__, regnum, pri_protocol_name(priv->pri_protocol));
+			return;
+		}
+		if(decode_cas_t1(xpd, regnum, data_low) < 0)
+			return;
+	} else {
+		XPD_NOTICE(xpd, "%s: protocol %s is not supported yet with CAS\n",
+			__FUNCTION__, pri_protocol_name(priv->pri_protocol));
+	}
+	priv->cas_replies++;
 }
 
 static int PRI_card_register_reply(xbus_t *xbus, xpd_t *xpd, reg_cmd_t *info)
@@ -1612,7 +1882,7 @@ static int PRI_card_register_reply(xbus_t *xbus, xpd_t *xpd, reg_cmd_t *info)
 	else if(regnum == REG_FRS1 && !REG_FIELD(info, do_subreg))
 		priv->reg_frs1 = data_low;
 	if(priv->is_cas && !REG_FIELD(info, do_subreg)) {
-		if(regnum >= REG_RS2_E && regnum <= REG_RS16_E) {
+		if(regnum >= REG_RS1_E && regnum <= REG_RS16_E) {
 			process_cas_dchan(xpd, regnum, data_low);
 		}
 	}
@@ -1643,7 +1913,6 @@ static xproto_table_t PROTO_TABLE(PRI) = {
 		.card_remove	= PRI_card_remove,
 		.card_dahdi_preregistration	= PRI_card_dahdi_preregistration,
 		.card_dahdi_postregistration	= PRI_card_dahdi_postregistration,
-		.card_hooksig	= PRI_card_hooksig,
 		.card_tick	= PRI_card_tick,
 		.card_pcm_recompute	= generic_card_pcm_recompute,
 		.card_pcm_fromspan	= PRI_card_pcm_fromspan,
