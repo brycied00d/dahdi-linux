@@ -51,8 +51,25 @@ BEGIN { $init_dir = dirname($0); unshift(@INC, "$init_dir"); }
 use XppConfig $init_dir;
 my $unit_id;
 my %opts;
+$Getopt::Std::STANDARD_HELP_VERSION = 1;
+our $VERSION = '$Id$';
 
-getopts('o:v:', \%opts);
+sub usage() {
+	print <<"EOF";
+$0 [-L] [-v verify_file] [-o output_file]
+	-L: List all available opermodes and exit
+	-v: verify opermodes and exit
+	-o: simulate: output to file instead of astribank
+EOF
+	exit 1;
+}
+
+sub HELP_MESSAGE() {
+	eval {usage};
+	return 0;
+}
+
+getopts('Lo:v:', \%opts) || usage;
 
 my %settings;
 $settings{debug} = 0;
@@ -282,6 +299,11 @@ sub opermode_to_string($) {
 	return join(" ", @params);
 }
 
+sub opermode_list() {
+	my $l = join("\n", sort keys %opermode_table);
+	print "$l\n";
+}
+
 sub opermode_verify($) {
 	my $input = shift or die;
 	my %verification_table;
@@ -339,6 +361,7 @@ sub read_defaults() {
 		my $o = $settings{opermode};
 		if(defined($o)) {
 			# Verify
+			$o = uc($o);	# Uppercase
 			my $mode = $opermode_table{$o};
 			if(! defined $mode) {
 				main::logit "Unknown opermode='$o'";
@@ -358,10 +381,13 @@ FXO::opermode_preprocess;	# Must be first
 
 if($opts{v}) {
 	my $verify_file = $opts{v};
-	die "Usage: $0 [-v verify_filename]\n" unless $verify_file;
+	usage unless $verify_file;
 	main::debug "$0: opermode verification (input='$verify_file')";
 	my $mismatches = FXO::opermode_verify($verify_file);
 	die "$0: Verification against $verify_file failed\n" if $mismatches != 0;
+	exit 0;
+} elsif($opts{L}) {
+	FXO::opermode_list();
 	exit 0;
 }
 
