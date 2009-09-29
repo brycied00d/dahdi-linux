@@ -452,6 +452,8 @@ static void pri_pcm_update(xpd_t *xpd)
 	struct PRI_priv_data	*priv;
 	int			channels = xpd->channels;
 	xpp_line_t		mask = BITMASK(xpd->channels);
+	uint			pcm_len;
+	unsigned long		flags;
 
 	priv = xpd->priv;
 	if(priv->is_cas) {
@@ -459,8 +461,10 @@ static void pri_pcm_update(xpd_t *xpd)
 		channels--;
 		mask &= ~BIT(PRI_DCHAN_IDX(priv));
 	}
-	xpd->pcm_len = RPACKET_HEADERSIZE + sizeof(xpp_line_t)  +  channels * DAHDI_CHUNKSIZE;
-	xpd->wanted_pcm_mask = mask;
+	pcm_len = RPACKET_HEADERSIZE + sizeof(xpp_line_t)  +  channels * DAHDI_CHUNKSIZE;
+	spin_lock_irqsave(&xpd->lock_recompute_pcm, flags);
+	update_wanted_pcm_mask(xpd, mask, pcm_len);
+	spin_unlock_irqrestore(&xpd->lock_recompute_pcm, flags);
 }
 
 /*
