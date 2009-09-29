@@ -103,6 +103,7 @@ void		xbus_pcm_shutdown(void);
 int		send_pcm_frame(xbus_t *xbus, xframe_t *xframe);
 void		pcm_recompute(xpd_t *xpd, xpp_line_t tmp_pcm_mask);
 void		xframe_receive_pcm(xbus_t *xbus, xframe_t *xframe);
+void		update_wanted_pcm_mask(xpd_t *xpd, xpp_line_t new_mask, uint new_pcm_len);
 void		generic_card_pcm_recompute(xbus_t *xbus, xpd_t *xpd, xpp_line_t pcm_mask);
 void		generic_card_pcm_fromspan(xbus_t *xbus, xpd_t *xpd, xpacket_t *pack);
 void		generic_card_pcm_tospan(xbus_t *xbus, xpd_t *xpd, xpacket_t *pack);

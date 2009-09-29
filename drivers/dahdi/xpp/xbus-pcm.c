@@ -605,6 +605,17 @@ void elect_syncer(const char *msg)
 }
 
 /*
+ * This function should be called with the xpd already locked
+ */
+void update_wanted_pcm_mask(xpd_t *xpd, xpp_line_t new_mask, uint new_pcm_len)
+{
+	xpd->pcm_len = new_pcm_len;
+	xpd->wanted_pcm_mask = new_mask;
+	XPD_DBG(SIGNAL, xpd, "pcm_len=%d wanted_pcm_mask=0x%X\n",
+		xpd->pcm_len, xpd->wanted_pcm_mask);
+}
+
+/*
  * This function is used by FXS/FXO. The pcm_mask argument signifies
  * channels which should be *added* to the automatic calculation.
  * Normally, this argument is 0.
@@ -614,6 +625,7 @@ void generic_card_pcm_recompute(xbus_t *xbus, xpd_t *xpd, xpp_line_t pcm_mask)
 	int		i;
 	int		line_count = 0;
 	unsigned long	flags;
+	uint		pcm_len;
 
 	spin_lock_irqsave(&xpd->lock_recompute_pcm, flags);
 	//XPD_DBG(SIGNAL, xpd, "pcm_mask=0x%X\n", pcm_mask);
@@ -633,12 +645,10 @@ void generic_card_pcm_recompute(xbus_t *xbus, xpd_t *xpd, xpp_line_t pcm_mask)
 		pcm_mask = BIT(0);
 		line_count = 1;
 	}
-	xpd->pcm_len = (line_count)
+	pcm_len = (line_count)
 		? RPACKET_HEADERSIZE + sizeof(xpp_line_t) + line_count * DAHDI_CHUNKSIZE
 		: 0L;
-	xpd->wanted_pcm_mask = pcm_mask;
-	XPD_DBG(SIGNAL, xpd, "pcm_len=%d wanted_pcm_mask=0x%X\n",
-		xpd->pcm_len, xpd->wanted_pcm_mask);
+	update_wanted_pcm_mask(xpd, pcm_mask, pcm_len);
 	spin_unlock_irqrestore(&xpd->lock_recompute_pcm, flags);
 }
 
@@ -1258,6 +1268,7 @@ EXPORT_SYMBOL(elect_syncer);
 #ifdef	DAHDI_SYNC_TICK
 EXPORT_SYMBOL(dahdi_sync_tick);
 #endif
+EXPORT_SYMBOL(update_wanted_pcm_mask);
 EXPORT_SYMBOL(generic_card_pcm_recompute);
 EXPORT_SYMBOL(generic_card_pcm_tospan);
 EXPORT_SYMBOL(generic_card_pcm_fromspan);

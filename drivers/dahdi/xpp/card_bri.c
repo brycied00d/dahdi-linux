@@ -1280,6 +1280,7 @@ void BRI_card_pcm_recompute(xbus_t *xbus, xpd_t *xpd, xpp_line_t dont_care)
 	int		i;
 	int		line_count;
 	xpp_line_t	pcm_mask;
+	uint		pcm_len;
 	xpd_t		*main_xpd;
 	unsigned long	flags;
 
@@ -1309,8 +1310,7 @@ void BRI_card_pcm_recompute(xbus_t *xbus, xpd_t *xpd, xpp_line_t dont_care)
 			}
 			/* subunits have fake pcm_len and wanted_pcm_mask */
 			if(i > 0) {
-				sub_xpd->pcm_len = 0;
-				sub_xpd->wanted_pcm_mask = lines;
+				update_wanted_pcm_mask(sub_xpd, lines, 0);
 			}
 		}
 	}
@@ -1325,13 +1325,10 @@ void BRI_card_pcm_recompute(xbus_t *xbus, xpd_t *xpd, xpp_line_t dont_care)
 	/*
 	 * The main unit account for all subunits (pcm_len and wanted_pcm_mask).
 	 */
-	main_xpd->pcm_len = (line_count)
+	pcm_len = (line_count)
 		? RPACKET_HEADERSIZE + sizeof(xpp_line_t) + line_count * DAHDI_CHUNKSIZE
 		: 0L;
-	main_xpd->wanted_pcm_mask = pcm_mask;
-	XPD_DBG(SIGNAL, main_xpd, "pcm_len=%d wanted_pcm_mask=0x%X (%s)\n",
-		main_xpd->pcm_len, main_xpd->wanted_pcm_mask,
-		xpd->xpdname);
+	update_wanted_pcm_mask(main_xpd, pcm_mask, pcm_len);
 	spin_unlock_irqrestore(&main_xpd->lock_recompute_pcm, flags);
 }
 
