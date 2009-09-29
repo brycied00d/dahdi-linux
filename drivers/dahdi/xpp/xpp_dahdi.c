@@ -940,6 +940,12 @@ static int xpp_hooksig(struct dahdi_chan *chan, enum dahdi_txsig txsig)
 			__FUNCTION__, pos);
 		return -ENODEV;
 	}
+	if(!xpd->xops->card_hooksig) {
+		LINE_ERR(xpd, pos,
+			"%s: No hooksig method for this channel. Ignore.\n",
+			__FUNCTION__);
+		return -ENODEV;
+	}
 	xbus = xpd->xbus;
 	BUG_ON(!xbus);
 	DBG(SIGNAL, "Setting %s to %s (%d)\n", chan->name, txsig2str(txsig), txsig);
@@ -1082,7 +1088,8 @@ int dahdi_register_xpd(xpd_t *xpd)
 	span->open = xpp_open;
 	span->close = xpp_close;
 	span->flags = DAHDI_FLAG_RBS;
-	span->hooksig = xpp_hooksig;	/* Only with RBS bits */
+	if(xops->card_hooksig)
+		span->hooksig = xpp_hooksig;	/* Only with RBS bits */
 	span->ioctl = xpp_ioctl;
 	span->maint = xpp_maint;
 	/*
