@@ -150,24 +150,25 @@ sub init_quad() {
 }
 
 sub finish_quad() {
-	PRI::gen "0 WD BB FF"; 		# REGFP
-	PRI::gen "0 WD BC AC"; 		# REGFD
+	PRI::gen "0 WD BB 2C"; 		# REGFP
+	PRI::gen "0 WD BC FF"; 		# REGFD
+	PRI::gen "0 WD BB AC"; 		# REGFP
 	PRI::gen "0 WD BB 2B"; 		# REGFP
 	PRI::gen "0 WD BC 00"; 		# REGFD
 	PRI::gen "0 WD BB AB"; 		# REGFP
-	PRI::gen "0 WD BC 2A"; 		# REGFD
-	PRI::gen "0 WD BB FF"; 		# REGFP
-	PRI::gen "0 WD BC AA"; 		# REGFD
+	PRI::gen "0 WD BB 2A"; 		# REGFP
+	PRI::gen "0 WD BC FF"; 		# REGFD
+	PRI::gen "0 WD BB AA"; 		# REGFP
 	PRI::gen "0 WD BB 29"; 		# REGFP
 	PRI::gen "0 WD BC FF"; 		# REGFD
 	PRI::gen "0 WD BB A9"; 		# REGFP
-	PRI::gen "0 WD BC 28"; 		# REGFD
-	PRI::gen "0 WD BB 00"; 		# REGFP
-	PRI::gen "0 WD BC A8"; 		# REGFD
+	PRI::gen "0 WD BB 28"; 		# REGFP
+	PRI::gen "0 WD BC 00"; 		# REGFD
+	PRI::gen "0 WD BB A8"; 		# REGFP
 	PRI::gen "0 WD BB 27"; 		# REGFP
 	PRI::gen "0 WD BC FF"; 		# REGFD
 	PRI::gen "0 WD BB A7"; 		# REGFP
-	PRI::gen "0 WD BC 00"; 		# REGFD
+	PRI::gen "0 WD BB 00"; 		# REGFP
 
 #	PRI::gen "0 WD 80 00"; 	# PC1 (Port configuration 1): RPB_1.SYPR           , XPB_1.SYPX
 }
@@ -291,10 +292,10 @@ sub port_setup($) {
 					#       clock on RCLK.*/
 
 	PRI::gen "$portno WD 22 00"; 	# XC0: (Transmit Counter Offset = 497/T=2)
-	PRI::gen "$portno WD 23 04"; 	# XC1: 
+	PRI::gen "$portno WD 23 04"; 	# XC1: X=4  => T=4-X=0 offset
 
 	PRI::gen "$portno WD 24 00"; 	# RC0: (Receive  Counter Offset = 497/T=2)
-	PRI::gen "$portno WD 25 05"; 	# RC1: 
+	PRI::gen "$portno WD 25 05"; 	# RC1: Remaining part of RC0
 
 	my $sic2 = sprintf("%x", 0x00 | ($portno << 1));
 
@@ -312,14 +313,7 @@ sub port_setup($) {
 	PRI::gen "$portno WD 02 00"; 	# CMDR
 
 
-	#  Configure interrupts
-	PRI::gen "$portno WD 46 40";	# GCR: Interrupt on Activation/Deactivation of AIX, LOS
-								
 	PRI::gen "$portno WD 45 00";	# CMR2: External sources for SYPR, SCLKR, SYPX, SCLKX for TX and RX.
-	#PRI::gen "$portno WD 22 00";	# XC0: Normal operation of Sa-bits
-	#PRI::gen "$portno WD 23 04";	# XC1: X=4  => T=4-X=0 offset
-	#PRI::gen "$portno WD 24 00";	# RC0: 0 offset
-	#PRI::gen "$portno WD 25 00";	# RC1: Remaining part of RC0
 
 	#  Configure ports
 	PRI::gen "$portno WD 85 80";		# GPC1 (Global Port Configuration 1):
@@ -328,7 +322,6 @@ sub port_setup($) {
 	PRI::gen "$portno WD 80 00";	# PC1: SYPR/SYPX provided to RPA/XPA inputs
 
 	PRI::gen "$portno WD 84 31";	# PC5: XMFS active low, SCLKR is input, RCLK is output (unused)
-	PRI::gen "$portno WD 86 03";	# PC6: CLK1 is Tx Clock output, CLK2 is 8.192 Mhz from DCO-R
 	PRI::gen "$portno WD 3B 00";	# Clear LCR1 - Loop Code Register 1
 
 	#  printk("TE110P: Successfully initialized serial bus for card\n");
