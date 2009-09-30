@@ -1738,7 +1738,7 @@ static void echocan_free(struct dahdi_chan *chan, struct dahdi_echocan_state *ec
 			       unit, channel);
 		wctdm_vpm_out(wc, unit, channel, 0x01);
 	} else if (wc->vpmadt032) {
-		vpmadt032_echocan_free(wc->vpmadt032, chan, ec);
+		vpmadt032_echocan_free(wc->vpmadt032, chan->chanpos - 1, ec);
 	}
 }
 

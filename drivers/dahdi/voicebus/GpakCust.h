@@ -145,7 +145,7 @@ struct vpmadt032 *vpmadt032_alloc(struct vpmadt032_options *options,
 void vpmadt032_free(struct vpmadt032 *vpm);
 int vpmadt032_echocan_create(struct vpmadt032 *vpm, int channo,
 	struct dahdi_echocanparams *ecp, struct dahdi_echocanparam *p);
-void vpmadt032_echocan_free(struct vpmadt032 *vpm, struct dahdi_chan *chan,
+void vpmadt032_echocan_free(struct vpmadt032 *vpm, int channo,
 	struct dahdi_echocan_state *ec);
 
 struct GpakEcanParms;
