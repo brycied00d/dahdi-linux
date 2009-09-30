@@ -138,11 +138,6 @@ typedef unsigned char		byte;
 #define	DRIVER_ATTR_READER(name,drv,buf)	\
 		ssize_t name(struct device_driver *drv, char * buf)
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,26)
-#define dev_name(dev)		(dev)->bus_id
-#define dev_set_name(dev, format, ...) \
-	snprintf((dev)->bus_id, BUS_ID_SIZE, format, ## __VA_ARGS__);
-#endif
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,30)
 #define	SET_PROC_DIRENTRY_OWNER(p)	do { (p)->owner = THIS_MODULE; } while(0);
 #else
