@@ -1166,7 +1166,7 @@ static void echocan_free(struct dahdi_chan *chan, struct dahdi_echocan_state *ec
 	if (!wc->vpmadt032)
 		return;
 
-	vpmadt032_echocan_free(wc->vpmadt032, chan, ec);
+	vpmadt032_echocan_free(wc->vpmadt032, chan->chanpos - 1, ec);
 }
 
 static void set_span_devicetype(struct t1 *wc)

@@ -370,10 +370,9 @@ int vpmadt032_echocan_create(struct vpmadt032 *vpm, int channo,
 }
 EXPORT_SYMBOL(vpmadt032_echocan_create);
 
-void vpmadt032_echocan_free(struct vpmadt032 *vpm, struct dahdi_chan *chan,
+void vpmadt032_echocan_free(struct vpmadt032 *vpm, int channo,
 	struct dahdi_echocan_state *ec)
 {
-	int channo = chan->chanpos - 1;
 	adt_lec_init_defaults(&vpm->desiredecstate[channo], 0);
 	vpm->desiredecstate[channo].nlp_type = vpm->options.vpmnlptype;
 	vpm->desiredecstate[channo].nlp_threshold = vpm->options.vpmnlpthresh;
