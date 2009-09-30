@@ -85,6 +85,12 @@
 #endif
 #endif
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,26)
+#define dev_name(dev)		(dev)->bus_id
+#define dev_set_name(dev, format, ...) \
+	snprintf((dev)->bus_id, BUS_ID_SIZE, format, ## __VA_ARGS__);
+#endif
+
 /*! Default chunk size for conferences and such -- static right now, might make
    variable sometime.  8 samples = 1 ms = most frequent service interval possible
    for a USB device */
