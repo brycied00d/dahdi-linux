@@ -29,8 +29,10 @@
 
 static inline void adt_lec_init_defaults(struct adt_lec_params *params, __u32 tap_length)
 {
-	memset(params, 0, sizeof(*params));
 	params->tap_length = tap_length;
+	params->nlp_type = 0;
+	params->nlp_max_suppress = 0;
+	params->nlp_threshold = 0;
 }
 
 static int adt_lec_parse_params(struct adt_lec_params *params,

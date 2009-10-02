@@ -311,18 +311,7 @@ void setchanconfig_from_state(struct vpmadt032 *vpm, int channel, GpakChannelCon
 	chanconfig->MuteToneB = Disabled;
 	chanconfig->FaxCngDetB = Disabled;
 
-	switch (vpm->span->deflaw) {
-	case DAHDI_LAW_MULAW:
-		chanconfig->SoftwareCompand = cmpPCMU;
-		break;
-	case DAHDI_LAW_ALAW:
-		chanconfig->SoftwareCompand = cmpPCMA;
-		break;
-	default:
-		chanconfig->SoftwareCompand = cmpPCMU;
-		break;
-	}
-		
+	chanconfig->SoftwareCompand = (vpm->desiredecstate[channel].companding = ADT_COMP_ALAW) ? cmpPCMA : cmpPCMU;
 	chanconfig->FrameRate = rate2ms;
 	p = &chanconfig->EcanParametersA;
 
@@ -337,7 +326,7 @@ void setchanconfig_from_state(struct vpmadt032 *vpm, int channel, GpakChannelCon
 		sizeof(chanconfig->EcanParametersB));
 }
 
-static int config_vpmadt032(struct vpmadt032 *vpm)
+static int config_vpmadt032(struct vpmadt032 *vpm, struct wctdm *wc)
 {
 	int res, i;
 	GpakPortConfig_t portconfig = {0};
@@ -426,11 +415,12 @@ static int config_vpmadt032(struct vpmadt032 *vpm)
 		return -1;
 	}
 
-	for (i = 0; i < vpm->span->channels; ++i) {
+	for (i = 0; i < vpm->options.channels; ++i) {
 		vpm->curecstate[i].tap_length = 0;
 		vpm->curecstate[i].nlp_type = vpm->options.vpmnlptype;
 		vpm->curecstate[i].nlp_threshold = vpm->options.vpmnlpthresh;
 		vpm->curecstate[i].nlp_max_suppress = vpm->options.vpmnlpmaxsupp;
+		vpm->curecstate[i].companding = (wc->span.deflaw == DAHDI_LAW_MULAW) ? ADT_COMP_ULAW : ADT_COMP_ALAW;
 		memcpy(&vpm->desiredecstate[i], &vpm->curecstate[i], sizeof(vpm->curecstate[i]));
 
 		/* set_vpmadt032_chanconfig_from_state(&vpm->curecstate[i], &vpm->options, i, &chanconfig); !!! */
@@ -445,6 +435,11 @@ static int config_vpmadt032(struct vpmadt032 *vpm)
 		}
 
 		if ((res = gpakAlgControl(vpm->dspid, i, BypassEcanA, &algstatus))) {
+			printk(KERN_NOTICE "Unable to disable echo can on channel %d (reason %d:%d)\n", i + 1, res, algstatus);
+			return -1;
+		}
+
+		if ((res = gpakAlgControl(vpm->dspid, i, BypassSwCompanding, &algstatus))) {
 			printk(KERN_NOTICE "Unable to disable echo can on channel %d (reason %d:%d)\n", i + 1, res, algstatus);
 			return -1;
 		}
@@ -3679,7 +3674,7 @@ retry:
 
 		wc->vpmadt032->setchanconfig_from_state = setchanconfig_from_state;
 		wc->vpmadt032->context = wc;
-		wc->vpmadt032->span = &wc->span;
+		wc->vpmadt032->options.channels = wc->span.channels;
 		get_default_portconfig(&portconfig);
 		res = vpmadt032_init(wc->vpmadt032, wc->vb);
 		/* In case there was an error while we were loading the VPM module. */
@@ -3696,7 +3691,7 @@ retry:
 
 		/* Now we need to configure the VPMADT032 module for this
 		 * particular board. */
-		res = config_vpmadt032(wc->vpmadt032);
+		res = config_vpmadt032(wc->vpmadt032, wc);
 		if (res) {
 			vpmadt032_free(wc->vpmadt032);
 			wc->vpmadt032 = NULL;

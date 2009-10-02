@@ -108,7 +108,6 @@ struct GpakChannelConfig;
 #define MAX_CHANNELS_PER_SPAN 32
 struct vpmadt032 {
 	void *context;
-	const struct dahdi_span *span;
 	struct work_struct work;
 	struct workqueue_struct *wq;
 	int dspid;
