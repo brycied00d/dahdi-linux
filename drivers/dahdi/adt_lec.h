@@ -32,11 +32,17 @@ enum adt_lec_nlp_type {
 	ADT_LEC_SUPPRESS,
 };
 
+enum adt_companding {
+	ADT_COMP_ULAW = 0,
+	ADT_COMP_ALAW,
+};
+
 struct adt_lec_params {
 	__u32 tap_length;
 	enum adt_lec_nlp_type nlp_type;
 	__u32 nlp_threshold;
 	__u32 nlp_max_suppress;
+	enum adt_companding companding;
 };
 
 #endif /* _ADT_LEC_H */

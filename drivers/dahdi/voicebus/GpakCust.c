@@ -218,13 +218,10 @@ static int vpmadt032_enable_ec(struct vpmadt032 *vpm, int channel)
 	GPAK_AlgControlStat_t pstatus;
 	GpakAlgCtrl_t control;
 
-	if (vpm->span) {
-		control = (DAHDI_LAW_ALAW == vpm->span->deflaw) ?
-				EnableALawSwCompanding :
-				EnableMuLawSwCompanding;
-	} else {
-		control = EnableMuLawSwCompanding;
-	}
+ 	control = (ADT_COMP_ALAW == vpm->desiredecstate[channel].companding) ?
+ 			EnableALawSwCompanding :
+ 			EnableMuLawSwCompanding;
+ 
 	if (vpm->options.debug & DEBUG_ECHOCAN) {
 		const char *law;
 		law = (control == EnableMuLawSwCompanding) ? "MuLaw" : "ALaw";
@@ -282,7 +279,7 @@ static void vpmadt032_bh(struct work_struct *data)
 	 * looking for ones where the desired state does not match the current
 	 * state.
 	 */
-	for (channel = 0; channel < vpm->span->channels; channel++) {
+	for (channel = 0; channel < vpm->options.channels; channel++) {
 		GPAK_AlgControlStat_t pstatus;
 		int res = 1;
 		curstate = &vpm->curecstate[channel];
