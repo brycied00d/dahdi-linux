@@ -1668,7 +1668,7 @@ static void timer_work_func(struct work_struct *work)
 {
 	struct t1 *wc = container_of(work, struct t1, timer_work);
 #endif
-	/* Called once every 100ms */
+	/* Called once every 200 ms */
 	if (unlikely(!test_bit(INITIALIZED, &wc->bit_flags)))
 		return;
 	t1_do_counters(wc);
