@@ -311,7 +311,7 @@ void setchanconfig_from_state(struct vpmadt032 *vpm, int channel, GpakChannelCon
 	chanconfig->MuteToneB = Disabled;
 	chanconfig->FaxCngDetB = Disabled;
 
-	chanconfig->SoftwareCompand = (vpm->desiredecstate[channel].companding = ADT_COMP_ALAW) ? cmpPCMA : cmpPCMU;
+	chanconfig->SoftwareCompand = (vpm->desiredecstate[channel].companding == ADT_COMP_ALAW) ? cmpPCMA : cmpPCMU;
 	chanconfig->FrameRate = rate2ms;
 	p = &chanconfig->EcanParametersA;
 
