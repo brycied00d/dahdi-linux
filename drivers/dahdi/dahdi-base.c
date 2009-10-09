@@ -45,6 +45,7 @@
 #include <linux/ctype.h>
 #include <linux/kmod.h>
 #include <linux/moduleparam.h>
+#include <linux/sched.h>
 #include <linux/list.h>
 
 #include <linux/ppp_defs.h>
