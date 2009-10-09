@@ -208,8 +208,6 @@ struct csm_encaps_hdr {
 #define DRING_MASK (DRING_SIZE-1)
 #define MIN_PACKET_LEN  64
 
-#undef USE_CUSTOM_MEMCACHE
-
 /* Transcoder buffer (tcb) */
 struct tcb {
 	void *data;
@@ -233,9 +231,6 @@ struct tcb {
 	/* The number of bytes available in data. */
 	int data_len;
 	spinlock_t lock;
-#ifdef USE_CUSTOM_MEMCACHE
-	u32 sentinel;
-#endif
 };
 
 static inline const struct csm_encaps_hdr *
@@ -252,75 +247,7 @@ initialize_cmd(struct tcb *cmd, unsigned long cmd_flags)
 	init_completion(&cmd->complete);
 	cmd->flags = cmd_flags;
 	spin_lock_init(&cmd->lock);
-#ifdef USE_CUSTOM_MEMCACHE
-	cmd->sentinel = 0xdeadbeef;
-#endif
 }
-
-#ifdef USE_CUSTOM_MEMCACHE
-
-struct my_cache {
-	atomic_t outstanding_count;
-	spinlock_t lock;
-	struct list_head free;
-};
-
-static struct tcb *my_cache_alloc(struct my_cache *c, gfp_t alloc_flags)
-{
-	unsigned long flags;
-	struct tcb *cmd;
-	spin_lock_irqsave(&c->lock, flags);
-	if (!list_empty(&c->free)) {
-		cmd = list_entry(c->free.next, struct tcb, node);
-		list_del_init(&cmd->node);
-		spin_unlock_irqrestore(&c->lock, flags);
-	} else {
-		spin_unlock_irqrestore(&c->lock, flags);
-		cmd = kmalloc(sizeof(*cmd), alloc_flags);
-	}
-	atomic_inc(&c->outstanding_count);
-	return cmd;
-}
-
-static void my_cache_free(struct my_cache *c, struct tcb *cmd)
-{
-	unsigned long flags;
-	spin_lock_irqsave(&c->lock, flags);
-	list_add_tail(&cmd->node, &c->free);
-	spin_unlock_irqrestore(&c->lock, flags);
-	atomic_dec(&c->outstanding_count);
-}
-
-static struct my_cache *my_cache_create(void)
-{
-	struct my_cache *c;
-	c = kzalloc(sizeof(*c), GFP_KERNEL);
-	if (!c)
-		return NULL;
-	spin_lock_init(&c->lock);
-	INIT_LIST_HEAD(&c->free);
-	return c;
-}
-
-static int my_cache_destroy(struct my_cache *c)
-{
-	struct tcb *cmd;
-	if (atomic_read(&c->outstanding_count)) {
-		DTE_DEBUG(DTE_DEBUG_GENERAL,"Leaked %d commands.\n",
-			atomic_read(&c->outstanding_count));
-	}
-	while (!list_empty(&c->free)) {
-		cmd = list_entry(c->free.next, struct tcb, node);
-		list_del_init(&cmd->node);
-		kfree(cmd);
-	}
-	kfree(c);
-	return 0;
-}
-
-static struct my_cache *cmd_cache;
-
-#else
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 20)
 /*! Used to allocate commands to submit to the dte. */
@@ -329,8 +256,6 @@ kmem_cache_t *cmd_cache;
 /*! Used to allocate commands to submit to the dte. */
 static struct kmem_cache *cmd_cache;
 #endif
-
-#endif /* USE_CUSTOM_MEMCACHE */
 
 static inline struct tcb *
 __alloc_cmd(size_t size, gfp_t alloc_flags, unsigned long cmd_flags)
@@ -341,11 +266,7 @@ __alloc_cmd(size_t size, gfp_t alloc_flags, unsigned long cmd_flags)
 		return NULL;
 	if (size < MIN_PACKET_LEN)
 		size = MIN_PACKET_LEN;
-#ifdef USE_CUSTOM_MEMCACHE
-	cmd = my_cache_alloc(cmd_cache, alloc_flags);
-#else
 	cmd = kmem_cache_alloc(cmd_cache, alloc_flags);
-#endif
 	if (likely(cmd)) {
 		memset(cmd, 0, sizeof(*cmd));
 		cmd->data = kzalloc(size, alloc_flags);
@@ -370,11 +291,7 @@ __free_cmd(struct tcb *cmd)
 {
 	if (cmd)
 		kfree(cmd->data);
-#ifdef USE_CUSTOM_MEMCACHE
-	my_cache_free(cmd_cache, cmd);
-#else
 	kmem_cache_free(cmd_cache, cmd);
-#endif
 	return;
 }
 
@@ -1522,9 +1439,6 @@ _send_trans_connect_cmd(struct wcdte *wc, struct tcb *cmd, u16 enable, u16
 
 	/* Let's check the response for any error codes.... */
 	if (0x0000 != response_header(cmd)->params[0]) {
-#ifdef USE_CUSTOM_MEMCACHE
-		WARN_ON(0xdeadbeef != cmd->response->sentinel);
-#endif
 		WARN_ON(1);
 		return -EIO;
 	}
@@ -3741,9 +3655,6 @@ static int __init wctc4xxp_init(void)
 	cache_flags = SLAB_HWCACHE_ALIGN;
 #endif
 
-#ifdef USE_CUSTOM_MEMCACHE
-	cmd_cache = my_cache_create();
-#else
 #	if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 23)
 	cmd_cache = kmem_cache_create(THIS_MODULE->name, sizeof(struct tcb),
 			0, cache_flags, NULL, NULL);
@@ -3751,7 +3662,6 @@ static int __init wctc4xxp_init(void)
 	cmd_cache = kmem_cache_create(THIS_MODULE->name, sizeof(struct tcb),
 			0, cache_flags, NULL);
 #	endif
-#endif
 
 	if (!cmd_cache)
 		return -ENOMEM;
@@ -3759,11 +3669,7 @@ static int __init wctc4xxp_init(void)
 	INIT_LIST_HEAD(&wctc4xxp_list);
 	res = dahdi_pci_module(&wctc4xxp_driver);
 	if (res) {
-#ifdef USE_CUSTOM_MEMCACHE
-		my_cache_destroy(cmd_cache);
-#else
 		kmem_cache_destroy(cmd_cache);
-#endif
 		return -ENODEV;
 	}
 	return 0;
@@ -3772,11 +3678,7 @@ static int __init wctc4xxp_init(void)
 static void __exit wctc4xxp_cleanup(void)
 {
 	pci_unregister_driver(&wctc4xxp_driver);
-#ifdef USE_CUSTOM_MEMCACHE
-	my_cache_destroy(cmd_cache);
-#else
 	kmem_cache_destroy(cmd_cache);
-#endif
 }
 
 module_param(debug, int, S_IRUGO | S_IWUSR);
