@@ -5637,6 +5637,14 @@ static int dahdi_ioctl(struct inode *inode, struct file *file, unsigned int cmd,
 	return dahdi_chan_ioctl(inode, file, cmd, data, unit);
 }
 
+
+/**
+ * dahdi_register() - Unregister a new DAHDI span
+ * @span               The DAHDI span
+ *
+ * Registers a span for usage with DAHDI. All the channel numbers in it
+ * will get the lowest available channel numbers.
+ */
 int dahdi_register(struct dahdi_span *span, int prefmaster)
 {
 	int x;
@@ -5723,6 +5731,14 @@ int dahdi_register(struct dahdi_span *span, int prefmaster)
 	return 0;
 }
 
+
+/**
+ * dahdi_unregister() - Unregister a DAHDI span
+ * @span               The DAHDI span
+ *
+ * Unregisters a span that has been previously registered with
+ * dahdi_register().
+ */
 int dahdi_unregister(struct dahdi_span *span)
 {
 	int x;
@@ -6681,6 +6697,16 @@ static void __dahdi_hooksig_pvt(struct dahdi_chan *chan, enum dahdi_rxsig rxsig)
 	}
 }
 
+/**
+ * dahdi_hooksig() - send a signal on a channel to userspace
+ * @chan               The DAHDI channel
+ * @rxsig              Signal (number) to send
+ *
+ * Called from a channel driver to send a DAHDI signal to userspace.
+ * The signal will be queued for delivery to userspace.
+ *
+ * If the signal is the same as previous one sent, it won't be re-sent.
+ */
 void dahdi_hooksig(struct dahdi_chan *chan, enum dahdi_rxsig rxsig)
 {
 	  /* skip if no change */
@@ -6690,6 +6716,14 @@ void dahdi_hooksig(struct dahdi_chan *chan, enum dahdi_rxsig rxsig)
 	spin_unlock_irqrestore(&chan->lock, flags);
 }
 
+
+/**
+ * dahdi_rbsbits() - set Rx RBS bits on the channel
+ * @chan               The DAHDI channel
+ * @cursig              The bits to set
+ *
+ * Set the channel's rxsig and act accordingly.
+ */
 void dahdi_rbsbits(struct dahdi_chan *chan, int cursig)
 {
 	unsigned long flags;
