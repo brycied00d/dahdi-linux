@@ -64,7 +64,7 @@ ROOT_PREFIX:=
 ASCIIDOC:=asciidoc
 ASCIIDOC_CMD:=$(ASCIIDOC) -n -a toc -a toclevels=4
 
-GENERATED_DOCS:=README.html
+GENERATED_DOCS:=README.html dahdi-api.html
 
 ifneq ($(wildcard .version),)
   DAHDIVERSION:=$(shell cat .version)
@@ -239,6 +239,9 @@ docs: $(GENERATED_DOCS)
 
 README.html: README
 	$(ASCIIDOC_CMD) -o $@ $<
+
+dahdi-api.html: drivers/dahdi/dahdi-base.c
+	build_tools/kernel-doc --kernel $(KSRC) $^ >$@
 
 .PHONY: distclean dist-clean clean all install devices modules stackcheck install-udev update install-modules install-include uninstall-modules firmware-download install-xpp-firm firmware-loaders
 
