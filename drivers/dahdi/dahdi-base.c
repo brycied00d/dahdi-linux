@@ -1205,7 +1205,7 @@ static void release_echocan(const struct dahdi_echocan_factory *ec)
 		module_put(ec->owner);
 }
 
-/** 
+/* 
  * close_channel - close the channel, resetting any channel variables
  * @chan: the dahdi_chan to close
  *
@@ -3405,6 +3405,24 @@ static int dahdi_release(struct inode *inode, struct file *file)
 #endif
 
 
+/**
+ * dahdi_alarm_channel() - notify userspace channel is (not) in alarm
+ * @chan:	the DAHDI channel
+ * @alarms:	alarm bits set
+ *
+ * Notify userspace about a change in alarm status of this channel.
+ * 
+ * Note that channel drivers should only use this function directly if
+ * they have a single port per channel. Whole-span alarms should be sent
+ * using dahdi_alarm_notify() .
+ *
+ * Does nothing if alarms on the channel have not changed. If they have,
+ * triggers sending either DAHDI_EVENT_NOALARM (if they were cleared) or
+ * DAHDI_EVENT_ALARM (otherwise).
+ *
+ * Currently it is only used by drivers of FXO ports to notify (with a
+ * red alarm) they have no battery current.
+ */
 void dahdi_alarm_channel(struct dahdi_chan *chan, int alarms)
 {
 	unsigned long flags;
@@ -5639,11 +5657,17 @@ static int dahdi_ioctl(struct inode *inode, struct file *file, unsigned int cmd,
 
 
 /**
- * dahdi_register() - Unregister a new DAHDI span
- * @span               The DAHDI span
+ * dahdi_register() - unregister a new DAHDI span
+ * @span:	the DAHDI span
+ * @prefmaster:	will the new span be preffered as a master?
  *
  * Registers a span for usage with DAHDI. All the channel numbers in it
  * will get the lowest available channel numbers.
+ *
+ * If prefmaster is set to anything > 0, span will attempt to become the
+ * master DAHDI span at registration time. If 0: it will only become
+ * master if no other span is currently the master (i.e.: it is the
+ * first one).
  */
 int dahdi_register(struct dahdi_span *span, int prefmaster)
 {
@@ -5733,8 +5757,8 @@ int dahdi_register(struct dahdi_span *span, int prefmaster)
 
 
 /**
- * dahdi_unregister() - Unregister a DAHDI span
- * @span               The DAHDI span
+ * dahdi_unregister() - unregister a DAHDI span
+ * @span:	the DAHDI span
  *
  * Unregisters a span that has been previously registered with
  * dahdi_register().
@@ -6699,8 +6723,8 @@ static void __dahdi_hooksig_pvt(struct dahdi_chan *chan, enum dahdi_rxsig rxsig)
 
 /**
  * dahdi_hooksig() - send a signal on a channel to userspace
- * @chan               The DAHDI channel
- * @rxsig              Signal (number) to send
+ * @chan:	the DAHDI channel
+ * @rxsig:	signal (number) to send
  *
  * Called from a channel driver to send a DAHDI signal to userspace.
  * The signal will be queued for delivery to userspace.
@@ -6719,10 +6743,11 @@ void dahdi_hooksig(struct dahdi_chan *chan, enum dahdi_rxsig rxsig)
 
 /**
  * dahdi_rbsbits() - set Rx RBS bits on the channel
- * @chan               The DAHDI channel
- * @cursig              The bits to set
+ * @chan:	the DAHDI channel
+ * @cursig:	the bits to set
  *
- * Set the channel's rxsig and act accordingly.
+ * Set the channel's rxsig (recieved: from device to userspace) and act
+ * accordingly.
  */
 void dahdi_rbsbits(struct dahdi_chan *chan, int cursig)
 {
@@ -6896,11 +6921,30 @@ static inline void __dahdi_ec_chunk(struct dahdi_chan *ss, unsigned char *rxchun
 	spin_unlock_irqrestore(&ss->lock, flags);
 }
 
+/**
+ * dahdi_ec_chunk() - process echo for a single channel
+ * @ss:		DAHDI channel
+ * @rxchunk:	chunk of audio on which to cancel echo
+ * @txchunk:	reference chunk from the other direction
+ *
+ * The echo canceller function fixes recieved (from device to userspace)
+ * audio. In order to fix it it uses the transmitted audio as a
+ * reference. This call updates the echo canceller for a single chunk (8
+ * bytes).
+ */
 void dahdi_ec_chunk(struct dahdi_chan *ss, unsigned char *rxchunk, const unsigned char *txchunk)
 {
 	__dahdi_ec_chunk(ss, rxchunk, txchunk);
 }
 
+/**
+ * dahdi_ec_span() - process echo for all channels in a span.
+ * @span:	DAHDI span
+ *
+ * Similar to calling dahdi_ec_chunk() for each of the channels in the
+ * span. Uses dahdi_chunk.write_chunk for the rxchunk (the chunk to fix)
+ * and dahdi_chan.readchunk as the txchunk (the reference chunk).
+ */
 void dahdi_ec_span(struct dahdi_span *span)
 {
 	int x;
