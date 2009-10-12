@@ -28,6 +28,7 @@
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/errno.h>
+#include <linux/sched.h>
 #include <linux/proc_fs.h>
 #ifdef	PROTOCOL_DEBUG
 #include <linux/ctype.h>

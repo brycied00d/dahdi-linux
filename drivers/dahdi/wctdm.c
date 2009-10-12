@@ -31,6 +31,7 @@
 #include <linux/pci.h>
 #include <linux/interrupt.h>
 #include <linux/moduleparam.h>
+#include <linux/sched.h>
 #include <asm/io.h>
 #include "proslic.h"
 

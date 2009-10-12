@@ -41,6 +41,7 @@ Tx Gain - W/Pre-Emphasis: -23.99 to 0.00 db
 #include <linux/init.h>
 #include <linux/errno.h>
 #include <linux/pci.h>
+#include <linux/sched.h>
 #include <linux/interrupt.h>
 #include <linux/workqueue.h>
 #include <linux/delay.h>
