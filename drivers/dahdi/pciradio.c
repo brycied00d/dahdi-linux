@@ -51,6 +51,7 @@ With driver:	303826  (1.5 %)
 #include <linux/pci.h>
 #include <linux/interrupt.h>
 #include <linux/moduleparam.h>
+#include <linux/sched.h>
 #include <asm/io.h>
 #include <asm/delay.h> 
 
