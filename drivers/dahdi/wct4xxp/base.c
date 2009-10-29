@@ -167,7 +167,9 @@ static int t1e1override = -1; //0xFF; // -1 = jumper; 0xFF = E1
 static int j1mode = 0;
 static int sigmode = FRMR_MODE_NO_ADDR_CMP;
 static int loopback = 0;
-static int alarmdebounce = 0;
+static int alarmdebounce = 2500; /* LOF/LFA defaults to 2.5s AT&T TR54016*/
+static int losalarmdebounce = 2500;/* LOS defaults to 2.5s AT&T TR54016*/
+static int aisalarmdebounce = 2500;/* AIS(blue) defaults to 2.5s AT&T TR54016*/
 #ifdef VPM_SUPPORT
 static int vpmsupport = 1;
 /* If set to auto, vpmdtmfsupport is enabled for VPM400M and disabled for VPM450M */
@@ -250,6 +252,8 @@ struct t4_span {
 	int redalarms;
 	int notclear;
 	int alarmcount;
+	int losalarmcount;
+	int aisalarmcount;
 	int spanflags;
 	int syncpos;
 #ifdef SUPPORT_GEN1
@@ -1910,7 +1914,7 @@ static void __t4_configure_t1(struct t4 *wc, int unit, int lineconfig, int txlev
 	else
 		mytxlevel = txlevel - 4;
 	fmr1 = 0x9c; /* FMR1: Mode 1, T1 mode, CRC on for ESF, 8.192 Mhz system data rate, no XAIS */
-	fmr2 = 0x22; /* FMR2: no payload loopback, auto send yellow alarm */
+	fmr2 = 0x20; /* FMR2: no payload loopback, don't auto yellow */
 	if (loopback)
 		fmr2 |= 0x4;
 	fmr4 = 0x0c; /* FMR4: Lose sync on 2 out of 5 framing bits, auto resync */
@@ -2552,15 +2556,41 @@ static void t4_check_alarms(struct t4 *wc, int span)
 			alarms |= DAHDI_ALARM_NOTOPEN;
 	}
 
-	if (c & 0xa0) {
-		if (ts->alarmcount >= alarmdebounce) 
+	if (c & 0x20) { /* LOF/LFA */
+		if (ts->alarmcount >= alarmdebounce)
 			alarms |= DAHDI_ALARM_RED;
-		else
+		else {
+			if (!ts->alarmcount) /* starting to debounce LOF/LFA */
+				printk(KERN_INFO "wct%dxxp: LOF/LFA detected on span %d but debouncing for %d ms\n", 
+					wc->numspans, span + 1, alarmdebounce);
 			ts->alarmcount++;
+		}
 	} else
 		ts->alarmcount = 0;
-	if (c & 0x4)
-		alarms |= DAHDI_ALARM_BLUE;
+
+	if (c & 0x80) { /* LOS */
+		if (ts->losalarmcount >= losalarmdebounce)
+			alarms |= DAHDI_ALARM_RED;
+		else {
+			if (!ts->losalarmcount) /* starting to debounce LOS */
+				printk(KERN_INFO "wct%dxxp: LOS detected on span %d but debouncing for %d ms\n", 
+					wc->numspans, span + 1, losalarmdebounce);
+			ts->losalarmcount++;
+		}
+	} else
+		ts->losalarmcount = 0;
+
+	if (c & 0x40) { /* AIS */
+		if (ts->aisalarmcount >= aisalarmdebounce)
+			alarms |= DAHDI_ALARM_BLUE;
+		else {
+			if (!ts->aisalarmcount) /* starting to debounce AIS */
+				printk(KERN_INFO "wct%dxxp: AIS detected on span %d but debouncing for %d ms\n", 
+					wc->numspans, span + 1, aisalarmdebounce);
+			ts->aisalarmcount++;
+		}
+	} else
+		ts->aisalarmcount = 0;
 
 	if (((!ts->span.alarms) && alarms) || 
 	    (ts->span.alarms && (!alarms))) 
@@ -2612,7 +2642,8 @@ static void t4_do_counters(struct t4 *wc)
 		int docheck=0;
 
 		spin_lock(&wc->reglock);
-		if (ts->loopupcnt || ts->loopdowncnt || ts->alarmcount)
+		if (ts->loopupcnt || ts->loopdowncnt || ts->alarmcount 
+			|| ts->losalarmcount || ts->aisalarmcount)
 			docheck++;
 
 		if (ts->alarmtimer) {
@@ -2637,7 +2668,7 @@ static inline void __handle_leds(struct t4 *wc)
 	for (x=0;x<wc->numspans;x++) {
 		struct t4_span *ts = wc->tspans[x];
 		if (ts->span.flags & DAHDI_FLAG_RUNNING) {
-			if (ts->span.alarms & (DAHDI_ALARM_RED | DAHDI_ALARM_BLUE)) {
+			if ((ts->span.alarms & (DAHDI_ALARM_RED | DAHDI_ALARM_BLUE)) || ts->losalarmcount) {
 #ifdef FANCY_ALARM
 				if (wc->blinktimer == (altab[wc->alarmpos] >> 1)) {
 					__t4_set_led(wc, x, WC_RED);
@@ -3936,6 +3967,8 @@ module_param(noburst, int, 0600);
 module_param(timingcable, int, 0600);
 module_param(t1e1override, int, 0600);
 module_param(alarmdebounce, int, 0600);
+module_param(losalarmdebounce, int, 0600);
+module_param(aisalarmdebounce, int, 0600);
 module_param(j1mode, int, 0600);
 module_param(sigmode, int, 0600);
 #ifdef VPM_SUPPORT
