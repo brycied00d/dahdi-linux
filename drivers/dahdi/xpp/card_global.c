@@ -402,7 +402,7 @@ int chip_proc_create(xbus_t *xbus, xpd_t *xpd)
 		XPD_ERR(xpd, "Failed to create proc file '%s'\n", CHIP_REGISTERS);
 		goto err;
 	}
-	SET_PROC_DIRENTRY_OWNER(priv->proc_xpd_chipregs);
+	SET_PROC_DIRENTRY_OWNER(xpd->proc_xpd_chipregs);
 	xpd->proc_xpd_chipregs->write_proc = proc_xpd_register_write;
 	xpd->proc_xpd_chipregs->read_proc = proc_xpd_register_read;
 	xpd->proc_xpd_chipregs->data = xpd;
