@@ -105,6 +105,9 @@ struct t1 {
 	} flags;
 	unsigned char txsigs[16];  /* Copy of tx sig registers */
 	int alarmcount;			/* How much red alarm we've seen */
+	int losalarmcount;
+	int aisalarmcount;
+	int yelalarmcount;
 	char *variety;
 	char name[80];
 	unsigned long blinktimer;
