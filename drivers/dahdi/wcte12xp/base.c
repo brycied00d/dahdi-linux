@@ -1472,18 +1472,6 @@ static inline void t1_check_alarms(struct t1 *wc)
 		if (!j)
 			alarms |= DAHDI_ALARM_NOTOPEN;
 	}
-#if 0
-	if (c & 0xa0) {
-		if (wc->alarmcount >= alarmdebounce) {
-			if (!unchannelized)
-				alarms |= DAHDI_ALARM_RED;
-		} else
-			wc->alarmcount++;
-	} else
-		wc->alarmcount = 0;
-	if (c & 0x4)
-		alarms |= DAHDI_ALARM_BLUE;
-#endif
 
 	if (c & 0x20) { /* LOF/LFA */
 		if (wc->alarmcount >= (alarmdebounce/100))
