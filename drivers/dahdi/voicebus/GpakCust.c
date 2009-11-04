@@ -561,7 +561,7 @@ void vpmadt032_get_default_parameters(struct GpakEcanParms *p)
 	p->EcanDblTalkThresh = 6;
 	p->EcanMaxDoubleTalkThres = 40;
 	p->EcanNlpThreshold = DEFAULT_NLPTHRESH;
-	p->EcanNlpConv = 0;
+	p->EcanNlpConv = 18;
 	p->EcanNlpUnConv = 12;
 	p->EcanNlpMaxSuppress = DEFAULT_NLPMAXSUPP;
 	p->EcanCngThreshold = 43;
