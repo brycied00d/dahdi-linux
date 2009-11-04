@@ -53,7 +53,10 @@ struct pci_driver te12xp_driver;
 
 int debug = 0;
 static int j1mode = 0;
-static int alarmdebounce = 0;
+static int alarmdebounce = 2500; /* LOF/LFA def to 2.5s AT&T TR54016*/
+static int losalarmdebounce = 2500; /* LOS def to 2.5s AT&T TR54016*/
+static int aisalarmdebounce = 2500; /* AIS(blue) def to 2.5s AT&T TR54016*/
+static int yelalarmdebounce = 500; /* RAI(yellow) def to 0.5s AT&T devguide */
 static int loopback = 0;
 static int t1e1override = -1;
 static int unchannelized = 0;
@@ -712,7 +715,7 @@ static void t1_configure_t1(struct t1 *wc, int lineconfig, int txlevel)
 	else
 		mytxlevel = txlevel - 4;
 	fmr1 = 0x9e; /* FMR1: Mode 0, T1 mode, CRC on for ESF, 2.048 Mhz system data rate, no XAIS */
-	fmr2 = 0x22; /* FMR2: no payload loopback, auto send yellow alarm */
+	fmr2 = 0x20; /* FMR2: no payload loopback, don't auto yellow alarm */
 	if (loopback)
 		fmr2 |= 0x4;
 
@@ -1469,7 +1472,7 @@ static inline void t1_check_alarms(struct t1 *wc)
 		if (!j)
 			alarms |= DAHDI_ALARM_NOTOPEN;
 	}
-
+#if 0
 	if (c & 0xa0) {
 		if (wc->alarmcount >= alarmdebounce) {
 			if (!unchannelized)
@@ -1480,6 +1483,43 @@ static inline void t1_check_alarms(struct t1 *wc)
 		wc->alarmcount = 0;
 	if (c & 0x4)
 		alarms |= DAHDI_ALARM_BLUE;
+#endif
+
+	if (c & 0x20) { /* LOF/LFA */
+		if (wc->alarmcount >= (alarmdebounce/100))
+			alarms |= DAHDI_ALARM_RED;
+		else {
+			if (!wc->alarmcount) /* starting to debounce LOF/LFA */
+				module_printk("LOF/LFA detected but \
+					debouncing for %d ms\n", alarmdebounce);
+			wc->alarmcount++;
+		}
+	} else
+		wc->alarmcount = 0;
+
+	if (c & 0x80) { /* LOS */
+		if (wc->losalarmcount >= (losalarmdebounce/100))
+			alarms |= DAHDI_ALARM_RED;
+		else {
+			if (!wc->losalarmcount) /* starting to debounce LOS */
+				module_printk("LOS detected but debouncing \
+					for %d ms\n", losalarmdebounce);
+			wc->losalarmcount++;
+		}
+	} else
+		wc->losalarmcount = 0;
+
+	if (c & 0x40) { /* AIS */
+		if (wc->aisalarmcount >= (aisalarmdebounce/100))
+			alarms |= DAHDI_ALARM_BLUE;
+		else {
+			if (!wc->aisalarmcount) /* starting to debounce AIS */
+				module_printk("AIS detected but debouncing \
+					for %d ms\n", aisalarmdebounce);
+			wc->aisalarmcount++;
+		}
+	} else
+		wc->aisalarmcount = 0;
 
 	/* Keep track of recovering */
 	if ((!alarms) && wc->span.alarms) 
@@ -1500,9 +1540,24 @@ static inline void t1_check_alarms(struct t1 *wc)
 		t1_setreg(wc, 0x20, fmr4 & ~0x20);
 		wc->flags.sendingyellow = 0;
 	}
-	
+	/*
 	if ((c & 0x10) && !unchannelized)
 		alarms |= DAHDI_ALARM_YELLOW;
+	*/
+
+	if ((c & 0x10) && !unchannelized) { /* receiving yellow (RAI) */
+		if (wc->yelalarmcount >= (yelalarmdebounce/100))
+			alarms |= DAHDI_ALARM_YELLOW;
+		else {
+			if (!wc->yelalarmcount) /* starting to debounce AIS */
+				module_printk("yelllow (RAI) detected but \
+					debouncing for %d ms\n",
+					yelalarmdebounce);
+			wc->yelalarmcount++;
+		}
+	} else
+		wc->yelalarmcount = 0;
+
 	if (wc->span.mainttimer || wc->span.maintstat) 
 		alarms |= DAHDI_ALARM_LOOPBACK;
 	wc->span.alarms = alarms;
@@ -1668,13 +1723,13 @@ static void timer_work_func(struct work_struct *work)
 {
 	struct t1 *wc = container_of(work, struct t1, timer_work);
 #endif
-	/* Called once every 200 ms */
+	/* Called once every 100 ms */
 	if (unlikely(!test_bit(INITIALIZED, &wc->bit_flags)))
 		return;
 	t1_do_counters(wc);
 	t1_check_alarms(wc);
 	t1_check_sigbits(wc);
-	mod_timer(&wc->timer, jiffies + HZ/5);
+	mod_timer(&wc->timer, jiffies + HZ/10);
 }
 
 static void
@@ -1885,6 +1940,9 @@ module_param(loopback, int, S_IRUGO | S_IWUSR);
 module_param(t1e1override, int, S_IRUGO | S_IWUSR);
 module_param(j1mode, int, S_IRUGO | S_IWUSR);
 module_param(alarmdebounce, int, S_IRUGO | S_IWUSR);
+module_param(losalarmdebounce, int, S_IRUGO | S_IWUSR);
+module_param(aisalarmdebounce, int, S_IRUGO | S_IWUSR);
+module_param(yelalarmdebounce, int, S_IRUGO | S_IWUSR);
 module_param(latency, int, S_IRUGO | S_IWUSR);
 #ifdef VPM_SUPPORT
 module_param(vpmsupport, int, S_IRUGO | S_IWUSR);
