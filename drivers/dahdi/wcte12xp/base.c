@@ -1476,8 +1476,9 @@ static inline void t1_check_alarms(struct t1 *wc)
 			alarms |= DAHDI_ALARM_RED;
 		else {
 			if (!wc->alarmcount) /* starting to debounce LOF/LFA */
-				module_printk("LOF/LFA detected but \
-					debouncing for %d ms\n", alarmdebounce);
+				module_printk("LOF/LFA detected but "
+					"debouncing for %d ms\n",
+					alarmdebounce);
 			wc->alarmcount++;
 		}
 	} else
@@ -1488,8 +1489,8 @@ static inline void t1_check_alarms(struct t1 *wc)
 			alarms |= DAHDI_ALARM_RED;
 		else {
 			if (!wc->losalarmcount) /* starting to debounce LOS */
-				module_printk("LOS detected but debouncing \
-					for %d ms\n", losalarmdebounce);
+				module_printk("LOS detected but debouncing "
+					"for %d ms\n", losalarmdebounce);
 			wc->losalarmcount++;
 		}
 	} else
@@ -1500,8 +1501,8 @@ static inline void t1_check_alarms(struct t1 *wc)
 			alarms |= DAHDI_ALARM_BLUE;
 		else {
 			if (!wc->aisalarmcount) /* starting to debounce AIS */
-				module_printk("AIS detected but debouncing \
-					for %d ms\n", aisalarmdebounce);
+				module_printk("AIS detected but debouncing "
+					"for %d ms\n", aisalarmdebounce);
 			wc->aisalarmcount++;
 		}
 	} else
@@ -1536,8 +1537,8 @@ static inline void t1_check_alarms(struct t1 *wc)
 			alarms |= DAHDI_ALARM_YELLOW;
 		else {
 			if (!wc->yelalarmcount) /* starting to debounce AIS */
-				module_printk("yelllow (RAI) detected but \
-					debouncing for %d ms\n",
+				module_printk("yelllow (RAI) detected but "
+					"debouncing for %d ms\n",
 					yelalarmdebounce);
 			wc->yelalarmcount++;
 		}
