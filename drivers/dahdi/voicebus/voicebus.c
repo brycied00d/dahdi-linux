@@ -234,6 +234,7 @@ static inline void handle_transmit(struct voicebus *vb, void *vbb)
 #define IN_DEFERRED_PROCESSING		3
 #define STOP				4
 #define STOPPED				5
+#define LATENCY_LOCKED			6
 
 #if VOICEBUS_DEFERRED == WORKQUEUE
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 18)
@@ -465,6 +466,36 @@ voicebus_current_latency(struct voicebus *vb)
 	return latency;
 }
 EXPORT_SYMBOL(voicebus_current_latency);
+
+/**
+ * voicebus_lock_latency() - Do not increase the latency during underruns.
+ *
+ */
+void voicebus_lock_latency(struct voicebus *vb)
+{
+	set_bit(LATENCY_LOCKED, &vb->flags);
+}
+EXPORT_SYMBOL(voicebus_lock_latency);
+
+/**
+ * voicebus_unlock_latency() - Bump up the latency during underruns.
+ *
+ */
+void voicebus_unlock_latency(struct voicebus *vb)
+{
+	clear_bit(LATENCY_LOCKED, &vb->flags);
+}
+EXPORT_SYMBOL(voicebus_unlock_latency);
+
+/**
+ * voicebus_is_latency_locked() - Return 1 if latency is currently locked.
+ *
+ */
+int voicebus_is_latency_locked(const struct voicebus *vb)
+{
+	return test_bit(LATENCY_LOCKED, &vb->flags);
+}
+EXPORT_SYMBOL(voicebus_is_latency_locked);
 
 /*!
  * \brief Read one of the hardware control registers without acquiring locks.
@@ -1225,6 +1256,9 @@ vb_increase_latency(struct voicebus *vb, unsigned int increase)
 	if (0 == increase)
 		return;
 
+	if (test_bit(LATENCY_LOCKED, &vb->flags))
+		return;
+
 	if (unlikely(increase > VOICEBUS_MAXLATENCY_BUMP))
 		increase = VOICEBUS_MAXLATENCY_BUMP;
 
@@ -1385,7 +1419,6 @@ static void vb_deferred(struct voicebus *vb)
 	unsigned int i;
 	unsigned int idle_buffers;
 	int softunderrun;
-	unsigned int starting_latency;
 
 	int underrun = test_bit(TX_UNDERRUN, &vb->flags);
 
@@ -1448,7 +1481,6 @@ static void vb_deferred(struct voicebus *vb)
 	} else {
 		softunderrun = 0;
 		idle_buffers = 0;
-		starting_latency = 0;
 	}
 
 	/* Now we can process the completed non-idle buffers since we know at
@@ -1478,7 +1510,8 @@ static void vb_deferred(struct voicebus *vb)
 	 * descriptor ring. Otherwise it's possible to take so much time
 	 * printing the dmesg output that we lose the lead that we got on the
 	 * hardware, resulting in a hard underrun condition. */
-	if (unlikely(softunderrun) && printk_ratelimit()) {
+	if (unlikely(softunderrun &&
+	    !test_bit(LATENCY_LOCKED, &vb->flags) && printk_ratelimit())) {
 		if (vb->max_latency != vb->min_tx_buffer_count) {
 			dev_info(&vb->pdev->dev, "Missed interrupt. "
 				 "Increasing latency to %d ms in order to "
