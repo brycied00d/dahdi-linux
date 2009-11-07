@@ -1822,9 +1822,10 @@ voicebus_init(struct pci_dev *pdev, u32 framesize, const char *board_name,
 	vb_enable_io_access(vb);
 
 #if VOICEBUS_DEFERRED != TIMER
-	if (request_irq(pdev->irq, vb_isr, DAHDI_IRQ_SHARED, board_name,
-		vb)) {
-		BUG_ON(1);
+	retval = request_irq(pdev->irq, vb_isr, DAHDI_IRQ_SHARED,
+			     board_name, vb);
+	if (retval) {
+		dev_warn(&vb->pdev->dev, "Failed to request interrupt line.\n");
 		goto cleanup;
 	}
 #endif
