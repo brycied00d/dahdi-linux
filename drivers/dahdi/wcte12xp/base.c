@@ -493,7 +493,6 @@ static void cmd_dequeue_vpmadt032(struct t1 *wc, unsigned char *writechunk, int 
 			writechunk[CMD_BYTE(4, 2, 1)] = 0;
 		}
 	} else if (test_and_clear_bit(VPM150M_SWRESET, &vpm->control)) {
-		debug_printk(1, "Booting  VPMADT032\n");
 		for (x = 0; x < 7; x++) {
 			if (0 == x)  {
 				writechunk[CMD_BYTE(x, 0, 1)] = (0x8 << 4);
