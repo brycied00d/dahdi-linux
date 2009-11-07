@@ -139,8 +139,6 @@ struct voicebus_descriptor_list {
 /*!  * \brief Represents a VoiceBus interface on a Digium telephony card.
  */
 struct voicebus {
-	/*! Name of this card. */
-	const char *board_name;
 	/*! The system pci device for this VoiceBus interface. */
 	struct pci_dev *pdev;
 	/*! Protects access to card registers and this structure. You should
@@ -217,9 +215,6 @@ struct voicebus {
 #define VBLOCK_FROM_DEFERRED(_vb_) 	spin_lock(&((_vb_)->lock))
 #define VBUNLOCK_FROM_DEFERRED(_vb_)	spin_lock(&((_vb_)->lock))
 #endif
-
-#define VB_PRINTK(_vb, _lvl, _fmt, _args...) \
-	printk(KERN_##_lvl "%s: " _fmt, (_vb)->board_name, ## _args)
 
 /* Bit definitions for struct voicebus.flags */
 #define TX_UNDERRUN			1
@@ -358,10 +353,10 @@ voicebus_set_minlatency(struct voicebus *vb, unsigned int ms)
 	 */
 #define MESSAGE "%d ms is an invalid value for minumum latency.  Setting to %d ms.\n"
 	if (DRING_SIZE < ms) {
-		VB_PRINTK(vb, WARNING, MESSAGE, ms, DRING_SIZE);
+		dev_warn(&vb->pdev->dev, MESSAGE, ms, DRING_SIZE);
 		return -EINVAL;
 	} else if (VOICEBUS_DEFAULT_LATENCY > ms) {
-		VB_PRINTK(vb, WARNING, MESSAGE, ms, VOICEBUS_DEFAULT_LATENCY);
+		dev_warn(&vb->pdev->dev, MESSAGE, ms, VOICEBUS_DEFAULT_LATENCY);
 		return -EINVAL;
 	}
 	VBLOCK(vb);
@@ -620,11 +615,12 @@ vb_reset_interface(struct voicebus *vb)
 		pci_access = DEFAULT_PCI_ACCESS | (0x3 << 14);
 		break;
 	default:
-		if (atomic_read(&vb->debuglevel))
-			VB_PRINTK(vb, WARNING, "Host system set a cache size "\
-			 "of %d which is not supported. " \
-			 "Disabling memory write line and memory read line.\n",
-			 vb->cache_line_size);
+		if (atomic_read(&vb->debuglevel)) {
+			dev_warn(&vb->pdev->dev, "Host system set a cache "
+				 "size of %d which is not supported. "
+				 "Disabling memory write line and memory "
+				 "read line.\n", vb->cache_line_size);
+		}
 		pci_access = 0xfe584202;
 		break;
 	}
@@ -640,8 +636,8 @@ vb_reset_interface(struct voicebus *vb)
 	} while ((reg & 0x00000001) && time_before(jiffies, timeout));
 
 	if (reg & 0x00000001) {
-		VB_PRINTK(vb, ERR, "Hardware did not come out of reset "\
-		 "within 100ms!");
+		dev_warn(&vb->pdev->dev, "Hardware did not come out of reset "
+			 "within 100ms!");
 		return -EIO;
 	}
 
@@ -1045,9 +1041,8 @@ voicebus_stop(struct voicebus *vb)
 	if (vb_wait_for_completion_timeout(&vb->stopped_completion, HZ)) {
 		assert(vb_is_stopped(vb));
 	} else {
-		VB_PRINTK(vb, WARNING, "Timeout while waiting for board to "\
-			"stop.\n");
-
+		dev_warn(&vb->pdev->dev, "Timeout while waiting for board to "
+			 "stop.\n");
 
 		vb_clear_start_transmit_bit(vb);
 		vb_clear_start_receive_bit(vb);
@@ -1114,10 +1109,10 @@ __vb_increase_latency(struct voicebus *vb)
 			/* We must subtract two from this number since there
 			 * are always two buffers in the TX FIFO.
 			 */
-			VB_PRINTK(vb, ERR,
-				"ERROR: Unable to service card within %d ms "\
+			dev_err(&vb->pdev->dev,
+				"ERROR: Unable to service card within %d ms "
 				"and unable to further increase latency.\n",
-				DRING_SIZE-2);
+				DRING_SIZE - 2);
 			__warn_once = 0;
 		}
 	} else {
@@ -1129,9 +1124,9 @@ __vb_increase_latency(struct voicebus *vb)
 		 * set, then the hardware will set the TX descriptor not
 		 * available interrupt.
 		 */
-		VB_PRINTK(vb, INFO, "Missed interrupt. " \
+		dev_info(&vb->pdev->dev, "Missed interrupt. "
 			"Increasing latency to %d ms in order to compensate.\n",
-			latency+1);
+			latency + 1);
 		/* Set the minimum latency in case we're restarted...we don't
 		 * want to wait for the buffer to grow to this depth again in
 		 * that case.
@@ -1262,7 +1257,7 @@ vb_isr(int irq, void *dev_id)
 		}
 
 		if (int_status & FATAL_BUS_ERROR_INTERRUPT)
-			VB_PRINTK(vb, ERR, "Fatal Bus Error detected!\n");
+			dev_err(&vb->pdev->dev, "Fatal Bus Error detected!\n");
 
 		if (int_status & TX_STOPPED_INTERRUPT) {
 			assert(test_bit(STOP, &vb->flags));
@@ -1358,17 +1353,14 @@ voicebus_init(struct pci_dev *pdev, u32 framesize,
 	*vbp = NULL;
 	vb = kmalloc(sizeof(*vb), GFP_KERNEL);
 	if (NULL == vb) {
-		VB_PRINTK(vb, DEBUG, "Failed to allocate memory for voicebus "\
-			"interface.\n");
+		dev_dbg(&vb->pdev->dev, "Failed to allocate memory for "
+			"voicebus interface.\n");
 		retval = -ENOMEM;
 		goto cleanup;
 	}
 	memset(vb, 0, sizeof(*vb));
 	voicebus_setdebuglevel(vb, debuglevel);
-	/* \todo make sure there is a note that the caller needs to make sure
-	 * board_name stays in memory until voicebus_release is called.
-	 */
-	vb->board_name = board_name;
+
 	spin_lock_init(&vb->lock);
 	init_completion(&vb->stopped_completion);
 	vb->pdev = pdev;
@@ -1417,7 +1409,7 @@ voicebus_init(struct pci_dev *pdev, u32 framesize,
 				SLAB_HWCACHE_ALIGN, NULL);
 #endif
 	if (NULL == vb->buffer_cache) {
-		VB_PRINTK(vb, ERR, "Failed to allocate buffer cache.\n");
+		dev_err(&vb->pdev->dev, "Failed to allocate buffer cache.\n");
 		goto cleanup;
 	}
 
@@ -1426,13 +1418,13 @@ voicebus_init(struct pci_dev *pdev, u32 framesize,
 	   Configure the hardware / kernel module interfaces.
 	   ---------------------------------------------------------------- */
 	if (pci_read_config_byte(vb->pdev, 0x0c, &vb->cache_line_size)) {
-		VB_PRINTK(vb, ERR, "Failed read of cache line " \
-		 "size from PCI configuration space.\n");
+		dev_err(&vb->pdev->dev, "Failed read of cache line "
+			"size from PCI configuration space.\n");
 		goto cleanup;
 	}
 
 	if (pci_enable_device(pdev)) {
-		VB_PRINTK(vb, ERR, "Failed call to pci_enable_device.\n");
+		dev_err(&vb->pdev->dev, "Failed call to pci_enable_device.\n");
 		retval = -EIO;
 		goto cleanup;
 	}
@@ -1440,13 +1432,13 @@ voicebus_init(struct pci_dev *pdev, u32 framesize,
 	/* \todo This driver should be modified to use the memory mapped I/O
 	   as opposed to IO space for portability and performance. */
 	if (0 == (pci_resource_flags(pdev, 0)&IORESOURCE_IO)) {
-		VB_PRINTK(vb, ERR, "BAR0 is not IO Memory.\n");
+		dev_err(&vb->pdev->dev, "BAR0 is not IO Memory.\n");
 		retval = -EIO;
 		goto cleanup;
 	}
 	vb->iobase = pci_resource_start(pdev, 0);
 	if (NULL == request_region(vb->iobase, 0xff, board_name)) {
-		VB_PRINTK(vb, ERR, "IO Registers are in use by another " \
+		dev_err(&vb->pdev->dev, "IO Registers are in use by another "
 			"module.\n");
 		retval = -EIO;
 		goto cleanup;
@@ -1472,7 +1464,7 @@ voicebus_init(struct pci_dev *pdev, u32 framesize,
 #else
 #	define VB_IRQ_SHARED	IRQF_SHARED
 #endif
-	if (request_irq(pdev->irq, vb_isr, VB_IRQ_SHARED, vb->board_name,
+	if (request_irq(pdev->irq, vb_isr, VB_IRQ_SHARED, board_name,
 		vb)) {
 		assert(0);
 		goto cleanup;
@@ -1560,12 +1552,14 @@ int vpmadtreg_loadfirmware(struct voicebus *vb)
 			module_put(loader->owner);
 		} else {
 			spin_unlock(&loader_list_lock);
-			printk(KERN_INFO "Failed to find a registered loader after loading module.\n");
+			dev_info(&vb->pdev->dev, "Failed to find a "
+				 "registered loader after loading module.\n");
 			ret = -ENODEV;
 		}
 	} else {
 		spin_unlock(&loader_list_lock);
-		printk(KERN_INFO "Failed to find a registered loader after loading module.\n");
+		dev_info(&vb->pdev->dev, "Failed to find a registered "
+			 "loader after loading module.\n");
 		ret = -1;
 	}
 	return ret;
