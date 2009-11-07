@@ -108,7 +108,7 @@ struct t1 {
 	int losalarmcount;
 	int aisalarmcount;
 	int yelalarmcount;
-	char *variety;
+	const char *variety;
 	char name[80];
 	unsigned long blinktimer;
 	int loopupcnt;
