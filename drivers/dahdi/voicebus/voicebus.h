@@ -32,6 +32,8 @@
 struct voicebus;
 
 #define VOICEBUS_DEFAULT_LATENCY 3
+#define VOICEBUS_DEFAULT_MAXLATENCY 25
+#define VOICEBUS_MAXLATENCY_BUMP 6
 
 void voicebus_setdebuglevel(struct voicebus *vb, u32 level);
 int voicebus_getdebuglevel(struct voicebus *vb);
