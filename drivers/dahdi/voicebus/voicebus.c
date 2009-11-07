@@ -63,7 +63,7 @@
 #endif
 
 /*! The number of descriptors in both the tx and rx descriptor ring. */
-#define DRING_SIZE (1 << 5)  /* Must be a power of 2 */
+#define DRING_SIZE	(1 << 7)  /* Must be a power of 2 */
 #define DRING_MASK	(DRING_SIZE-1)
 
 /* Interrupt status' reported in SR_CSR5 */
@@ -110,10 +110,10 @@
 
 /* In memory structure shared by the host and the adapter. */
 struct voicebus_descriptor {
-	u32 des0;
-	u32 des1;
-	u32 buffer1;
-	u32 container; /* Unused */
+	volatile __le32 des0;
+	volatile __le32 des1;
+	volatile __le32 buffer1;
+	volatile __le32 container; /* Unused */
 } __attribute__((packed));
 
 struct voicebus_descriptor_list {
@@ -127,16 +127,20 @@ struct voicebus_descriptor_list {
 	void  		*pending[DRING_SIZE];
 	/* PCI Bus address of the descriptor list. */
 	dma_addr_t	desc_dma;
-	/*! either DMA_FROM_DEVICE or DMA_TO_DEVICE */
-	unsigned int 	direction;
 	/*! The number of buffers currently submitted to the hardware. */
 	atomic_t 	count;
 	/*! The number of bytes to pad each descriptor for cache alignment. */
 	unsigned int	padding;
 };
 
-
-/*!  * \brief Represents a VoiceBus interface on a Digium telephony card.
+/**
+ * struct voicebus -
+ *
+ * @tx_idle_vbb:
+ * @tx_idle_vbb_dma_addr:
+ * @max_latency: Do not allow the driver to automatically insert more than this
+ * 		 much latency to the tdm stream by default.
+ * @count:	The number of non-idle buffers that we should be expecting.
  */
 struct voicebus {
 	/*! The system pci device for this VoiceBus interface. */
@@ -152,6 +156,8 @@ struct voicebus {
 	/*! Pool to allocate memory for the tx and rx descriptor rings. */
 	struct voicebus_descriptor_list rxd;
 	struct voicebus_descriptor_list txd;
+	void 		*idle_vbb;
+	dma_addr_t	idle_vbb_dma_addr;
 	/*! Level of debugging information.  0=None, 5=Insane. */
 	atomic_t debuglevel;
 	/*! Cache of buffer objects. */
@@ -186,7 +192,15 @@ struct voicebus {
 	unsigned long flags;
 	/*! Number of tx buffers to queue up before enabling interrupts. */
 	unsigned int 	min_tx_buffer_count;
+	unsigned int	max_latency;
+	void		*vbb_stash[DRING_SIZE];
+	unsigned int	count;
 };
+
+static inline void handle_transmit(struct voicebus *vb, void *vbb)
+{
+	vb->handle_transmit(vbb, vb->context);
+}
 
 /*
  * Use the following macros to lock the VoiceBus interface, and it won't
@@ -275,7 +289,8 @@ stop_vb_deferred(struct voicebus *vb)
 #endif
 
 static inline struct voicebus_descriptor *
-vb_descriptor(struct voicebus_descriptor_list *dl, int index)
+vb_descriptor(const struct voicebus_descriptor_list *dl,
+	      const unsigned int index)
 {
 	struct voicebus_descriptor *d;
 	d = (struct voicebus_descriptor *)((u8*)dl->desc +
@@ -317,16 +332,55 @@ vb_initialize_descriptors(struct voicebus *vb, struct voicebus_descriptor_list *
 		d->des1 = des1;
 	}
 	d->des1 |= cpu_to_le32(END_OF_RING);
-	dl->direction = direction;
 	atomic_set(&dl->count, 0);
 	return 0;
 }
 
+#define OWNED(_d_) (((_d_)->des0)&OWN_BIT)
+#define SET_OWNED(_d_) do { wmb(); (_d_)->des0 |= OWN_BIT; wmb(); } while (0)
+
 static int
 vb_initialize_tx_descriptors(struct voicebus *vb)
 {
-	return vb_initialize_descriptors(
-		vb, &vb->txd, 0xe4800000 | vb->framesize, DMA_TO_DEVICE);
+	int i;
+	int des1 = 0xe4800000 | vb->framesize;
+	struct voicebus_descriptor *d;
+	struct voicebus_descriptor_list *dl = &vb->txd;
+	const u32 END_OF_RING = 0x02000000;
+
+	WARN_ON(!dl);
+	WARN_ON((NULL == vb->idle_vbb) || (0 == vb->idle_vbb_dma_addr));
+
+	/*
+	 * Add some padding to each descriptor to ensure that they are
+	 * aligned on host system cache-line boundaries, but only for the
+	 * cache-line sizes that we support.
+	 *
+	 */
+	if ((0x08 == vb->cache_line_size) || (0x10 == vb->cache_line_size) ||
+	    (0x20 == vb->cache_line_size)) {
+		dl->padding = (vb->cache_line_size*sizeof(u32)) - sizeof(*d);
+	} else {
+		dl->padding = 0;
+	}
+
+	dl->desc = pci_alloc_consistent(vb->pdev,
+					(sizeof(*d) + dl->padding) *
+					DRING_SIZE, &dl->desc_dma);
+	if (!dl->desc)
+		return -ENOMEM;
+
+	memset(dl->desc, 0, (sizeof(*d) + dl->padding) * DRING_SIZE);
+	for (i = 0; i < DRING_SIZE; ++i) {
+		d = vb_descriptor(dl, i);
+		d->des1 = des1;
+		d->buffer1 = vb->idle_vbb_dma_addr;
+		dl->pending[i] = vb->idle_vbb;
+		SET_OWNED(d);
+	}
+	d->des1 |= cpu_to_le32(END_OF_RING);
+	atomic_set(&dl->count, 0);
+	return 0;
 }
 
 static int
@@ -453,9 +507,37 @@ vb_is_stopped(struct voicebus *vb)
 }
 
 static void
-vb_cleanup_descriptors(struct voicebus *vb, struct voicebus_descriptor_list *dl)
+vb_cleanup_tx_descriptors(struct voicebus *vb)
 {
 	unsigned int i;
+	struct voicebus_descriptor_list *dl = &vb->txd;
+	struct voicebus_descriptor *d;
+
+	assert(vb_is_stopped(vb));
+
+	for (i = 0; i < DRING_SIZE; ++i) {
+		d = vb_descriptor(dl, i);
+		if (d->buffer1 && (d->buffer1 != vb->idle_vbb_dma_addr)) {
+			WARN_ON(!dl->pending[i]);
+			dma_unmap_single(&vb->pdev->dev, d->buffer1,
+					 vb->framesize, DMA_TO_DEVICE);
+			voicebus_free(vb, dl->pending[i]);
+		}
+		d->buffer1 = vb->idle_vbb_dma_addr;
+		dl->pending[i] = vb->idle_vbb;
+		SET_OWNED(d);
+	}
+	/* Send out two idle buffers to start because sometimes the first buffer
+	 * doesn't make it back to us. */
+	dl->head = dl->tail = 2;
+	atomic_set(&dl->count, 0);
+}
+
+static void
+vb_cleanup_rx_descriptors(struct voicebus *vb)
+{
+	unsigned int i;
+	struct voicebus_descriptor_list *dl = &vb->rxd;
 	struct voicebus_descriptor *d;
 
 	assert(vb_is_stopped(vb));
@@ -463,6 +545,8 @@ vb_cleanup_descriptors(struct voicebus *vb, struct voicebus_descriptor_list *dl)
 	for (i = 0; i < DRING_SIZE; ++i) {
 		d = vb_descriptor(dl, i);
 		if (d->buffer1) {
+			dma_unmap_single(&vb->pdev->dev, d->buffer1,
+					 vb->framesize, DMA_FROM_DEVICE);
 			d->buffer1 = 0;
 			assert(dl->pending[i]);
 			voicebus_free(vb, dl->pending[i]);
@@ -473,6 +557,15 @@ vb_cleanup_descriptors(struct voicebus *vb, struct voicebus_descriptor_list *dl)
 	dl->head = 0;
 	dl->tail = 0;
 	atomic_set(&dl->count, 0);
+}
+
+static void vb_cleanup_descriptors(struct voicebus *vb,
+				   struct voicebus_descriptor_list *dl)
+{
+	if (dl == &vb->txd)
+		vb_cleanup_tx_descriptors(vb);
+	else
+		vb_cleanup_rx_descriptors(vb);
 }
 
 static void
@@ -650,8 +743,8 @@ vb_initialize_interface(struct voicebus *vb)
 {
 	u32 reg;
 
-	vb_cleanup_descriptors(vb, &vb->txd);
-	vb_cleanup_descriptors(vb, &vb->rxd);
+	vb_cleanup_tx_descriptors(vb);
+	vb_cleanup_rx_descriptors(vb);
 
 	/* Pass bad packets, runt packets, disable SQE function,
 	 * store-and-forward */
@@ -684,12 +777,9 @@ vb_initialize_interface(struct voicebus *vb)
 	return ((reg&0x7) == 0x4) ? 0 : -EIO;
 }
 
-#define OWNED(_d_) (((_d_)->des0)&OWN_BIT)
-#define SET_OWNED(_d_) do { wmb(); (_d_)->des0 |= OWN_BIT; wmb(); } while (0)
-
 #ifdef DBG
 static void
-dump_descriptor(struct voicebus *vb, volatile struct voicebus_descriptor *d)
+dump_descriptor(struct voicebus *vb, struct voicebus_descriptor *d)
 {
 	VB_PRINTK(vb, DEBUG, "Displaying descriptor at address %08x\n", (unsigned int)d);
 	VB_PRINTK(vb, DEBUG, "   des0:      %08x\n", d->des0);
@@ -715,10 +805,44 @@ show_buffer(struct voicebus *vb, void *vbb)
 }
 #endif
 
-static inline int
-vb_submit(struct voicebus *vb, struct voicebus_descriptor_list *dl, void *vbb)
+/**
+ * voicebus_transmit - Queue a buffer on the hardware descriptor ring.
+ *
+ */
+int voicebus_transmit(struct voicebus *vb, void *vbb)
 {
-	volatile struct voicebus_descriptor *d;
+	struct voicebus_descriptor *d;
+	struct voicebus_descriptor_list *dl = &vb->txd;
+	assert_in_vb_deferred(vb);
+
+	d = vb_descriptor(dl, dl->tail);
+
+	if (unlikely(d->buffer1 != vb->idle_vbb_dma_addr)) {
+		if (printk_ratelimit())
+			dev_warn(&vb->pdev->dev, "Dropping tx buffer buffer\n");
+		voicebus_free(vb, vbb);
+		return -EFAULT;
+	}
+
+	dl->pending[dl->tail] = vbb;
+	dl->tail = (++(dl->tail)) & DRING_MASK;
+	d->buffer1 = dma_map_single(&vb->pdev->dev, vbb,
+				    vb->framesize, DMA_TO_DEVICE);
+	SET_OWNED(d); /* That's it until the hardware is done with it. */
+	atomic_inc(&dl->count);
+	return 0;
+}
+EXPORT_SYMBOL(voicebus_transmit);
+
+/*!
+ * \brief Give a frame to the hardware to use for receiving.
+ *
+ */
+static inline int
+vb_submit_rxb(struct voicebus *vb, void *vbb)
+{
+	struct voicebus_descriptor *d;
+	struct voicebus_descriptor_list *dl = &vb->rxd;
 	unsigned int tail = dl->tail;
 	assert_in_vb_deferred(vb);
 
@@ -733,53 +857,11 @@ vb_submit(struct voicebus *vb, struct voicebus_descriptor_list *dl, void *vbb)
 
 	dl->pending[tail] = vbb;
 	dl->tail = (++tail) & DRING_MASK;
-	d->buffer1 = dma_map_single(
-			&vb->pdev->dev, vbb, vb->framesize, dl->direction);
+	d->buffer1 = dma_map_single(&vb->pdev->dev, vbb,
+				    vb->framesize, DMA_FROM_DEVICE);
 	SET_OWNED(d); /* That's it until the hardware is done with it. */
 	atomic_inc(&dl->count);
 	return 0;
-}
-
-static inline void*
-vb_retrieve(struct voicebus *vb, struct voicebus_descriptor_list *dl)
-{
-	volatile struct voicebus_descriptor *d;
-	void *vbb;
-	unsigned int head = dl->head;
-	assert_in_vb_deferred(vb);
-	d = vb_descriptor(dl, head);
-	if (d->buffer1 && !OWNED(d)) {
-		dma_unmap_single(&vb->pdev->dev, d->buffer1,
-			vb->framesize, dl->direction);
-		vbb = dl->pending[head];
-		dl->head = (++head) & DRING_MASK;
-		d->buffer1 = 0;
-		atomic_dec(&dl->count);
-		return vbb;
-	} else {
-		return NULL;
-	}
-}
-
-/*!
- * \brief Give a frame to the hardware to transmit.
- *
- */
-int
-voicebus_transmit(struct voicebus *vb, void *vbb)
-{
-	return vb_submit(vb, &vb->txd, vbb);
-}
-EXPORT_SYMBOL(voicebus_transmit);
-
-/*!
- * \brief Give a frame to the hardware to use for receiving.
- *
- */
-static inline int
-vb_submit_rxb(struct voicebus *vb, void *vbb)
-{
-	return vb_submit(vb, &vb->rxd, vbb);
 }
 
 /*!
@@ -798,13 +880,48 @@ vb_submit_rxb(struct voicebus *vb, void *vbb)
 static inline void *
 vb_get_completed_txb(struct voicebus *vb)
 {
-	return vb_retrieve(vb, &vb->txd);
+	struct voicebus_descriptor_list *dl = &vb->txd;
+	struct voicebus_descriptor *d;
+	void *vbb;
+	unsigned int head = dl->head;
+	assert_in_vb_deferred(vb);
+	d = vb_descriptor(dl, head);
+
+	if (OWNED(d) || (d->buffer1 == vb->idle_vbb_dma_addr))
+		return NULL;
+
+	dma_unmap_single(&vb->pdev->dev, d->buffer1,
+			 vb->framesize, DMA_TO_DEVICE);
+
+	vbb = dl->pending[head];
+	dl->head = (++head) & DRING_MASK;
+	d->buffer1 = vb->idle_vbb_dma_addr;
+	SET_OWNED(d);
+	atomic_dec(&dl->count);
+	return vbb;
 }
 
 static inline void *
 vb_get_completed_rxb(struct voicebus *vb)
 {
-	return vb_retrieve(vb, &vb->rxd);
+	struct voicebus_descriptor *d;
+	struct voicebus_descriptor_list *dl = &vb->rxd;
+	unsigned int head = dl->head;
+	void *vbb;
+	assert_in_vb_deferred(vb);
+
+	d = vb_descriptor(dl, head);
+
+	if ((0 == d->buffer1) || OWNED(d))
+		return NULL;
+
+	dma_unmap_single(&vb->pdev->dev, d->buffer1,
+			 vb->framesize, DMA_FROM_DEVICE);
+	vbb = dl->pending[head];
+	dl->head = (++head) & DRING_MASK;
+	d->buffer1 = 0;
+	atomic_dec(&dl->count);
+	return vbb;
 }
 
 /*!
@@ -942,7 +1059,7 @@ voicebus_start(struct voicebus *vb)
 		if (unlikely(NULL == vbb))
 			BUG_ON(1);
 		else
-			vb->handle_transmit(vbb, vb->context);
+			handle_transmit(vb, vbb);
 
 	}
 	stop_vb_deferred(vb);
@@ -1086,6 +1203,10 @@ voicebus_release(struct voicebus *vb)
 	/* Cleanup memory and software resources. */
 	vb_free_descriptors(vb, &vb->txd);
 	vb_free_descriptors(vb, &vb->rxd);
+	if (vb->idle_vbb_dma_addr) {
+		dma_free_coherent(&vb->pdev->dev, vb->framesize,
+				  vb->idle_vbb, vb->idle_vbb_dma_addr);
+	}
 	kmem_cache_destroy(vb->buffer_cache);
 	release_region(vb->iobase, 0xff);
 	pci_disable_device(vb->pdev);
@@ -1094,102 +1215,294 @@ voicebus_release(struct voicebus *vb)
 EXPORT_SYMBOL(voicebus_release);
 
 static void
-__vb_increase_latency(struct voicebus *vb)
+vb_increase_latency(struct voicebus *vb, unsigned int increase)
 {
-	static int __warn_once = 1;
 	void *vbb;
-	int latency;
+	int i;
 
 	assert_in_vb_deferred(vb);
 
-	latency = atomic_read(&vb->txd.count);
-	if (DRING_SIZE == latency) {
-		if (__warn_once) {
-			/* We must subtract two from this number since there
-			 * are always two buffers in the TX FIFO.
-			 */
-			dev_err(&vb->pdev->dev,
-				"ERROR: Unable to service card within %d ms "
-				"and unable to further increase latency.\n",
-				DRING_SIZE - 2);
-			__warn_once = 0;
-		}
-	} else {
-		/* Because there are 2 buffers in the transmit FIFO on the
-		 * hardware, setting 3 ms of latency means that the host needs
-		 * to be able to service the cards within 1ms.  This is because
-		 * the interface will load up 2 buffers into the TX FIFO then
-		 * attempt to read the 3rd descriptor.  If the OWN bit isn't
-		 * set, then the hardware will set the TX descriptor not
-		 * available interrupt.
-		 */
-		dev_info(&vb->pdev->dev, "Missed interrupt. "
-			"Increasing latency to %d ms in order to compensate.\n",
-			latency + 1);
-		/* Set the minimum latency in case we're restarted...we don't
-		 * want to wait for the buffer to grow to this depth again in
-		 * that case.
-		 */
-		voicebus_set_minlatency(vb, latency+1);
+	if (0 == increase)
+		return;
+
+	if (unlikely(increase > VOICEBUS_MAXLATENCY_BUMP))
+		increase = VOICEBUS_MAXLATENCY_BUMP;
+
+	if ((increase + vb->min_tx_buffer_count) > vb->max_latency)
+		increase = vb->max_latency - vb->min_tx_buffer_count;
+
+	/* Because there are 2 buffers in the transmit FIFO on the hardware,
+	 * setting 3 ms of latency means that the host needs to be able to
+	 * service the cards within 1ms.  This is because the interface will
+	 * load up 2 buffers into the TX FIFO then attempt to read the 3rd
+	 * descriptor.  If the OWN bit isn't set, then the hardware will set the
+	 * TX descriptor not available interrupt. */
+
+	/* Set the minimum latency in case we're restarted...we don't want to
+	 * wait for the buffer to grow to this depth again in that case. */
+	for (i = 0; i < increase; ++i) {
 		vbb = voicebus_alloc(vb);
+		WARN_ON(NULL == vbb);
+		if (likely(NULL != vbb))
+			handle_transmit(vb, vbb);
+	}
 
-		if (unlikely(NULL == vbb))
-			BUG_ON(1);
-		else
-			vb->handle_transmit(vbb, vb->context);
+	/* Set the new latency (but we want to ensure that there aren't any
+	 * printks to the console, so we don't call the function) */
+	spin_lock(&vb->lock);
+	vb->min_tx_buffer_count += increase;
+	spin_unlock(&vb->lock);
+}
 
+static void vb_set_all_owned(struct voicebus *vb,
+			     struct voicebus_descriptor_list *dl)
+{
+	int i;
+	struct voicebus_descriptor *d;
+
+	for (i = 0; i < DRING_SIZE; ++i) {
+		d = vb_descriptor(dl, i);
+		SET_OWNED(d);
 	}
 }
 
-/*!
- * \brief Actually process the completed transmit and receive buffers.
- *
- * NOTE: This function may be called either from a tasklet, workqueue, or
- * 	 directly in the interrupt service routine depending on
- * 	 VOICEBUS_DEFERRED.
- */
-static inline void
-vb_deferred(struct voicebus *vb)
+static inline void vb_set_all_tx_owned(struct voicebus *vb)
 {
-	void *vbb;
-#ifdef DBG
-	static int count;
-#endif
-	int underrun = test_bit(TX_UNDERRUN, &vb->flags);
+	vb_set_all_owned(vb, &vb->txd);
+}
 
+/**
+ * __vb_get_default_behind_count() - Returns how many idle buffers are loaded in tx fifo.
+ *
+ * These buffers are going to be set, but the AN983 does not clear the owned
+ * bit on the descriptors until they've actually been sent around.
+ *
+ * If you do not check for both the current and next descriptors, you could have
+ * a condition where idle buffers are being sent around, but we don't detect
+ * them because our current descriptor always points to a non-idle buffer.
+ */
+static unsigned int __vb_get_default_behind_count(const struct voicebus *vb)
+{
+	const struct voicebus_descriptor_list *const dl = &vb->txd;
+	const struct voicebus_descriptor *current_descriptor;
+	const struct voicebus_descriptor *next_descriptor;
 
-	start_vb_deferred(vb);
-	if (unlikely(underrun)) {
-		/* When we've underrun our FIFO, for some reason we're not
-		 * able to keep enough transmit descriptors pending.  This can
-		 * happen if either interrupts or this deferred processing
-		 * function is not run soon enough (within 1ms when using the
-		 * default 3 transmit buffers to start).  In this case, we'll
-		 * insert an additional transmit buffer onto the descriptor
-		 * list which decreases the sensitivity to latency, but also
-		 * adds more delay to the TDM and SPI data.
-		 */
-		__vb_increase_latency(vb);
+	current_descriptor = vb_descriptor(dl, dl->head);
+	if (current_descriptor->buffer1 == vb->idle_vbb_dma_addr)
+		return 2;
+
+	next_descriptor = vb_descriptor(dl, ((dl->head + 1) & DRING_MASK));
+	if (next_descriptor->buffer1 == vb->idle_vbb_dma_addr)
+		return 1;
+
+	return 0;
+}
+
+/**
+ * vb_check_softunderrun() - Return true if the TX FIFO has underrun valid data.
+ *
+ * Returns true if we're processing the idle buffers, which means that the host
+ * was not able to keep up with the hardware.  This differs from a normal
+ * underrun in that the interface chip on the board still has descriptors to
+ * transmit (just in this case, they are the idle buffers).
+ *
+ */
+static inline int vb_is_softunderrun(const struct voicebus *vb)
+{
+	return __vb_get_default_behind_count(vb) > 0;
+}
+
+/**
+ * vb_recover_tx_descriptor_list() - Recovers descriptor list
+ *
+ * Returns the number of descriptors that we're behind.
+ *
+ * Called if the [head | head + 1] pointer points to one of the idle buffers.
+ * This means that the host computer has failed to keep far enough ahead of the
+ * voicebus card.  This function acks the completed idle descriptors and gets
+ * everything setup for normal operation again.
+ *
+ */
+static unsigned int vb_recover_tx_descriptor_list(struct voicebus *vb)
+{
+	struct voicebus_descriptor_list *const dl = &vb->txd;
+	struct voicebus_descriptor *d;
+	struct vbb *vbb = NULL;
+	unsigned int behind = __vb_get_default_behind_count(vb);
+	WARN_ON(0 == behind);
+
+	d = vb_descriptor(dl, dl->head);
+
+	/* If we're only behind by one descriptor, we need to wait for all
+	 * descriptors to go owned so we're starting with a fresh slate. This
+	 * will also means we send an additional idle buffer. */
+	if (1 == behind) {
+		unsigned long stop;
+		stop = jiffies + HZ/100;
+		while (OWNED(d) && time_after(stop, jiffies))
+			continue;
+		WARN_ON(time_before(stop, jiffies));
+		WARN_ON(d->buffer1 == vb->idle_vbb_dma_addr);
+		WARN_ON(!dl->pending[dl->head]);
+		dma_unmap_single(&vb->pdev->dev, d->buffer1,
+				 vb->framesize, DMA_TO_DEVICE);
+		vbb = dl->pending[dl->head];
+		atomic_dec(&dl->count);
+		--behind;
 	}
 
-	/* Always handle the transmit buffers first. */
-	while ((vbb = vb_get_completed_txb(vb)))
-		vb->handle_transmit(vbb, vb->context);
+	/* First complete any "idle" buffers that the hardware was to actually
+	 * complete.  We've already preloaded the behind variable for the idle
+	 * buffers that are in progress but may not be complete. */
+	while (!OWNED(d)) {
+		d->buffer1 = vb->idle_vbb_dma_addr;
+		dl->pending[dl->head] = vb->idle_vbb;
+		SET_OWNED(d);
+		dl->head = ++dl->head & DRING_MASK;
+		d = vb_descriptor(dl, dl->head);
+		++behind;
+	}
 
+	/* Next get a little further ahead, because the hardware will be
+	 * currently working on one of the idle buffers that we can't detect is
+	 * completed yet in the previous block. Set the head and tail pointers
+	 * to this new position so that everything can pick up normally. */
+	dl->tail = dl->head = (dl->head + 10) & DRING_MASK;
+
+	if (NULL != vbb)
+		handle_transmit(vb, vbb);
+
+	return behind;
+}
+
+/**
+ * vb_deferred() - Manage the transmit and receive descriptor rings.
+ *
+ */
+static void vb_deferred(struct voicebus *vb)
+{
+	unsigned int buffer_count;
+	unsigned int i;
+	unsigned int idle_buffers;
+	int softunderrun;
+	unsigned int starting_latency;
+
+	int underrun = test_bit(TX_UNDERRUN, &vb->flags);
+
+	start_vb_deferred(vb);
+
+	buffer_count = 0;
+
+	/* First, temporarily store any non-idle buffers that the hardware has
+	 * indicated it's finished transmitting.  Non idle buffers are those
+	 * buffers that contain actual data and was filled out by the client
+	 * driver (as of this writing, the wcte12xp or wctdm24xxp drivers) when
+	 * passed up through the handle_transmit callback.
+	 *
+	 * On the other hand, idle buffers are "dummy" buffers that solely exist
+	 * to in order to prevent the transmit descriptor ring from ever
+	 * completely draining. */
+	while ((vb->vbb_stash[buffer_count] = vb_get_completed_txb(vb))) {
+		++buffer_count;
+		if (unlikely(VOICEBUS_DEFAULT_MAXLATENCY < buffer_count)) {
+			dev_warn(&vb->pdev->dev, "Critical problem detected "
+				 "in transmit ring descriptor\n");
+			if (buffer_count >= DRING_SIZE)
+				buffer_count = DRING_SIZE - 1;
+			break;
+		}
+	}
+
+	vb->count += buffer_count;
+
+	/* Next, check to see if we're in a softunderrun condition.
+	 *
+	 * A soft under is when the hardware has possibly copied at least one of
+	 * the idle buffers into it's transmit queue.  Since all the buffers are
+	 * nearly always owned by the hardware, the way we detect this is by
+	 * checking if either of the next two buffers that we expect to complete
+	 * are idle buffers.  We need to check the next two, because the
+	 * hardware can read two buffers into it's tx fifo where they are
+	 * definitely going to be sent on the interface, but the hardware does
+	 * not flip the OWN bit on the descriptors until after the buffer has
+	 * finished being sent to the CPLD.  Therefore, just looking at the own
+	 * bit and the buffer pointed to by the dl->head is not enough.
+	 *
+	 * NOTE: Do not print anything to the console from the time a soft
+	 * underrun is detected until the transmit descriptors are fixed up
+	 * again. Otherwise the hardware could advance past where you set the
+	 * head and tail pointers and then eventually run into the desciptor
+	 * that it was currently working on when the softunderrun condition was
+	 * first hit. */
+	if (unlikely(vb_is_softunderrun(vb))) {
+		softunderrun = 1;
+		/* If we experienced a soft underrun, the recover function will
+		 * a) ensure that all non-idle buffers have been completely
+		 * tranmitted by the hardware b) Reset any idle buffers that
+		 * have been completely transmitted c) Reset the head and tail
+		 * pointers to somwhere in advance of where the hardware is
+		 * currently processing and d) return how many idle_buffers were
+		 * transmitted before our interrupt handler was called. */
+		idle_buffers = vb_recover_tx_descriptor_list(vb);
+		vb_increase_latency(vb, idle_buffers);
+	} else {
+		softunderrun = 0;
+		idle_buffers = 0;
+		starting_latency = 0;
+	}
+
+	/* Now we can process the completed non-idle buffers since we know at
+	 * this point that the transmit descriptor is in a "good" state. */
+	for (i = 0; i < buffer_count; ++i)
+		handle_transmit(vb, vb->vbb_stash[i]);
+
+	/* If underrun is set, it means that the hardware signalled that it
+	 * completely ran out of transmit descriptors.  This is what we are
+	 * trying to avoid with all this racy softunderun business, but alas,
+	 * it's still possible to happen if interrupts are locked longer than
+	 * DRING_SIZE milliseconds for some reason. We should have already fixed
+	 * up the descriptor ring in this case, so let's just tell the hardware
+	 * to reread what it believes the next descriptor is. */
 	if (unlikely(underrun)) {
+		if (printk_ratelimit()) {
+			dev_info(&vb->pdev->dev, "Host failed to service "
+				 "card interrupt within %d ms which is a "
+				 "hardunderun.\n", DRING_SIZE);
+		}
 		vb_rx_demand_poll(vb);
 		vb_tx_demand_poll(vb);
 		clear_bit(TX_UNDERRUN, &vb->flags);
 	}
 
-	while ((vbb = vb_get_completed_rxb(vb))) {
-		vb->handle_receive(vbb, vb->context);
-		vb_submit_rxb(vb, vbb);
+	/* Print any messages about soft latency bumps after we fix the transmit
+	 * descriptor ring. Otherwise it's possible to take so much time
+	 * printing the dmesg output that we lose the lead that we got on the
+	 * hardware, resulting in a hard underrun condition. */
+	if (unlikely(softunderrun) && printk_ratelimit()) {
+		if (vb->max_latency != vb->min_tx_buffer_count) {
+			dev_info(&vb->pdev->dev, "Missed interrupt. "
+				 "Increasing latency to %d ms in order to "
+				 "compensate.\n", vb->min_tx_buffer_count);
+		} else {
+			dev_info(&vb->pdev->dev, "ERROR: Unable to service "
+				 "card within %d ms and unable to further "
+				 "increase latency.\n", vb->max_latency);
+		}
+	}
+
+	/* And finally, pass up any receive buffers.  We also use vb->count to
+	 * make a half-hearted attempt to not pass any recieved idle buffers to
+	 * the caller, but this needs more work.... */
+	while ((vb->vbb_stash[0] = vb_get_completed_rxb(vb))) {
+		if (vb->count) {
+			vb->handle_receive(vb->vbb_stash[0], vb->context);
+			--vb->count;
+		}
+		vb_submit_rxb(vb, vb->vbb_stash[0]);
 	}
 
 	stop_vb_deferred(vb);
 }
-
 
 /*!
  * \brief Interrupt handler for VoiceBus interface.
@@ -1358,11 +1671,12 @@ voicebus_init(struct pci_dev *pdev, u32 framesize,
 		goto cleanup;
 	}
 	memset(vb, 0, sizeof(*vb));
+	vb->pdev = pdev;
 	voicebus_setdebuglevel(vb, debuglevel);
+	vb->max_latency = VOICEBUS_DEFAULT_MAXLATENCY;
 
 	spin_lock_init(&vb->lock);
 	init_completion(&vb->stopped_completion);
-	vb->pdev = pdev;
 	set_bit(STOP, &vb->flags);
 	clear_bit(IN_DEFERRED_PROCESSING, &vb->flags);
 	vb->framesize = framesize;
@@ -1404,8 +1718,14 @@ voicebus_init(struct pci_dev *pdev, u32 framesize,
 				SLAB_HWCACHE_ALIGN, NULL, NULL);
 #endif
 #else
+#ifdef DEBUG
+	vb->buffer_cache = kmem_cache_create(board_name, vb->framesize, 0,
+				SLAB_HWCACHE_ALIGN | SLAB_STORE_USER |
+				SLAB_POISON | SLAB_DEBUG_FREE, NULL);
+#else
 	vb->buffer_cache = kmem_cache_create(board_name, vb->framesize, 0,
 				SLAB_HWCACHE_ALIGN, NULL);
+#endif
 #endif
 	if (NULL == vb->buffer_cache) {
 		dev_err(&vb->pdev->dev, "Failed to allocate buffer cache.\n");
@@ -1416,6 +1736,11 @@ voicebus_init(struct pci_dev *pdev, u32 framesize,
 	/* ----------------------------------------------------------------
 	   Configure the hardware / kernel module interfaces.
 	   ---------------------------------------------------------------- */
+	if (pci_set_dma_mask(vb->pdev, DMA_BIT_MASK(32))) {
+		dev_err(&vb->pdev->dev, "No suitable DMA available.\n");
+		goto cleanup;
+	}
+
 	if (pci_read_config_byte(vb->pdev, 0x0c, &vb->cache_line_size)) {
 		dev_err(&vb->pdev->dev, "Failed read of cache line "
 			"size from PCI configuration space.\n");
@@ -1442,6 +1767,9 @@ voicebus_init(struct pci_dev *pdev, u32 framesize,
 		retval = -EIO;
 		goto cleanup;
 	}
+
+	vb->idle_vbb = dma_alloc_coherent(&vb->pdev->dev, vb->framesize,
+					  &vb->idle_vbb_dma_addr, GFP_KERNEL);
 
 	retval = vb_initialize_tx_descriptors(vb);
 	if (retval)
@@ -1492,6 +1820,9 @@ cleanup:
 
 	if (vb->rxd.desc)
 		vb_free_descriptors(vb, &vb->rxd);
+
+	dma_free_coherent(&vb->pdev->dev, vb->framesize,
+			  vb->idle_vbb, vb->idle_vbb_dma_addr);
 
 	if (vb->buffer_cache)
 		kmem_cache_destroy(vb->buffer_cache);
