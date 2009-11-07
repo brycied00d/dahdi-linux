@@ -1464,12 +1464,7 @@ voicebus_init(struct pci_dev *pdev, u32 framesize,
 	vb_enable_io_access(vb);
 
 #if VOICEBUS_DEFERRED != TIMER
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 22)
-#	define VB_IRQ_SHARED	SA_SHIRQ
-#else
-#	define VB_IRQ_SHARED	IRQF_SHARED
-#endif
-	if (request_irq(pdev->irq, vb_isr, VB_IRQ_SHARED, board_name,
+	if (request_irq(pdev->irq, vb_isr, DAHDI_IRQ_SHARED, board_name,
 		vb)) {
 		assert(0);
 		goto cleanup;
