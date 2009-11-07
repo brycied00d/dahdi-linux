@@ -58,6 +58,9 @@ void * voicebus_alloc(struct voicebus* vb);
 void voicebus_free(struct voicebus *vb, void *vbb);
 int voicebus_transmit(struct voicebus *vb, void *vbb);
 int voicebus_set_minlatency(struct voicebus *vb, unsigned int milliseconds);
-int voicebus_current_latency(struct voicebus *vb) ;
+int voicebus_current_latency(struct voicebus *vb);
+void voicebus_lock_latency(struct voicebus *vb);
+void voicebus_unlock_latency(struct voicebus *vb);
+int voicebus_is_latency_locked(const struct voicebus *vb);
  
 #endif /* __VOICEBUS_H__ */
