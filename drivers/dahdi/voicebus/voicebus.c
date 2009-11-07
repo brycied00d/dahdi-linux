@@ -1454,6 +1454,12 @@ voicebus_init(struct pci_dev *pdev, u32 framesize,
 	/* ----------------------------------------------------------------
 	   Configure the hardware interface.
 	   ---------------------------------------------------------------- */
+	if (pci_set_dma_mask(pdev, DMA_BIT_MASK(32))) {
+		release_region(vb->iobase, 0xff);
+		dev_warn(&vb->pdev->dev, "No suitable DMA available.\n");
+		goto cleanup;
+	}
+
 	pci_set_master(pdev);
 	vb_enable_io_access(vb);
 
