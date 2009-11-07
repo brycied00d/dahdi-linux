@@ -1733,7 +1733,6 @@ static int __devinit te12xp_init_one(struct pci_dev *pdev, const struct pci_devi
 	struct t1_desc *d = (struct t1_desc *) ent->driver_data;
 	unsigned int x;
 	int res;
-	int startinglatency;
 	unsigned int index = -1;
 
 	for (x = 0; x < sizeof(ifaces) / sizeof(ifaces[0]); x++) {
@@ -1748,7 +1747,6 @@ static int __devinit te12xp_init_one(struct pci_dev *pdev, const struct pci_devi
 		return -EIO;
 	}
 	
-retry:
 	if (!(wc = kmalloc(sizeof(*wc), GFP_KERNEL))) {
 		return -ENOMEM;
 	}
@@ -1793,8 +1791,9 @@ retry:
 	if (VOICEBUS_DEFAULT_LATENCY != latency) {
 		voicebus_set_minlatency(wc->vb, latency);
 	}
+
+	voicebus_lock_latency(wc->vb);
 	voicebus_start(wc->vb);
-	startinglatency = voicebus_current_latency(wc->vb);
 	t1_hardware_post_init(wc);
 
 	for (x = 0; x < (wc->spantype == TYPE_E1 ? 31 : 24); x++) {
@@ -1814,25 +1813,8 @@ retry:
 
 	mod_timer(&wc->timer, jiffies + HZ/5);
 	t1_software_init(wc);
-	if (voicebus_current_latency(wc->vb) > startinglatency) {
-		/* The voicebus library increased the latency during
-		 * initialization because the host wasn't able to service the
-		 * interrupts from the adapter quickly enough.  In this case,
-		 * we'll increase our latency and restart the initialization.
-		 */
-		printk(KERN_NOTICE "%s: Restarting board initialization " \
-		 "after increasing latency.\n", wc->name);
-		latency = voicebus_current_latency(wc->vb);
-		dahdi_unregister(&wc->span);
-		voicebus_release(wc->vb);
-		wc->vb = NULL;
-		free_wc(wc);
-		wc = NULL;
-		goto retry;
-	}
-
 	module_printk("Found a %s\n", wc->variety);
-
+	voicebus_unlock_latency(wc->vb);
 	return 0;
 }
 
