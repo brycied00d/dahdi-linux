@@ -3777,13 +3777,8 @@ static int __devinit wctdm_init_one(struct pci_dev *pdev, const struct pci_devic
 		return -EIO;
 	}
 
-
-	/* Keep track of which device we are */
-	pci_set_drvdata(pdev, wc);
-
 	voicebus_lock_latency(wc->vb);
 
-	/* Start the hardware processing. */
 	if (voicebus_start(wc->vb)) {
 		BUG_ON(1);
 	}
@@ -3832,7 +3827,7 @@ static void wctdm_release(struct wctdm *wc)
 
 static void __devexit wctdm_remove_one(struct pci_dev *pdev)
 {
-	struct wctdm *wc = pci_get_drvdata(pdev);
+	struct wctdm *wc = voicebus_pci_dev_to_context(pdev);
 	struct vpmadt032 *vpm = wc->vpmadt032;
 
 	if (wc) {

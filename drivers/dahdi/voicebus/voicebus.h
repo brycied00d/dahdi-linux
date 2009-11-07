@@ -37,7 +37,8 @@ struct voicebus;
 
 void voicebus_setdebuglevel(struct voicebus *vb, u32 level);
 int voicebus_getdebuglevel(struct voicebus *vb);
-struct pci_dev * voicebus_get_pci_dev(struct voicebus *vb);
+struct pci_dev *voicebus_get_pci_dev(struct voicebus *vb);
+void *voicebus_pci_dev_to_context(struct pci_dev *pdev);
 int voicebus_init(struct pci_dev* pdev, u32 framesize, 
                   const char *board_name,
 		  void (*handle_receive)(void *buffer, void *context),
@@ -54,7 +55,7 @@ void voicebus_set_handlers(struct voicebus *vb,
 void voicebus_release(struct voicebus *vb);
 int voicebus_start(struct voicebus *vb);
 int voicebus_stop(struct voicebus *vb);
-void * voicebus_alloc(struct voicebus* vb);
+void *voicebus_alloc(struct voicebus* vb);
 void voicebus_free(struct voicebus *vb, void *vbb);
 int voicebus_transmit(struct voicebus *vb, void *vbb);
 int voicebus_set_minlatency(struct voicebus *vb, unsigned int milliseconds);
