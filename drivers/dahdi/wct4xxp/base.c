@@ -2563,8 +2563,8 @@ static void t4_check_alarms(struct t4 *wc, int span)
 			alarms |= DAHDI_ALARM_RED;
 		else {
 			if (!ts->alarmcount) /* starting to debounce LOF/LFA */
-				printk(KERN_INFO "wct%dxxp: LOF/LFA detected \
-					on span %d but debouncing for %d ms\n",
+				printk(KERN_INFO "wct%dxxp: LOF/LFA detected "
+					"on span %d but debouncing for %d ms\n",
 					wc->numspans, span + 1, alarmdebounce);
 			ts->alarmcount++;
 		}
@@ -2576,8 +2576,8 @@ static void t4_check_alarms(struct t4 *wc, int span)
 			alarms |= DAHDI_ALARM_RED;
 		else {
 			if (!ts->losalarmcount) /* starting to debounce LOS */
-				printk(KERN_INFO "wct%dxxp: LOS detected on \
-					span %d but debouncing for %d ms\n",
+				printk(KERN_INFO "wct%dxxp: LOS detected on "
+					"span %d but debouncing for %d ms\n",
 					wc->numspans, span + 1, losalarmdebounce);
 			ts->losalarmcount++;
 		}
@@ -2589,8 +2589,8 @@ static void t4_check_alarms(struct t4 *wc, int span)
 			alarms |= DAHDI_ALARM_BLUE;
 		else {
 			if (!ts->aisalarmcount) /* starting to debounce AIS */
-				printk(KERN_INFO "wct%dxxp: AIS detected on \
-					span %d but debouncing for %d ms\n",
+				printk(KERN_INFO "wct%dxxp: AIS detected on "
+					"span %d but debouncing for %d ms\n",
 					wc->numspans, span + 1, aisalarmdebounce);
 			ts->aisalarmcount++;
 		}
@@ -2638,9 +2638,9 @@ static void t4_check_alarms(struct t4 *wc, int span)
 			alarms |= DAHDI_ALARM_YELLOW;
 		else {
 			if (!ts->yelalarmcount) /* starting to debounce AIS */
-				printk(KERN_INFO "wct%dxxp: yelllow (RAI) \
-					detected on span %d but debouncing \
-					for %d ms\n",
+				printk(KERN_INFO "wct%dxxp: yelllow (RAI) "
+					"detected on span %d but debouncing "
+					"for %d ms\n",
 					wc->numspans, span + 1,
 					yelalarmdebounce);
 			ts->yelalarmcount++;
