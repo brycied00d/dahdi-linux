@@ -87,13 +87,12 @@ struct t1 *ifaces[WC_MAX_IFACES];
 spinlock_t ifacelock = SPIN_LOCK_UNLOCKED;
 
 struct t1_desc {
-	char *name;
-	int flags;
+	const char *name;
 };
 
-static struct t1_desc te120p = { "Wildcard TE120P", 0 };
-static struct t1_desc te122 = { "Wildcard TE122", 0 };
-static struct t1_desc te121 = { "Wildcard TE121", 0 };
+static const struct t1_desc te120p = {"Wildcard TE120P"};
+static const struct t1_desc te122 = {"Wildcard TE122"};
+static const struct t1_desc te121 = {"Wildcard TE121"};
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 20)
 static kmem_cache_t *cmd_cache;
