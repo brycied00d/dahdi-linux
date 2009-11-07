@@ -41,8 +41,6 @@
 #include "vpmadtreg.h"
 #include "GpakCust.h"
 
-#define assert(__x__) BUG_ON(!(__x__))
-
 #define INTERRUPT 0	/* Run the deferred processing in the ISR. */
 #define TASKLET 1	/* Run in a tasklet. */
 #define TIMER 2		/* Run in a system timer. */
@@ -270,30 +268,6 @@ vb_set_workqueue_priority(struct voicebus *vb)
 #endif
 #endif
 
-#ifdef DBG
-static inline int
-assert_in_vb_deferred(struct voicebus *vb)
-{
-	assert(test_bit(IN_DEFERRED_PROCESSING, &vb->flags));
-}
-
-static inline void
-start_vb_deferred(struct voicebus *vb)
-{
-	set_bit(IN_DEFERRED_PROCESSING, &vb->flags);
-}
-
-static inline void
-stop_vb_deferred(struct voicebus *vb)
-{
-	clear_bit(IN_DEFERRED_PROCESSING, &vb->flags);
-}
-#else
-#define assert_in_vb_deferred(_x_)  do {; } while (0)
-#define start_vb_deferred(_x_) do {; } while (0)
-#define stop_vb_deferred(_x_) do {; } while (0)
-#endif
-
 static inline struct voicebus_descriptor *
 vb_descriptor(const struct voicebus_descriptor_list *dl,
 	      const unsigned int index)
@@ -312,7 +286,7 @@ vb_initialize_descriptors(struct voicebus *vb, struct voicebus_descriptor_list *
 	struct voicebus_descriptor *d;
 	const u32 END_OF_RING = 0x02000000;
 
-	assert(dl);
+	BUG_ON(!dl);
 
 	/*
 	 * Add some padding to each descriptor to ensure that they are
@@ -549,7 +523,7 @@ vb_cleanup_tx_descriptors(struct voicebus *vb)
 	struct voicebus_descriptor_list *dl = &vb->txd;
 	struct voicebus_descriptor *d;
 
-	assert(vb_is_stopped(vb));
+	BUG_ON(!vb_is_stopped(vb));
 
 	for (i = 0; i < DRING_SIZE; ++i) {
 		d = vb_descriptor(dl, i);
@@ -576,7 +550,7 @@ vb_cleanup_rx_descriptors(struct voicebus *vb)
 	struct voicebus_descriptor_list *dl = &vb->rxd;
 	struct voicebus_descriptor *d;
 
-	assert(vb_is_stopped(vb));
+	BUG_ON(!vb_is_stopped(vb));
 
 	for (i = 0; i < DRING_SIZE; ++i) {
 		d = vb_descriptor(dl, i);
@@ -584,7 +558,7 @@ vb_cleanup_rx_descriptors(struct voicebus *vb)
 			dma_unmap_single(&vb->pdev->dev, d->buffer1,
 					 vb->framesize, DMA_FROM_DEVICE);
 			d->buffer1 = 0;
-			assert(dl->pending[i]);
+			BUG_ON(!dl->pending[i]);
 			voicebus_free(vb, dl->pending[i]);
 			dl->pending[i] = NULL;
 		}
@@ -689,7 +663,7 @@ vb_enable_io_access(struct voicebus *vb)
 {
 	LOCKS_VOICEBUS;
 	u32 reg;
-	assert(vb->pdev);
+	BUG_ON(!vb->pdev);
 	VBLOCK(vb);
 	pci_read_config_dword(vb->pdev, 0x0004, &reg);
 	reg |= 0x00000007;
@@ -849,7 +823,6 @@ int voicebus_transmit(struct voicebus *vb, void *vbb)
 {
 	struct voicebus_descriptor *d;
 	struct voicebus_descriptor_list *dl = &vb->txd;
-	assert_in_vb_deferred(vb);
 
 	d = vb_descriptor(dl, dl->tail);
 
@@ -880,7 +853,6 @@ vb_submit_rxb(struct voicebus *vb, void *vbb)
 	struct voicebus_descriptor *d;
 	struct voicebus_descriptor_list *dl = &vb->rxd;
 	unsigned int tail = dl->tail;
-	assert_in_vb_deferred(vb);
 
 	d = vb_descriptor(dl, tail);
 
@@ -920,7 +892,7 @@ vb_get_completed_txb(struct voicebus *vb)
 	struct voicebus_descriptor *d;
 	void *vbb;
 	unsigned int head = dl->head;
-	assert_in_vb_deferred(vb);
+
 	d = vb_descriptor(dl, head);
 
 	if (OWNED(d) || (d->buffer1 == vb->idle_vbb_dma_addr))
@@ -944,7 +916,6 @@ vb_get_completed_rxb(struct voicebus *vb)
 	struct voicebus_descriptor_list *dl = &vb->rxd;
 	unsigned int head = dl->head;
 	void *vbb;
-	assert_in_vb_deferred(vb);
 
 	d = vb_descriptor(dl, head);
 
@@ -1053,8 +1024,6 @@ voicebus_start(struct voicebus *vb)
 	void *vbb;
 	int ret;
 
-	assert(!in_interrupt());
-
 	WARN_ON(pci_get_drvdata(vb->pdev) != vb);
 	if (pci_get_drvdata(vb->pdev) != vb)
 		return -EFAULT;
@@ -1080,7 +1049,6 @@ voicebus_start(struct voicebus *vb)
 	 *  is known to not be running at this point, it is safe to call the
 	 *  handle transmit as if it were.
 	 */
-	start_vb_deferred(vb);
 	/* Ensure that all the rx slots are ready for a buffer. */
 	for (i = 0; i < DRING_SIZE; ++i) {
 		vbb = voicebus_alloc(vb);
@@ -1102,7 +1070,6 @@ voicebus_start(struct voicebus *vb)
 			handle_transmit(vb, vbb);
 
 	}
-	stop_vb_deferred(vb);
 
 	VBLOCK(vb);
 	clear_bit(STOP, &vb->flags);
@@ -1123,7 +1090,7 @@ voicebus_start(struct voicebus *vb)
 	__vb_tx_demand_poll(vb);
 	VBUNLOCK(vb);
 
-	assert(!vb_is_stopped(vb));
+	BUG_ON(vb_is_stopped(vb));
 
 	return 0;
 }
@@ -1185,8 +1152,6 @@ vb_wait_for_completion_timeout(struct completion *x, unsigned long timeout)
 int
 voicebus_stop(struct voicebus *vb)
 {
-	assert(!in_interrupt());
-
 	if (vb_is_stopped(vb))
 		return 0;
 
@@ -1195,7 +1160,7 @@ voicebus_stop(struct voicebus *vb)
 	vb_clear_start_transmit_bit(vb);
 	vb_clear_start_receive_bit(vb);
 	if (vb_wait_for_completion_timeout(&vb->stopped_completion, HZ)) {
-		assert(vb_is_stopped(vb));
+		BUG_ON(!vb_is_stopped(vb));
 	} else {
 		dev_warn(&vb->pdev->dev, "Timeout while waiting for board to "
 			 "stop.\n");
@@ -1244,7 +1209,6 @@ DEVICE_ATTR(voicebus_current_latency, 0444,
 void
 voicebus_release(struct voicebus *vb)
 {
-	assert(!in_interrupt());
 #ifdef CONFIG_VOICEBUS_SYSFS
 	device_remove_file(&vb->pdev->dev, &dev_attr_voicebus_current_latency);
 #endif
@@ -1280,8 +1244,6 @@ vb_increase_latency(struct voicebus *vb, unsigned int increase)
 {
 	void *vbb;
 	int i;
-
-	assert_in_vb_deferred(vb);
 
 	if (0 == increase)
 		return;
@@ -1452,8 +1414,6 @@ static void vb_deferred(struct voicebus *vb)
 
 	int underrun = test_bit(TX_UNDERRUN, &vb->flags);
 
-	start_vb_deferred(vb);
-
 	buffer_count = 0;
 
 	/* First, temporarily store any non-idle buffers that the hardware has
@@ -1563,8 +1523,6 @@ static void vb_deferred(struct voicebus *vb)
 		}
 		vb_submit_rxb(vb, vb->vbb_stash[0]);
 	}
-
-	stop_vb_deferred(vb);
 }
 
 /*!
@@ -1635,12 +1593,12 @@ vb_isr(int irq, void *dev_id)
 			dev_err(&vb->pdev->dev, "Fatal Bus Error detected!\n");
 
 		if (int_status & TX_STOPPED_INTERRUPT) {
-			assert(test_bit(STOP, &vb->flags));
+			BUG_ON(!test_bit(STOP, &vb->flags));
 			__vb_disable_interrupts(vb);
 			complete(&vb->stopped_completion);
 		}
 		if (int_status & RX_STOPPED_INTERRUPT) {
-			assert(test_bit(STOP, &vb->flags));
+			BUG_ON(!test_bit(STOP, &vb->flags));
 			if (vb_is_stopped(vb)) {
 				__vb_disable_interrupts(vb);
 				complete(&vb->stopped_completion);
@@ -1715,11 +1673,11 @@ voicebus_init(struct pci_dev *pdev, u32 framesize, const char *board_name,
 	int retval = 0;
 	struct voicebus *vb;
 
-	assert(NULL != pdev);
-	assert(NULL != board_name);
-	assert(framesize);
-	assert(NULL != handle_receive);
-	assert(NULL != handle_transmit);
+	BUG_ON(NULL == pdev);
+	BUG_ON(NULL == board_name);
+	BUG_ON(0 == framesize);
+	BUG_ON(NULL == handle_receive);
+	BUG_ON(NULL == handle_transmit);
 
 	/* ----------------------------------------------------------------
 	   Initialize the pure software constructs.
@@ -1866,7 +1824,7 @@ voicebus_init(struct pci_dev *pdev, u32 framesize, const char *board_name,
 #if VOICEBUS_DEFERRED != TIMER
 	if (request_irq(pdev->irq, vb_isr, DAHDI_IRQ_SHARED, board_name,
 		vb)) {
-		assert(0);
+		BUG_ON(1);
 		goto cleanup;
 	}
 #endif
@@ -1906,7 +1864,7 @@ cleanup:
 		pci_disable_device(vb->pdev);
 
 	kfree(vb);
-	assert(0 != retval);
+	WARN_ON(0 == retval);
 	return retval;
 }
 EXPORT_SYMBOL(voicebus_init);
