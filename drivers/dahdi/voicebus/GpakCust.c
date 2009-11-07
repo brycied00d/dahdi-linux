@@ -521,8 +521,9 @@ vpmadt032_init(struct vpmadt032 *vpm, struct voicebus *vb)
 		return res;
 	}
 	vpm->curpage = -1;
-	set_bit(VPM150M_SWRESET, &vpm->control);
 
+	dev_info(&voicebus_get_pci_dev(vb)->dev, "Booting VPMADT032\n");
+	set_bit(VPM150M_SWRESET, &vpm->control);
 	while (test_bit(VPM150M_SWRESET, &vpm->control))
 		msleep(1);
 

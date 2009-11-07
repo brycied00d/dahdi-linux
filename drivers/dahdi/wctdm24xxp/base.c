@@ -459,7 +459,6 @@ static int config_vpmadt032(struct vpmadt032 *vpm, struct wctdm *wc)
 
 static inline void cmd_dequeue_vpmadt032(struct wctdm *wc, u8 *writechunk, int whichframe)
 {
-	unsigned long flags;
 	struct vpmadt032_cmd *curcmd = NULL;
 	struct vpmadt032 *vpmadt032 = wc->vpmadt032;
 	int x;
@@ -467,8 +466,6 @@ static inline void cmd_dequeue_vpmadt032(struct wctdm *wc, u8 *writechunk, int w
 
 	/* Skip audio */
 	writechunk += 24;
-
-	spin_lock_irqsave(&wc->reglock, flags);
 
 	if (test_bit(VPM150M_SPIRESET, &vpmadt032->control) || test_bit(VPM150M_HPIRESET, &vpmadt032->control)) {
 		if (debug & DEBUG_ECHOCAN)
@@ -484,7 +481,6 @@ static inline void cmd_dequeue_vpmadt032(struct wctdm *wc, u8 *writechunk, int w
 			writechunk[CMD_BYTE(x, 1, 0)] = 0;
 			writechunk[CMD_BYTE(x, 2, 0)] = 0x00;
 		}
-		spin_unlock_irqrestore(&wc->reglock, flags);
 		return;
 	}
 
@@ -543,7 +539,6 @@ static inline void cmd_dequeue_vpmadt032(struct wctdm *wc, u8 *writechunk, int w
 			writechunk[CMD_BYTE(27, 2, 0)] = 0;
 		}
 	} else if (test_and_clear_bit(VPM150M_SWRESET, &vpmadt032->control)) {
-		printk(KERN_INFO "Booting VPMADT032\n");
 		for (x = 24; x < 28; x++) {
 			if (x == 24)
 				writechunk[CMD_BYTE(x, 0, 0)] = (0x8 << 4);
@@ -572,8 +567,6 @@ static inline void cmd_dequeue_vpmadt032(struct wctdm *wc, u8 *writechunk, int w
 	if (test_bit(VPM150M_ACTIVE, &vpmadt032->control) && !whichframe && !(wc->intcount % 100)) {
 		schedule_work(&vpmadt032->work);
 	}
-
-	spin_unlock_irqrestore(&wc->reglock, flags);
 }
 
 static inline void cmd_dequeue(struct wctdm *wc, unsigned char *writechunk, int card, int pos)
