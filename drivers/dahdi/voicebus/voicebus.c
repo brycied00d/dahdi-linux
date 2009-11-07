@@ -56,6 +56,11 @@
 #define VOICEBUS_ALLOC_FLAGS GFP_ATOMIC
 #endif
 
+/* Define CONFIG_VOICEBUS_SYSFS to create some attributes under the pci device.
+ * This is disabled by default because it hasn't been tested on the full range
+ * of supported kernels. */
+#undef CONFIG_VOICEBUS_SYSFS
+
 #if VOICEBUS_DEFERRED == TIMER
 #if HZ < 1000
 /* \todo Put an error message here. */
@@ -1050,6 +1055,10 @@ voicebus_start(struct voicebus *vb)
 
 	assert(!in_interrupt());
 
+	WARN_ON(pci_get_drvdata(vb->pdev) != vb);
+	if (pci_get_drvdata(vb->pdev) != vb)
+		return -EFAULT;
+
 	if (!vb_is_stopped(vb))
 		return -EBUSY;
 
@@ -1205,6 +1214,24 @@ voicebus_stop(struct voicebus *vb)
 }
 EXPORT_SYMBOL(voicebus_stop);
 
+#ifdef CONFIG_VOICEBUS_SYSFS
+static ssize_t
+voicebus_current_latency_show(struct device *dev,
+			      struct device_attribute *attr, char *buf)
+{
+	unsigned long flags;
+	struct voicebus *vb = dev_get_drvdata(dev);
+	unsigned int current_latency;
+	spin_lock_irqsave(&vb->lock, flags);
+	current_latency = vb->min_tx_buffer_count;
+	spin_unlock_irqrestore(&vb->lock, flags);
+	return sprintf(buf, "%d\n", current_latency);
+}
+
+DEVICE_ATTR(voicebus_current_latency, 0444,
+	    voicebus_current_latency_show, NULL);
+#endif
+
 /*!
  * \brief Prepare the interface for module unload.
  *
@@ -1218,6 +1245,9 @@ void
 voicebus_release(struct voicebus *vb)
 {
 	assert(!in_interrupt());
+#ifdef CONFIG_VOICEBUS_SYSFS
+	device_remove_file(&vb->pdev->dev, &dev_attr_voicebus_current_latency);
+#endif
 
 	/* quiesce the hardware */
 	voicebus_stop(vb);
@@ -1674,8 +1704,7 @@ vb_tasklet(unsigned long data)
  * \todo Complete this description.
  */
 int
-voicebus_init(struct pci_dev *pdev, u32 framesize,
-		  const char *board_name,
+voicebus_init(struct pci_dev *pdev, u32 framesize, const char *board_name,
 		  void (*handle_receive)(void *vbb, void *context),
 		  void (*handle_transmit)(void *vbb, void *context),
 		  void *context,
@@ -1705,6 +1734,7 @@ voicebus_init(struct pci_dev *pdev, u32 framesize,
 	}
 	memset(vb, 0, sizeof(*vb));
 	vb->pdev = pdev;
+	pci_set_drvdata(pdev, vb);
 	voicebus_setdebuglevel(vb, debuglevel);
 	vb->max_latency = VOICEBUS_DEFAULT_MAXLATENCY;
 
@@ -1765,7 +1795,16 @@ voicebus_init(struct pci_dev *pdev, u32 framesize,
 		goto cleanup;
 	}
 
-
+#ifdef CONFIG_VOICEBUS_SYSFS
+	dev_dbg(&vb->pdev->dev, "Creating sysfs attributes.\n");
+	retval = device_create_file(&vb->pdev->dev,
+				    &dev_attr_voicebus_current_latency);
+	if (retval) {
+		dev_dbg(&vb->pdev->dev,
+			"Failed to create device attributes.\n");
+		goto cleanup;
+	}
+#endif
 	/* ----------------------------------------------------------------
 	   Configure the hardware / kernel module interfaces.
 	   ---------------------------------------------------------------- */
@@ -1880,6 +1919,12 @@ voicebus_get_pci_dev(struct voicebus *vb)
 	return vb->pdev;
 }
 EXPORT_SYMBOL(voicebus_get_pci_dev);
+
+void *voicebus_pci_dev_to_context(struct pci_dev *pdev)
+{
+	return ((struct voicebus *)pci_get_drvdata(pdev))->context;
+}
+EXPORT_SYMBOL(voicebus_pci_dev_to_context);
 
 static spinlock_t loader_list_lock;
 static struct list_head binary_loader_list;

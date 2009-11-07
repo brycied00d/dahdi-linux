@@ -1785,8 +1785,6 @@ static int __devinit te12xp_init_one(struct pci_dev *pdev, const struct pci_devi
 		return res;
 	}
 	
-	/* Keep track of which device we are */
-	pci_set_drvdata(pdev, wc);
 	if (VOICEBUS_DEFAULT_LATENCY != latency) {
 		voicebus_set_minlatency(wc->vb, latency);
 	}
@@ -1819,7 +1817,7 @@ static int __devinit te12xp_init_one(struct pci_dev *pdev, const struct pci_devi
 
 static void __devexit te12xp_remove_one(struct pci_dev *pdev)
 {
-	struct t1 *wc = pci_get_drvdata(pdev);
+	struct t1 *wc = voicebus_pci_dev_to_context(pdev);
 #ifdef VPM_SUPPORT
 	unsigned long flags;
 	struct vpmadt032 *vpm = wc->vpmadt032;
