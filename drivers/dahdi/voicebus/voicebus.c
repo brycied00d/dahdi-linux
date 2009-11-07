@@ -184,8 +184,6 @@ struct voicebus {
 	struct completion stopped_completion;
 	/*! Flags */
 	unsigned long flags;
-	/* \todo see about removing this... */
-	u32 sdi;
 	/*! Number of tx buffers to queue up before enabling interrupts. */
 	unsigned int 	min_tx_buffer_count;
 };
@@ -514,30 +512,30 @@ vb_setctl(struct voicebus *vb, u32 addr, u32 val)
 }
 
 static int
-__vb_sdi_clk(struct voicebus *vb)
+__vb_sdi_clk(struct voicebus *vb, u32 *sdi)
 {
 	unsigned int ret;
-	vb->sdi &= ~CSR9_MDC;
-	__vb_setctl(vb, 0x0048, vb->sdi);
+	*sdi &= ~CSR9_MDC;
+	__vb_setctl(vb, 0x0048, *sdi);
 	ret = __vb_getctl(vb, 0x0048);
-	vb->sdi |= CSR9_MDC;
-	__vb_setctl(vb, 0x0048, vb->sdi);
+	*sdi |= CSR9_MDC;
+	__vb_setctl(vb, 0x0048, *sdi);
 	return (ret & CSR9_MDI) ? 1 : 0;
 }
 
 static void
-__vb_sdi_sendbits(struct voicebus *vb, u32 bits, int count)
+__vb_sdi_sendbits(struct voicebus *vb, u32 bits, int count, u32 *sdi)
 {
-	vb->sdi &= ~CSR9_MMC;
-	__vb_setctl(vb, 0x0048, vb->sdi);
+	*sdi &= ~CSR9_MMC;
+	__vb_setctl(vb, 0x0048, *sdi);
 	while (count--) {
 
 		if (bits & (1 << count))
-			vb->sdi |= CSR9_MDO;
+			*sdi |= CSR9_MDO;
 		else
-			vb->sdi &= ~CSR9_MDO;
+			*sdi &= ~CSR9_MDO;
 
-		__vb_sdi_clk(vb);
+		__vb_sdi_clk(vb, sdi);
 	}
 }
 
@@ -546,13 +544,14 @@ vb_setsdi(struct voicebus *vb, int addr, u16 val)
 {
 	LOCKS_VOICEBUS;
 	u32 bits;
+	u32 sdi = 0;
 	/* Send preamble */
 	bits = 0xffffffff;
 	VBLOCK(vb);
-	__vb_sdi_sendbits(vb, bits, 32);
+	__vb_sdi_sendbits(vb, bits, 32, &sdi);
 	bits = (0x5 << 12) | (1 << 7) | (addr << 2) | 0x2;
-	__vb_sdi_sendbits(vb, bits, 16);
-	__vb_sdi_sendbits(vb, val, 16);
+	__vb_sdi_sendbits(vb, bits, 16, &sdi);
+	__vb_sdi_sendbits(vb, val, 16, &sdi);
 	VBUNLOCK(vb);
 }
 
