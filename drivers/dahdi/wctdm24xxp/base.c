@@ -3553,7 +3553,6 @@ static int wctdm_locate_modules(struct wctdm *wc)
 {
 	int x;
 	unsigned long flags;
-	unsigned int startinglatency = voicebus_current_latency(wc->vb);
 	wc->ctlreg = 0x00;
 	
 	/* Make sure all units go into daisy chain mode */
@@ -3586,9 +3585,6 @@ static int wctdm_locate_modules(struct wctdm *wc)
 	for (x=0;x<wc->cards;x++) {
 		int sane=0,ret=0,readi=0;
 retry:
-		if (voicebus_current_latency(wc->vb) > startinglatency) {
-			return -EAGAIN;
-		}
 		/* Init with Auto Calibration */
 		if (!(ret = wctdm_init_proslic(wc, x, 0, 0, sane))) {
 			wc->cardflag |= (1 << x);
@@ -3678,12 +3674,6 @@ retry:
 		wc->vpmadt032->options.channels = wc->span.channels;
 		get_default_portconfig(&portconfig);
 		res = vpmadt032_init(wc->vpmadt032, wc->vb);
-		/* In case there was an error while we were loading the VPM module. */
-		if (voicebus_current_latency(wc->vb) > startinglatency) {
-			vpmadt032_free(wc->vpmadt032);
-			wc->vpmadt032 = NULL;
-			return -EAGAIN;
-		}
 		if (res) {
 			vpmadt032_free(wc->vpmadt032);
 			wc->vpmadt032 = NULL;
@@ -3732,7 +3722,6 @@ static int __devinit wctdm_init_one(struct pci_dev *pdev, const struct pci_devic
 	
 	neonmwi_offlimit_cycles = neonmwi_offlimit /MS_PER_HOOKCHECK;
 
-retry:
 	if (!(wc = kmalloc(sizeof(*wc), GFP_KERNEL))) {
 		return -ENOMEM;
 	}
@@ -3799,25 +3788,15 @@ retry:
 	/* Keep track of which device we are */
 	pci_set_drvdata(pdev, wc);
 
+	voicebus_lock_latency(wc->vb);
+
 	/* Start the hardware processing. */
 	if (voicebus_start(wc->vb)) {
 		BUG_ON(1);
 	}
 	
 	/* Now track down what modules are installed */
-	ret = wctdm_locate_modules(wc);
-	if (-EAGAIN == ret ) {
-		/* The voicebus library increased the latency during
-		 * initialization.  There is a chance that the hardware is in
-		 * an inconsistent state, so lets increase the default latency
-		 * and start the initialization over.
-		 */
-		printk(KERN_NOTICE "%s: Restarting board initialization " \
-		 "after increasing latency.\n", wc->board_name);
-		latency = voicebus_current_latency(wc->vb);
-		wctdm_release(wc);
-		goto retry;
-	}
+	wctdm_locate_modules(wc);
 	
 	/* Final initialization */
 	wctdm_post_initialize(wc);
@@ -3833,6 +3812,7 @@ retry:
 	printk(KERN_INFO "Found a Wildcard TDM: %s (%d modules)\n",
 	       wc->desc->name, wc->desc->ports);
 	
+	voicebus_unlock_latency(wc->vb);
 	return 0;
 }
 
