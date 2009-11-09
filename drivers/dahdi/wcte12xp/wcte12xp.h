@@ -139,4 +139,7 @@ struct t1 {
 	struct work_struct timer_work;
 };
 
+#define t1_info(t1, format, arg...)         \
+        dev_info(&voicebus_get_pci_dev(t1->vb)->dev , format , ## arg)
+
 #endif

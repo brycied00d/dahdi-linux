@@ -1477,7 +1477,7 @@ static inline void t1_check_alarms(struct t1 *wc)
 		else {
 			if (unlikely(debug && !wc->alarmcount)) {
 				/* starting to debounce LOF/LFA */
-				module_printk("LOF/LFA detected but "
+				t1_info(wc, "LOF/LFA detected but "
 					"debouncing for %d ms\n",
 					alarmdebounce);
 			}
@@ -1492,7 +1492,7 @@ static inline void t1_check_alarms(struct t1 *wc)
 		else {
 			if (unlikely(debug && !wc->losalarmcount)) {
 				/* starting to debounce LOS */
-				module_printk("LOS detected but debouncing "
+				t1_info(wc, "LOS detected but debouncing "
 					"for %d ms\n", losalarmdebounce);
 			}
 			wc->losalarmcount++;
@@ -1506,7 +1506,7 @@ static inline void t1_check_alarms(struct t1 *wc)
 		else {
 			if (unlikely(debug && !wc->aisalarmcount)) {
 				/* starting to debounce AIS */
-				module_printk("AIS detected but debouncing "
+				t1_info(wc, "AIS detected but debouncing "
 					"for %d ms\n", aisalarmdebounce);
 			}
 			wc->aisalarmcount++;
@@ -1544,7 +1544,7 @@ static inline void t1_check_alarms(struct t1 *wc)
 		else {
 			if (unlikely(debug && !wc->yelalarmcount)) {
 				/* starting to debounce AIS */
-				module_printk("yelllow (RAI) detected but "
+				t1_info(wc, "yelllow (RAI) detected but "
 					"debouncing for %d ms\n",
 					yelalarmdebounce);
 			}
