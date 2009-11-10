@@ -1158,6 +1158,11 @@ static int echocan_create(struct dahdi_chan *chan, struct dahdi_echocanparams *e
 	if (!wc->vpmadt032) {
 		return -ENODEV;
 	}
+
+	*ec = wc->ec[chan->chanpos - 1];
+	(*ec)->ops = &vpm150m_ec_ops;
+	(*ec)->features = vpm150m_ec_features;
+
 	return vpmadt032_echocan_create(wc->vpmadt032, chan->chanpos - 1,
 		ecp, p);
 }
