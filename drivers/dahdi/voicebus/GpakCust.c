@@ -212,15 +212,31 @@ static int vpmadt032_setreg(struct vpmadt032 *vpm, unsigned int addr, u16 data)
 	return res;
 }
 
-static int vpmadt032_enable_ec(struct vpmadt032 *vpm, int channel)
+struct change_order {
+	struct list_head node;
+	unsigned int channel;
+	struct adt_lec_params params;
+};
+
+static struct change_order *alloc_change_order(void)
+{
+	return kzalloc(sizeof(struct change_order), GFP_KERNEL);
+}
+
+static void free_change_order(struct change_order *order)
+{
+	kfree(order);
+}
+
+static int vpmadt032_enable_ec(struct vpmadt032 *vpm, int channel,
+			       enum adt_companding companding)
 {
 	int res;
 	GPAK_AlgControlStat_t pstatus;
 	GpakAlgCtrl_t control;
 
- 	control = (ADT_COMP_ALAW == vpm->desiredecstate[channel].companding) ?
- 			EnableALawSwCompanding :
- 			EnableMuLawSwCompanding;
+	control = (ADT_COMP_ALAW == companding) ? EnableALawSwCompanding :
+						  EnableMuLawSwCompanding;
  
 	if (vpm->options.debug & DEBUG_ECHOCAN) {
 		const char *law;
@@ -255,6 +271,86 @@ static int vpmadt032_disable_ec(struct vpmadt032 *vpm, int channel)
 	return res;
 }
 
+static struct change_order *get_next_order(struct vpmadt032 *vpm)
+{
+	struct change_order *order;
+
+	spin_lock(&vpm->change_list_lock);
+	if (!list_empty(&vpm->change_list)) {
+		order = list_entry(vpm->change_list.next,
+				   struct change_order, node);
+		list_del(&order->node);
+	} else {
+		order = NULL;
+	}
+	spin_unlock(&vpm->change_list_lock);
+
+	return order;
+}
+
+static int nlp_settings_changed(const struct adt_lec_params *a,
+				const struct adt_lec_params *b)
+{
+	return ((a->nlp_type != b->nlp_type) ||
+		(a->nlp_threshold != b->nlp_threshold) ||
+		(a->nlp_max_suppress != b->nlp_max_suppress));
+}
+
+static int echocan_on(const struct adt_lec_params *new,
+		      const struct adt_lec_params *old)
+{
+	return ((new->tap_length != old->tap_length) &&
+	       (new->tap_length > 0));
+}
+
+static int echocan_off(const struct adt_lec_params *new,
+		       const struct adt_lec_params *old)
+{
+	return ((new->tap_length != old->tap_length) &&
+	       (0 == new->tap_length));
+}
+
+static void update_channel_config(struct vpmadt032 *vpm, unsigned int channel,
+				  struct adt_lec_params *desired)
+{
+	int res;
+	GPAK_AlgControlStat_t pstatus;
+	GPAK_ChannelConfigStat_t cstatus;
+	GPAK_TearDownChanStat_t tstatus;
+	GpakChannelConfig_t chanconfig;
+
+	if (vpm->options.debug & DEBUG_ECHOCAN) {
+		printk(KERN_DEBUG "Reconfiguring chan %d for nlp %d, "
+		       "nlp_thresh %d, and max_supp %d\n", channel + 1,
+		       desired->nlp_type, desired->nlp_threshold,
+		       desired->nlp_max_suppress);
+	}
+
+	vpm->setchanconfig_from_state(vpm, channel, &chanconfig);
+
+	res = gpakTearDownChannel(vpm->dspid, channel, &tstatus);
+	if (res)
+		return;
+
+	res = gpakConfigureChannel(vpm->dspid, channel, tdmToTdm,
+				   &chanconfig, &cstatus);
+	if (res)
+		return;
+
+	if (!desired->tap_length) {
+		res = gpakAlgControl(vpm->dspid, channel,
+				     BypassSwCompanding, &pstatus);
+		if (res) {
+			printk("Unable to disable sw companding on echo "
+			       "cancellation channel %d (reason %d)\n",
+			       channel, res);
+		}
+		gpakAlgControl(vpm->dspid, channel, BypassEcanA, &pstatus);
+	}
+
+	return;
+}
+
 /**
  * vpmadt032_bh - Changes the echocan parameters on the vpmadt032 module.
  *
@@ -272,87 +368,67 @@ static void vpmadt032_bh(struct work_struct *data)
 {
 	struct vpmadt032 *vpm = container_of(data, struct vpmadt032, work);
 #endif
-	struct adt_lec_params *curstate, *desiredstate;
-	int channel;
+	struct change_order *order;
 
-	/* Sweep through all the echo can channels on the VPMADT032 module,
-	 * looking for ones where the desired state does not match the current
-	 * state.
-	 */
-	for (channel = 0; channel < vpm->options.channels; channel++) {
-		GPAK_AlgControlStat_t pstatus;
-		int res = 1;
-		curstate = &vpm->curecstate[channel];
-		desiredstate = &vpm->desiredecstate[channel];
+	while ((order = get_next_order(vpm))) {
 
-		if ((desiredstate->nlp_type != curstate->nlp_type) ||
-		    (desiredstate->nlp_threshold != curstate->nlp_threshold) ||
-		    (desiredstate->nlp_max_suppress != curstate->nlp_max_suppress)) {
+		struct adt_lec_params *old;
+		struct adt_lec_params *new;
+		unsigned int channel;
 
-			GPAK_ChannelConfigStat_t cstatus;
-			GPAK_TearDownChanStat_t tstatus;
-			GpakChannelConfig_t chanconfig;
+		channel = order->channel;
+		BUG_ON(channel >= MAX_CHANNELS_PER_SPAN);
+		old = &vpm->curecstate[channel];
+		new = &order->params;
 
-			if (vpm->options.debug & DEBUG_ECHOCAN)
-				printk(KERN_DEBUG "Reconfiguring chan %d for nlp %d, nlp_thresh %d, and max_supp %d\n", channel + 1, vpm->desiredecstate[channel].nlp_type,
-					desiredstate->nlp_threshold, desiredstate->nlp_max_suppress);
+		if (nlp_settings_changed(new, old))
+			update_channel_config(vpm, channel, new);
+		else if (echocan_on(new, old))
+			vpmadt032_enable_ec(vpm, channel, new->companding);
+		else if (echocan_off(new, old))
+			vpmadt032_disable_ec(vpm, channel);
 
-			vpm->setchanconfig_from_state(vpm, channel, &chanconfig);
-
-			res = gpakTearDownChannel(vpm->dspid, channel, &tstatus);
-			if (res)
-				goto vpm_bh_out;
-
-			res = gpakConfigureChannel(vpm->dspid, channel, tdmToTdm, &chanconfig, &cstatus);
-			if (res)
-				goto vpm_bh_out;
-
-			if (!desiredstate->tap_length) {
-				res = gpakAlgControl(vpm->dspid, channel, BypassSwCompanding, &pstatus);
-				if (res)
-					printk("Unable to disable sw companding on echo cancellation channel %d (reason %d)\n", channel, res);
-				res = gpakAlgControl(vpm->dspid, channel, BypassEcanA, &pstatus);
-			}
-
-		} else if (desiredstate->tap_length != curstate->tap_length) {
-			if (desiredstate->tap_length)
-				res = vpmadt032_enable_ec(vpm, channel);
-			else
-				res = vpmadt032_disable_ec(vpm, channel);
-		}
-vpm_bh_out:
-		if (!res)
-			*curstate = *desiredstate;
+		*old = order->params;
+		free_change_order(order);
 	}
-	return;
 }
+
 #include "adt_lec.c"
-static void vpmadt032_check_and_schedule_update(struct vpmadt032 *vpm, int channo)
+static void vpmadt032_check_and_schedule_update(struct vpmadt032 *vpm,
+						struct change_order *order)
 {
-	int update;
-	/* Only update the parameters if the new state of the echo canceller
-	 * is different than the current state. */
-	update = memcmp(&vpm->curecstate[channo],
-			&vpm->desiredecstate[channo],
-			sizeof(vpm->curecstate[channo]));
-	if (update && test_bit(VPM150M_ACTIVE, &vpm->control)) {
-		/* Since updating the parameters can take a bit of time while
-		 * the driver sends messages to the VPMADT032 and waits for
-		 * their responses, we'll push the work of updating the
-		 * parameters to a work queue so the caller can continue to
-		 * proceed with setting up the call.
-		 */
-		queue_work(vpm->wq, &vpm->work);
+	struct change_order *cur;
+	struct change_order *n;
+
+	INIT_LIST_HEAD(&order->node);
+	spin_lock(&vpm->change_list_lock);
+	list_for_each_entry_safe(cur, n, &vpm->change_list, node) {
+		if (cur->channel == order->channel) {
+			list_replace(&cur->node, &order->node);
+			free_change_order(cur);
+			break;
+		}
 	}
+	if (list_empty(&order->node))
+		list_add_tail(&order->node, &vpm->change_list);
+	spin_unlock(&vpm->change_list_lock);
+
+	queue_work(vpm->wq, &vpm->work);
 }
 int vpmadt032_echocan_create(struct vpmadt032 *vpm, int channo,
 	struct dahdi_echocanparams *ecp, struct dahdi_echocanparam *p)
 {
 	unsigned int ret;
+	struct change_order *order = alloc_change_order();
+	if (!order)
+		return -ENOMEM;
 
-	ret = adt_lec_parse_params(&vpm->desiredecstate[channo], ecp, p);
-	if (ret)
+	memcpy(&order->params, &vpm->curecstate[channo], sizeof(order->params));
+	ret = adt_lec_parse_params(&order->params, ecp, p);
+	if (ret) {
+		free_change_order(order);
 		return ret;
+	}
 
 	if (vpm->options.debug & DEBUG_ECHOCAN)
 		printk(KERN_DEBUG "echocan: Channel is %d length %d\n", channo, ecp->tap_length);
@@ -360,9 +436,10 @@ int vpmadt032_echocan_create(struct vpmadt032 *vpm, int channo,
 	/* The driver cannot control the number of taps on the VPMADT032
 	 * module. Instead, it uses tap_length to enable or disable the echo
 	 * cancellation. */
-	vpm->desiredecstate[channo].tap_length = (ecp->tap_length) ? 1 : 0;
+	order->params.tap_length = (ecp->tap_length) ? 1 : 0;
+	order->channel = channo;
 
-	vpmadt032_check_and_schedule_update(vpm, channo);
+	vpmadt032_check_and_schedule_update(vpm, order);
 	return 0;
 }
 EXPORT_SYMBOL(vpmadt032_echocan_create);
@@ -370,15 +447,22 @@ EXPORT_SYMBOL(vpmadt032_echocan_create);
 void vpmadt032_echocan_free(struct vpmadt032 *vpm, int channo,
 	struct dahdi_echocan_state *ec)
 {
-	adt_lec_init_defaults(&vpm->desiredecstate[channo], 0);
-	vpm->desiredecstate[channo].nlp_type = vpm->options.vpmnlptype;
-	vpm->desiredecstate[channo].nlp_threshold = vpm->options.vpmnlpthresh;
-	vpm->desiredecstate[channo].nlp_max_suppress = vpm->options.vpmnlpmaxsupp;
+	struct change_order *order;
+	order = alloc_change_order();
+	WARN_ON(!order);
+	if (!order)
+		return;
+
+	adt_lec_init_defaults(&order->params, 0);
+	order->params.nlp_type = vpm->options.vpmnlptype;
+	order->params.nlp_threshold = vpm->options.vpmnlpthresh;
+	order->params.nlp_max_suppress = vpm->options.vpmnlpmaxsupp;
+	order->channel = channo;
 
 	if (vpm->options.debug & DEBUG_ECHOCAN)
 		printk(KERN_DEBUG "echocan: Channel is %d length 0\n", channo);
 
-	vpmadt032_check_and_schedule_update(vpm, channo);
+	vpmadt032_check_and_schedule_update(vpm, order);
 }
 EXPORT_SYMBOL(vpmadt032_echocan_free);
 
@@ -410,6 +494,8 @@ vpmadt032_alloc(struct vpmadt032_options *options, const char *board_name)
 	/* Init our vpmadt032 struct */
 	memcpy(&vpm->options, options, sizeof(*options));
 	spin_lock_init(&vpm->list_lock);
+	spin_lock_init(&vpm->change_list_lock);
+	INIT_LIST_HEAD(&vpm->change_list);
 	INIT_LIST_HEAD(&vpm->free_cmds);
 	INIT_LIST_HEAD(&vpm->pending_cmds);
 	INIT_LIST_HEAD(&vpm->active_cmds);
@@ -580,6 +666,7 @@ void vpmadt032_free(struct vpmadt032 *vpm)
 {
 	unsigned long flags;
 	struct vpmadt032_cmd *cmd;
+	struct change_order *order;
 	LIST_HEAD(local_list);
 
 	BUG_ON(!vpm);
@@ -598,6 +685,16 @@ void vpmadt032_free(struct vpmadt032 *vpm)
 		cmd = list_entry(local_list.next, struct vpmadt032_cmd, node);
 		list_del(&cmd->node);
 		kfree(cmd);
+	}
+
+	spin_lock(&vpm->change_list_lock);
+	list_splice(&vpm->change_list, &local_list);
+	spin_unlock(&vpm->change_list_lock);
+
+	while (!list_empty(&local_list)) {
+		order = list_entry(local_list.next, struct change_order, node);
+		list_del(&order->node);
+		kfree(order);
 	}
 
 	BUG_ON(ifaces[vpm->dspid] != vpm);

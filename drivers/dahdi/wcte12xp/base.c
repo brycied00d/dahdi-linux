@@ -355,7 +355,6 @@ static int config_vpmadt032(struct vpmadt032 *vpm, struct t1 *wc)
 		vpm->curecstate[channel].nlp_threshold = vpm->options.vpmnlpthresh;
 		vpm->curecstate[channel].nlp_max_suppress = vpm->options.vpmnlpmaxsupp;
 		vpm->curecstate[channel].companding = (wc->spantype == TYPE_T1) ? ADT_COMP_ULAW : ADT_COMP_ALAW;
-		memcpy(&vpm->desiredecstate[channel], &vpm->curecstate[channel], sizeof(vpm->curecstate[channel]));
 
 		vpm->setchanconfig_from_state(vpm, channel, &chanconfig);
 		if ((res = gpakConfigureChannel(vpm->dspid, channel, tdmToTdm, &chanconfig, &cstatus))) {

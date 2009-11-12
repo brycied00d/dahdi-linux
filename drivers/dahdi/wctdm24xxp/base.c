@@ -312,7 +312,8 @@ void setchanconfig_from_state(struct vpmadt032 *vpm, int channel, GpakChannelCon
 	chanconfig->MuteToneB = Disabled;
 	chanconfig->FaxCngDetB = Disabled;
 
-	chanconfig->SoftwareCompand = (vpm->desiredecstate[channel].companding == ADT_COMP_ALAW) ? cmpPCMA : cmpPCMU;
+	chanconfig->SoftwareCompand = (ADT_COMP_ALAW == vpm->companding) ?
+						cmpPCMA : cmpPCMU;
 	chanconfig->FrameRate = rate2ms;
 	p = &chanconfig->EcanParametersA;
 
@@ -422,7 +423,6 @@ static int config_vpmadt032(struct vpmadt032 *vpm, struct wctdm *wc)
 		vpm->curecstate[i].nlp_threshold = vpm->options.vpmnlpthresh;
 		vpm->curecstate[i].nlp_max_suppress = vpm->options.vpmnlpmaxsupp;
 		vpm->curecstate[i].companding = (wc->span.deflaw == DAHDI_LAW_MULAW) ? ADT_COMP_ULAW : ADT_COMP_ALAW;
-		memcpy(&vpm->desiredecstate[i], &vpm->curecstate[i], sizeof(vpm->curecstate[i]));
 
 		/* set_vpmadt032_chanconfig_from_state(&vpm->curecstate[i], &vpm->options, i, &chanconfig); !!! */
 		vpm->setchanconfig_from_state(vpm, i, &chanconfig);
