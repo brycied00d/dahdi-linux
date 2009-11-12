@@ -1173,6 +1173,16 @@ static inline short dahdi_txtone_nextsample(struct dahdi_chan *ss)
 #define kzalloc(a, b) kcalloc(1, a, b)
 #endif
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 18)
+static inline void list_replace(struct list_head *old, struct list_head *new)
+{
+        new->next = old->next;
+        new->next->prev = new;
+        new->prev = old->prev;
+        new->prev->next = new;
+}
+#endif
+
 #ifndef DMA_BIT_MASK
 #define DMA_BIT_MASK(n)	(((n) == 64) ? ~0ULL : ((1ULL<<(n))-1))
 #endif
