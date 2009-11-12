@@ -53,6 +53,9 @@
 static rwlock_t ifacelock;
 static struct vpmadt032 *ifaces[MAX_DSP_CORES];
 
+#define vpm_info(vpm, format, arg...)         \
+        dev_info(&voicebus_get_pci_dev(vpm->vb)->dev , format , ## arg)
+
 static inline struct vpmadt032 *find_iface(const unsigned short dspid)
 {
 	struct vpmadt032 *ret;
@@ -241,13 +244,13 @@ static int vpmadt032_enable_ec(struct vpmadt032 *vpm, int channel,
 	if (vpm->options.debug & DEBUG_ECHOCAN) {
 		const char *law;
 		law = (control == EnableMuLawSwCompanding) ? "MuLaw" : "ALaw";
-		printk(KERN_DEBUG "Enabling ecan on channel: %d (%s)\n",
-				channel, law);
+		vpm_info(vpm, "Enabling ecan on channel: %d (%s)\n",
+			 channel, law);
 	}
 	res = gpakAlgControl(vpm->dspid, channel, control, &pstatus);
 	if (res) {
-		printk(KERN_WARNING "Unable to set SW Companding on " \
-			"channel %d (reason %d)\n", channel, res);
+		vpm_info(vpm, "Unable to set SW Companding on "
+			 "channel %d (reason %d)\n", channel, res);
 	}
 	res = gpakAlgControl(vpm->dspid, channel, EnableEcanA, &pstatus);
 	return res;
@@ -259,13 +262,13 @@ static int vpmadt032_disable_ec(struct vpmadt032 *vpm, int channel)
 	GPAK_AlgControlStat_t pstatus;
 
 	if (vpm->options.debug & DEBUG_ECHOCAN)
-		printk(KERN_DEBUG "Disabling ecan on channel: %d\n", channel);
+		vpm_info(vpm, "Disabling ecan on channel: %d\n", channel);
 
 	res = gpakAlgControl(vpm->dspid, channel, BypassSwCompanding, &pstatus);
 	if (res) {
-		printk(KERN_WARNING "Unable to disable sw companding on " \
-			"echo cancellation channel %d (reason %d)\n",
-			channel, res);
+		vpm_info(vpm, "Unable to disable sw companding on "
+			 "echo cancellation channel %d (reason %d)\n",
+			 channel, res);
 	}
 	res = gpakAlgControl(vpm->dspid, channel, BypassEcanA, &pstatus);
 	return res;
@@ -320,10 +323,10 @@ static void update_channel_config(struct vpmadt032 *vpm, unsigned int channel,
 	GpakChannelConfig_t chanconfig;
 
 	if (vpm->options.debug & DEBUG_ECHOCAN) {
-		printk(KERN_DEBUG "Reconfiguring chan %d for nlp %d, "
-		       "nlp_thresh %d, and max_supp %d\n", channel + 1,
-		       desired->nlp_type, desired->nlp_threshold,
-		       desired->nlp_max_suppress);
+		vpm_info(vpm, "Reconfiguring chan %d for nlp %d, "
+			 "nlp_thresh %d, and max_supp %d\n", channel + 1,
+			 desired->nlp_type, desired->nlp_threshold,
+			 desired->nlp_max_suppress);
 	}
 
 	vpm->setchanconfig_from_state(vpm, channel, &chanconfig);
@@ -341,9 +344,9 @@ static void update_channel_config(struct vpmadt032 *vpm, unsigned int channel,
 		res = gpakAlgControl(vpm->dspid, channel,
 				     BypassSwCompanding, &pstatus);
 		if (res) {
-			printk("Unable to disable sw companding on echo "
-			       "cancellation channel %d (reason %d)\n",
-			       channel, res);
+			vpm_info(vpm, "Unable to disable sw companding on "
+				 "echo cancellation channel %d (reason %d)\n",
+				 channel, res);
 		}
 		gpakAlgControl(vpm->dspid, channel, BypassEcanA, &pstatus);
 	}
@@ -430,8 +433,10 @@ int vpmadt032_echocan_create(struct vpmadt032 *vpm, int channo,
 		return ret;
 	}
 
-	if (vpm->options.debug & DEBUG_ECHOCAN)
-		printk(KERN_DEBUG "echocan: Channel is %d length %d\n", channo, ecp->tap_length);
+	if (vpm->options.debug & DEBUG_ECHOCAN) {
+		vpm_info(vpm, "Channel is %d length %d\n",
+			 channo, ecp->tap_length);
+	}
 
 	/* The driver cannot control the number of taps on the VPMADT032
 	 * module. Instead, it uses tap_length to enable or disable the echo
@@ -460,7 +465,7 @@ void vpmadt032_echocan_free(struct vpmadt032 *vpm, int channo,
 	order->channel = channo;
 
 	if (vpm->options.debug & DEBUG_ECHOCAN)
-		printk(KERN_DEBUG "echocan: Channel is %d length 0\n", channo);
+		vpm_info(vpm, "Channel is %d length 0\n", channo);
 
 	vpmadt032_check_and_schedule_update(vpm, order);
 }
@@ -529,8 +534,6 @@ vpmadt032_alloc(struct vpmadt032_options *options, const char *board_name)
 		kfree(vpm);
 		printk(KERN_NOTICE "Unable to initialize another vpmadt032 modules\n");
 		vpm = NULL;
-	} else if (vpm->options.debug & DEBUG_ECHOCAN) {
-		printk(KERN_DEBUG "Setting VPMADT032 DSP ID to %d\n", vpm->dspid);
 	}
 
 	return vpm;
@@ -547,6 +550,9 @@ vpmadt032_init(struct vpmadt032 *vpm, struct voicebus *vb)
 
 	BUG_ON(!vpm->setchanconfig_from_state);
 	BUG_ON(!vpm->wq);
+	BUG_ON(!vb);
+
+	vpm->vb = vb;
 
 	might_sleep();
 
