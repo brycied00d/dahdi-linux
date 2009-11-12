@@ -1290,7 +1290,7 @@ static void setchanconfig_from_state(struct vpmadt032 *vpm, int channel, GpakCha
 
 	chanconfig->PcmInPortA = 3;
 	chanconfig->PcmInSlotA = (channel + 1) * 2;
-	chanconfig->PcmOutPortA = 2;
+	chanconfig->PcmOutPortA = SerialPortNull;
 	chanconfig->PcmOutSlotA = (channel + 1) * 2;
 	chanconfig->PcmInPortB = 2;
 	chanconfig->PcmInSlotB = (channel + 1) * 2;
