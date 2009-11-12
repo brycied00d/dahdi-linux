@@ -106,7 +106,7 @@ struct vpmadt032_options {
 struct GpakChannelConfig;
 
 struct vpmadt032 {
-	void *context;
+	struct voicebus *vb;
 	struct work_struct work;
 	struct workqueue_struct *wq;
 	int dspid;

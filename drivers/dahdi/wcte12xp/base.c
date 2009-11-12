@@ -1371,7 +1371,6 @@ static int t1_hardware_post_init(struct t1 *wc)
 		if (!wc->vpmadt032)
 			return -ENOMEM;
 
-		wc->vpmadt032->context = wc;
 		wc->vpmadt032->setchanconfig_from_state = setchanconfig_from_state;
 
 		res = vpmadt032_init(wc->vpmadt032, wc->vb);

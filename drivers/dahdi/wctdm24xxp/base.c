@@ -3658,7 +3658,6 @@ retry:
 			return -ENOMEM;
 
 		wc->vpmadt032->setchanconfig_from_state = setchanconfig_from_state;
-		wc->vpmadt032->context = wc;
 		wc->vpmadt032->options.channels = wc->span.channels;
 		get_default_portconfig(&portconfig);
 		res = vpmadt032_init(wc->vpmadt032, wc->vb);
