@@ -349,12 +349,14 @@ static int config_vpmadt032(struct vpmadt032 *vpm, struct t1 *wc)
 		return -1;
 	}
 
+	vpm->companding = (TYPE_T1 == wc->spantype) ?
+				ADT_COMP_ULAW : ADT_COMP_ALAW;
 	for (channel = 0; channel < ARRAY_SIZE(vpm->curecstate); ++channel) {
 		vpm->curecstate[channel].tap_length = 0;
 		vpm->curecstate[channel].nlp_type = vpm->options.vpmnlptype;
 		vpm->curecstate[channel].nlp_threshold = vpm->options.vpmnlpthresh;
 		vpm->curecstate[channel].nlp_max_suppress = vpm->options.vpmnlpmaxsupp;
-		vpm->curecstate[channel].companding = (wc->spantype == TYPE_T1) ? ADT_COMP_ULAW : ADT_COMP_ALAW;
+		vpm->curecstate[channel].companding = vpm->companding;
 
 		vpm->setchanconfig_from_state(vpm, channel, &chanconfig);
 		if ((res = gpakConfigureChannel(vpm->dspid, channel, tdmToTdm, &chanconfig, &cstatus))) {
