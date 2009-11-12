@@ -442,6 +442,7 @@ int vpmadt032_echocan_create(struct vpmadt032 *vpm, int channo,
 	 * module. Instead, it uses tap_length to enable or disable the echo
 	 * cancellation. */
 	order->params.tap_length = (ecp->tap_length) ? 1 : 0;
+	order->params.companding = vpm->companding;
 	order->channel = channo;
 
 	vpmadt032_check_and_schedule_update(vpm, order);
