@@ -115,8 +115,10 @@ struct vpmadt032 {
 	unsigned long control;
 	unsigned char curpage;
 	unsigned short version;
+	enum adt_companding companding;
 	struct adt_lec_params curecstate[MAX_CHANNELS_PER_SPAN];
-	struct adt_lec_params desiredecstate[MAX_CHANNELS_PER_SPAN];
+	spinlock_t change_list_lock;
+	struct list_head change_list;
 	spinlock_t list_lock;
 	/* Commands that are ready to be used. */
 	struct list_head free_cmds;
