@@ -126,7 +126,6 @@ struct vpmadt032 {
 	struct list_head pending_cmds;
 	/* Commands that are currently in progress by the VPM module */
 	struct list_head active_cmds;
-	unsigned char curtone[MAX_CHANNELS_PER_SPAN];
 	struct vpmadt032_options options;
 	void (*setchanconfig_from_state)(struct vpmadt032 *vpm, int channel, struct GpakChannelConfig *chanconfig);
 	/* This must be last */
