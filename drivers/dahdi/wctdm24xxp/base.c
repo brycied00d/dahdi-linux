@@ -562,11 +562,6 @@ static inline void cmd_dequeue_vpmadt032(struct wctdm *wc, u8 *writechunk, int w
 	for (x = 24; x < 28; x++) {
 		writechunk[CMD_BYTE(x, 0, 0)] |= leds;
 	}
-
-	/* Now let's figure out if we need to check for DTMF */
-	if (test_bit(VPM150M_ACTIVE, &vpmadt032->control) && !whichframe && !(wc->intcount % 100)) {
-		schedule_work(&vpmadt032->work);
-	}
 }
 
 static inline void cmd_dequeue(struct wctdm *wc, unsigned char *writechunk, int card, int pos)

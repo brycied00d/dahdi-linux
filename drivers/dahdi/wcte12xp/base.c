@@ -528,11 +528,6 @@ static void cmd_dequeue_vpmadt032(struct t1 *wc, unsigned char *writechunk, int 
 	}
 #endif
 
-	/* Now let's figure out if we need to check for DTMF */
-	/* polling */
-	if (test_bit(VPM150M_ACTIVE, &vpm->control) && !whichframe && !(atomic_read(&wc->txints) % 100))
-		schedule_work(&vpm->work);
-
 #if 0
 	/* This may be needed sometime in the future to troubleshoot ADT related issues. */
 	if (test_bit(VPM150M_ACTIVE, &vpm->control) && !whichframe && !(atomic_read(&wc->txints) % 10000))
