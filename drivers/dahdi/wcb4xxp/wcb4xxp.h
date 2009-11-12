@@ -424,7 +424,7 @@ enum cards_ids {	/* Cards ==> Brand & Model 		*/
 	OCTOBRI,	/* HFC-8S Junghanns.NET octoBRI PCI	*/
 	BN2S0,		/* BeroNet BN2S0			*/
 	BN4S0,		/* Beronet BN4S0			*/
-	BN8S0		/* BeroNet BN8S0			*/
+	BN8S0,		/* BeroNet BN8S0			*/
 	QUADBRI_EVAL	/* HFC-4S CCD Eval. Board		*/
 	};
 
