@@ -105,7 +105,6 @@ struct vpmadt032_options {
 
 struct GpakChannelConfig;
 
-#define MAX_CHANNELS_PER_SPAN 32
 struct vpmadt032 {
 	void *context;
 	struct work_struct work;
@@ -116,7 +115,7 @@ struct vpmadt032 {
 	unsigned char curpage;
 	unsigned short version;
 	enum adt_companding companding;
-	struct adt_lec_params curecstate[MAX_CHANNELS_PER_SPAN];
+	struct adt_lec_params curecstate[MAX_CHANNELS];
 	spinlock_t change_list_lock;
 	struct list_head change_list;
 	spinlock_t list_lock;
