@@ -137,6 +137,8 @@ static struct devtype hfc8s_OV = {"OpenVox B800P", .ports = 8, .card_type = B800
 static struct devtype hfc2s_BN = {"BeroNet BN2S0", .ports = 2, .card_type = BN2S0 };
 static struct devtype hfc4s_BN = {"BeroNet BN4S0", .ports = 4, .card_type = BN4S0 };
 static struct devtype hfc8s_BN = {"BeroNet BN8S0", .ports = 8, .card_type = BN8S0 };
+static struct devtype hfc4s_EV = {"CCD HFC-4S Eval. Board", .ports = 4,
+					.card_type = QUADBRI_EVAL };
  
 #define CARD_HAS_EC(card) ((card)->card_type == B410P)
 
@@ -1828,13 +1830,14 @@ static void b4xxp_init_stage1(struct b4xxp *b4)
 	b4xxp_setreg8(b4, R_SCI_MSK, 0x00);	/* mask off all S/T interrupts */
 	b4xxp_setreg8(b4, R_IRQMSK_MISC, 0x00);	/* nothing else can generate an interrupt */
 
-/*
- * set up the clock controller
- * B410P has a 24.576MHz crystal, so the PCM clock is 2x the incoming clock.
- * Other cards have a 49.152Mhz crystal, so the PCM clock equals incoming clock.
- */
+	/*
+	 * set up the clock controller B410P & Cologne Eval Board have a
+	 * 24.576MHz crystal, so the PCM clock is 2x the incoming clock.
+	 * Other cards have a 49.152Mhz crystal, so the PCM clock equals
+	 * incoming clock.
+	 */
 
-	if (b4->card_type == B410P)
+	if ((b4->card_type == B410P) || (b4->card_type == QUADBRI_EVAL))
 		b4xxp_setreg8(b4, R_BRG_PCM_CFG, 0x02);
 	else
 		b4xxp_setreg8(b4, R_BRG_PCM_CFG, V_PCM_CLK);
@@ -2876,15 +2879,19 @@ static void __devexit b4xxp_remove(struct pci_dev *pdev)
 static struct pci_device_id b4xx_ids[] __devinitdata =
 {
 	{ 0xd161, 0xb410, PCI_ANY_ID, PCI_ANY_ID, 0, 0, (unsigned long)&wcb4xxp },
-	{ 0x1397, 0x16b8, 0x1397, 0xe552, 0, 0, (unsigned long)&hfc8s },
+	{ 0x1397, 0x16b8, 0x1397, 0xb552, 0, 0, (unsigned long)&hfc8s },
 	{ 0x1397, 0x08b4, 0x1397, 0xb520, 0, 0, (unsigned long)&hfc4s },
 	{ 0x1397, 0x08b4, 0x1397, 0xb556, 0, 0, (unsigned long)&hfc2s },
 	{ 0x1397, 0x08b4, 0x1397, 0xe884, 0, 0, (unsigned long)&hfc2s_OV },
 	{ 0x1397, 0x08b4, 0x1397, 0xe888, 0, 0, (unsigned long)&hfc4s_OV },
 	{ 0x1397, 0x16b8, 0x1397, 0xe998, 0, 0, (unsigned long)&hfc8s_OV },
 	{ 0x1397, 0x08b4, 0x1397, 0xb566, 0, 0, (unsigned long)&hfc2s_BN },
+	{ 0x1397, 0x08b4, 0x1397, 0xb761, 0, 0, (unsigned long)&hfc2s_BN },
 	{ 0x1397, 0x08b4, 0x1397, 0xb560, 0, 0, (unsigned long)&hfc4s_BN },
+	{ 0x1397, 0x08b4, 0x1397, 0xb550, 0, 0, (unsigned long)&hfc4s_BN },
 	{ 0x1397, 0x16b8, 0x1397, 0xb562, 0, 0, (unsigned long)&hfc8s_BN },
+	{ 0x1397, 0x16b8, 0x1397, 0xb56b, 0, 0, (unsigned long)&hfc8s_BN },
+	{ 0x1397, 0x08b4, 0x1397, 0x08b4, 0, 0, (unsigned long)&hfc4s_EV },
 	{0, }
 
 };
