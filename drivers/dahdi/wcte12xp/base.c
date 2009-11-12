@@ -349,7 +349,7 @@ static int config_vpmadt032(struct vpmadt032 *vpm, struct t1 *wc)
 		return -1;
 	}
 
-	for (channel = 0; channel < MAX_CHANNELS_PER_SPAN; ++channel) {
+	for (channel = 0; channel < ARRAY_SIZE(vpm->curecstate); ++channel) {
 		vpm->curecstate[channel].tap_length = 0;
 		vpm->curecstate[channel].nlp_type = vpm->options.vpmnlptype;
 		vpm->curecstate[channel].nlp_threshold = vpm->options.vpmnlpthresh;

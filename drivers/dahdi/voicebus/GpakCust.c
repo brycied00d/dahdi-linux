@@ -377,7 +377,7 @@ static void vpmadt032_bh(struct work_struct *data)
 		unsigned int channel;
 
 		channel = order->channel;
-		BUG_ON(channel >= MAX_CHANNELS_PER_SPAN);
+		BUG_ON(channel >= ARRAY_SIZE(vpm->curecstate));
 		old = &vpm->curecstate[channel];
 		new = &order->params;
 
