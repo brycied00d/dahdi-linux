@@ -306,7 +306,7 @@ struct pri_leds {
 #define	VAL_PC_GPOH	0x0A	/* General Purpose Output, high level */
 #define	VAL_PC_GPOL	0x0B	/* General Purpose Output, low level */
 
-#define	NUM_CAS_RS	(REG_RS16_E - REG_RS1_E + 1)
+#define	NUM_CAS_RS_E	(REG_RS16_E - REG_RS2_E + 1)
 /* and of those, the ones used in T1: */
 #define	NUM_CAS_RS_T	(REG_RS12_E - REG_RS1_E + 1)
 
@@ -328,8 +328,8 @@ struct PRI_priv_data {
 #define	VALID_DCHAN(p)	(DCHAN(p) != NO_DCHAN)
 #define	SET_DCHAN(p,d)	do { DCHAN(p) = (d); } while(0);
 
-	byte				cas_rs_e[NUM_CAS_RS];
-	byte				cas_ts_e[NUM_CAS_RS];
+	byte				cas_rs_e[NUM_CAS_RS_E];
+	byte				cas_ts_e[NUM_CAS_RS_E];
 	uint				cas_replies;
 	bool				is_esf;
 	bool				local_loopback;
@@ -418,6 +418,78 @@ static int pri_write_reg(xpd_t *xpd, int regnum, byte val)
 			0,			/* data_H	*/
 			0			/* should_reply	*/
 			);
+}
+
+static int cas_regbase(xpd_t *xpd)
+{
+	struct PRI_priv_data	*priv;
+
+	priv = xpd->priv;
+	switch (priv->pri_protocol) {
+	case PRI_PROTO_E1:
+		return REG_RS2_E;
+	case PRI_PROTO_T1:
+		/* fall-through */
+	case PRI_PROTO_J1:
+		return REG_RS1_E;
+	case PRI_PROTO_0:
+		/* fall-through */
+		;
+	}
+	BUG();
+	return 0;
+}
+
+static int cas_numregs(xpd_t *xpd)
+{
+	struct PRI_priv_data	*priv;
+
+	priv = xpd->priv;
+	switch (priv->pri_protocol) {
+	case PRI_PROTO_E1:
+		return NUM_CAS_RS_E;
+	case PRI_PROTO_T1:
+		/* fall-through */
+	case PRI_PROTO_J1:
+		return NUM_CAS_RS_T;
+	case PRI_PROTO_0:
+		/* fall-through */
+		;
+	}
+	BUG();
+	return 0;
+}
+
+static int write_cas_reg(xpd_t *xpd, int rsnum, byte val)
+{
+	struct PRI_priv_data	*priv;
+	int			regbase = cas_regbase(xpd);
+	int			num_cas_rs = cas_numregs(xpd);
+	int			regnum;
+	bool			is_d4 = 0;
+
+	BUG_ON(!xpd);
+	priv = xpd->priv;
+	if (priv->pri_protocol && !priv->is_esf) {
+		/* same data should be copied to RS7..12 in D4 only */
+		is_d4 = 1;
+	}
+	if (rsnum < 0 || rsnum >= num_cas_rs) {
+		XPD_ERR(xpd, "RBS(TX): rsnum=%d\n", rsnum);
+		BUG();
+	}
+	regnum = regbase + rsnum;
+	priv->cas_ts_e[rsnum] = val;
+	XPD_DBG(SIGNAL, xpd, "RBS(TX): reg=0x%X val=0x%02X\n", regnum, val);
+	write_subunit(xpd, regbase + rsnum, val);
+	if (is_d4) {
+		/* same data should be copied to RS7..12 in D4 only */
+		regnum = REG_RS7_E + rsnum;
+		XPD_DBG(SIGNAL, xpd, "RBS(TX): reg=0x%X val=0x%02X\n",
+				regnum, val);
+		write_subunit(xpd, regnum, val);
+	}
+	return 0;
 }
 
 #ifdef	OLD_PROC
@@ -1437,10 +1509,7 @@ static int encode_rbsbits_e1(xpd_t *xpd, int pos, int bits)
 {
 	struct PRI_priv_data	*priv;
 	byte			val;
-	int			reg_pos;
-	int			regnum;
-	unsigned long		flags;
-	
+	int			rsnum;
 
 	BUG_ON(!xpd);
 	priv = xpd->priv;
@@ -1452,22 +1521,17 @@ static int encode_rbsbits_e1(xpd_t *xpd, int pos, int bits)
 		XPD_NOTICE(xpd, "%s: pos=%d out of range. Ignore\n", __FUNCTION__, pos);
 		return 0;
 	}
-	spin_lock_irqsave(&xpd->lock, flags);
 	if(pos >= 16) {
 		/* Low nibble */
-		reg_pos = pos - 16;
-		val = (priv->cas_ts_e[reg_pos] & 0xF0) | (bits & 0x0F);
+		rsnum = pos - 16;
+		val = (priv->cas_ts_e[rsnum] & 0xF0) | (bits & 0x0F);
 	} else {
 		/* High nibble */
-		reg_pos = pos;
-		val = (priv->cas_ts_e[reg_pos] & 0x0F) | ((bits << 4) & 0xF0);
+		rsnum = pos;
+		val = (priv->cas_ts_e[rsnum] & 0x0F) | ((bits << 4) & 0xF0);
 	}
-	regnum = REG_RS2_E + reg_pos;
-	priv->cas_ts_e[reg_pos] = val;
-	spin_unlock_irqrestore(&xpd->lock, flags);
-	LINE_DBG(SIGNAL, xpd, pos, "RBS: TX: bits=0x%X (reg=0x%X val=0x%02X)\n",
-		bits, regnum, val);
-	write_subunit(xpd, regnum, val);
+	LINE_DBG(SIGNAL, xpd, pos, "RBS: TX: bits=0x%X\n", bits);
+	write_cas_reg(xpd, rsnum, val);
 	return 0;
 }
 
@@ -1480,6 +1544,7 @@ static int encode_rbsbits_t1(xpd_t *xpd, int pos, int bits)
 	int			width;
 	uint			tx_bits = bits;
 	uint			mask;
+	byte			val;
 
 	BUG_ON(!xpd);
 	priv = xpd->priv;
@@ -1498,25 +1563,15 @@ static int encode_rbsbits_t1(xpd_t *xpd, int pos, int bits)
 		tx_bits >>= 2;
 	tx_bits &= BITMASK(width);
 	tx_bits <<= (chan_per_reg - offset - 1) * width;
-	if((priv->cas_ts_e[rsnum] & mask) == tx_bits) {
-#if 0
-		LINE_DBG(SIGNAL, xpd, pos, "RBS: TX: RS%02d(0x%02X, 0x%02X): REPEAT 0x%02X\n",
-			rsnum+1, mask, tx_bits, bits);
-#endif
-		return 0;
-	}
-	priv->cas_ts_e[rsnum] &= ~mask;
-	priv->cas_ts_e[rsnum] |= tx_bits;
+	val = priv->cas_ts_e[rsnum];
+	val &= ~mask;
+	val |= tx_bits;
 	LINE_DBG(SIGNAL, xpd, pos,
 		"bits=0x%02X RS%02d(%s) offset=%d tx_bits=0x%02X\n",
 		bits, rsnum+1,
 		(priv->is_esf) ? "esf" : "d4",
 		offset, tx_bits);
-	write_subunit(xpd, REG_RS1_E + rsnum , priv->cas_ts_e[rsnum]);
-	if (!priv->is_esf) {
-		/* same data should be copied to RS7..12 in D4 only */
-		write_subunit(xpd, REG_RS7_E + rsnum , priv->cas_ts_e[rsnum]);
-	}
+	write_cas_reg(xpd, rsnum , val);
 	priv->dchan_tx_counter++;
 	return 0;
 }
@@ -1533,7 +1588,7 @@ static int pri_rbsbits(struct dahdi_chan *chan, int bits)
 	priv = xpd->priv;
 	BUG_ON(!priv);
 	if(!priv->layer1_up) {
-		XPD_DBG(SIGNAL, xpd, "RBS: TX: No layer1. Ignore.\n");
+		XPD_DBG(SIGNAL, xpd, "RBS: TX: No layer1 yet. Keep going.\n");
 	}
 	if(!priv->is_cas) {
 		XPD_NOTICE(xpd, "RBS: TX: not in CAS mode. Ignore.\n");
@@ -1734,7 +1789,7 @@ static /* 0x33 */ HOSTCMD(PRI, SET_LED, enum pri_led_selectors led_sel, enum pri
 static void layer1_state(xpd_t *xpd, byte data_low)
 {
 	struct PRI_priv_data	*priv;
-	int			alarms = 0;
+	int			alarms = DAHDI_ALARM_NONE;
 	int			layer1_up_prev;
 
 	BUG_ON(!xpd);
@@ -1748,7 +1803,7 @@ static void layer1_state(xpd_t *xpd, byte data_low)
 	if(data_low & REG_FRS0_RRA)
 		alarms |= DAHDI_ALARM_YELLOW;
 	layer1_up_prev  = priv->layer1_up;
-	priv->layer1_up = alarms == 0;
+	priv->layer1_up = alarms == DAHDI_ALARM_NONE;
 #if 0
 	/*
 	 * Some bad bits (e.g: LMFA and NMF have no alarm "colors"
@@ -1762,13 +1817,13 @@ static void layer1_state(xpd_t *xpd, byte data_low)
 	if(!priv->layer1_up) {
 		dchan_state(xpd, 0);
 	} else if (priv->is_cas && !layer1_up_prev) {
+		int	regbase = cas_regbase(xpd);
 		int	i;
-		int	num_cas_rs = (priv->pri_protocol == PRI_PROTO_E1) ?
-				NUM_CAS_RS: NUM_CAS_RS_T;
+
 		XPD_DBG(SIGNAL , xpd,
 			"Returning From Alarm Refreshing Rx register data \n");
-		for(i = 0; i < num_cas_rs; i++)
-			query_subunit(xpd, REG_RS1_E + i);
+		for (i = 0; i < cas_numregs(xpd); i++)
+			query_subunit(xpd, regbase + i);
 	}
 
 	if(SPAN_REGISTERED(xpd) && xpd->span.alarms != alarms) {
@@ -1796,13 +1851,15 @@ static int decode_cas_e1(xpd_t *xpd, byte regnum, byte data_low)
 	int			rsnum = pos + 2;
 	int			chan1 = pos;
 	int			chan2 = pos + 16;
+	int			val1 = (data_low >> 4) & 0xF;
+	int			val2 = data_low & 0xF;
 
 	priv = xpd->priv;
 	BUG_ON(!priv->is_cas);
 	BUG_ON(priv->pri_protocol != PRI_PROTO_E1);
 	XPD_DBG(SIGNAL, xpd, "RBS: RX: data_low=0x%02X\n", data_low);
-	if(pos < 0 || pos >= NUM_CAS_RS) {
-		XPD_ERR(xpd, "%s: got bad pos=%d [0-%d]\n", __FUNCTION__, pos, NUM_CAS_RS);
+	if(pos < 0 || pos >= NUM_CAS_RS_E) {
+		XPD_ERR(xpd, "%s: got bad pos=%d [0-%d]\n", __FUNCTION__, pos, NUM_CAS_RS_E);
 		return -EINVAL;
 	}
 	if(chan1 < 0 || chan1 > xpd->channels) {
@@ -1819,28 +1876,14 @@ static int decode_cas_e1(xpd_t *xpd, byte regnum, byte data_low)
 			chan2);
 		return -EINVAL;
 	}
-	if(priv->cas_rs_e[pos] != data_low) {
-		int	old1 = (priv->cas_rs_e[pos] >> 4) & 0xF;
-		int	old2 = priv->cas_rs_e[pos] & 0xF;
-		int	new1 = (data_low >> 4) & 0xF;
-		int	new2 = data_low & 0xF;
-
-		XPD_DBG(SIGNAL, xpd, "RBS: RX: RS%02d (channel %2d, channel %2d): 0x%02X -> 0x%02X\n",
-				rsnum, chan1+1, chan2+1, priv->cas_rs_e[pos], data_low);
-		if(SPAN_REGISTERED(xpd)) {
-			if(old1 != new1)
-				dahdi_rbsbits(XPD_CHAN(xpd, chan1), new1);
-			if(old2 != new2)
-				dahdi_rbsbits(XPD_CHAN(xpd, chan2), new2);
-		}
-		priv->dchan_rx_counter++;
-		priv->cas_rs_e[pos] = data_low;
-	} else {
-#if 0
-		XPD_DBG(SIGNAL, xpd, "RBS: RX: RS%02d (channel %2d, channel %2d): REPEAT 0x%02X\n",
-			rsnum, chan1+1, chan2+1, priv->cas_rs_e[pos]);
-#endif
+	XPD_DBG(SIGNAL, xpd, "RBS: RX: RS%02d (channel %2d, channel %2d): 0x%02X -> 0x%02X\n",
+		rsnum, chan1+1, chan2+1, priv->cas_rs_e[pos], data_low);
+	if(SPAN_REGISTERED(xpd)) {
+		dahdi_rbsbits(XPD_CHAN(xpd, chan1), val1);
+		dahdi_rbsbits(XPD_CHAN(xpd, chan2), val2);
 	}
+	priv->dchan_rx_counter++;
+	priv->cas_rs_e[pos] = data_low;
 	return 0;
 }
 
@@ -1864,13 +1907,6 @@ static int decode_cas_t1(xpd_t *xpd, byte regnum, byte data_low)
 		rsnum = rsnum % 6;	/* 2 identical banks of 6 registers */
 	chan_per_reg = CHAN_PER_REGS(priv);
 	width = 8 / chan_per_reg;
-	if(priv->cas_rs_e[rsnum] == data_low) {
-#if 0
-		XPD_DBG(SIGNAL, xpd, "RBS: RX: RS%02d: REPEAT 0x%02X\n",
-			rsnum+1, data_low);
-#endif
-		return 0;
-	}
 	XPD_DBG(SIGNAL, xpd,
 		"RBS: RX(%s,%d): RS%02d data_low=0x%02X\n",
 		(priv->is_esf) ? "esf" : "d4",
@@ -2161,12 +2197,12 @@ static int proc_pri_info_read(char *page, char **start, off_t off, int count, in
 		len += sprintf(page + len,
 			"CAS: replies=%d\n", priv->cas_replies);
 		len += sprintf(page + len, "   CAS-TS: ");
-		for(i = 0; i < NUM_CAS_RS; i++) {
+		for(i = 0; i < NUM_CAS_RS_E; i++) {
 			len += sprintf(page + len, " %02X", priv->cas_ts_e[i]);
 		}
 		len += sprintf(page + len, "\n");
 		len += sprintf(page + len, "   CAS-RS: ");
-		for(i = 0; i < NUM_CAS_RS; i++) {
+		for(i = 0; i < NUM_CAS_RS_E; i++) {
 			len += sprintf(page + len, " %02X", priv->cas_rs_e[i]);
 		}
 		len += sprintf(page + len, "\n");
@@ -2389,12 +2425,12 @@ static DEVICE_ATTR_READER(pri_cas_show, dev, buf)
 		len += sprintf(buf + len,
 			"CAS: replies=%d\n", priv->cas_replies);
 		len += sprintf(buf + len, "   CAS-TS: ");
-		for(i = 0; i < NUM_CAS_RS; i++) {
+		for(i = 0; i < NUM_CAS_RS_E; i++) {
 			len += sprintf(buf + len, " %02X", priv->cas_ts_e[i]);
 		}
 		len += sprintf(buf + len, "\n");
 		len += sprintf(buf + len, "   CAS-RS: ");
-		for(i = 0; i < NUM_CAS_RS; i++) {
+		for(i = 0; i < NUM_CAS_RS_E; i++) {
 			len += sprintf(buf + len, " %02X", priv->cas_rs_e[i]);
 		}
 		len += sprintf(buf + len, "\n");
