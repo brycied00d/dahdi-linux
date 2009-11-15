@@ -84,6 +84,7 @@ static int pri_startup(struct dahdi_span *span);
 static int pri_shutdown(struct dahdi_span *span);
 static int pri_rbsbits(struct dahdi_chan *chan, int bits);
 static int pri_lineconfig(xpd_t *xpd, int lineconfig);
+static void send_idlebits(xpd_t *xpd, bool saveold);
 
 #define	PROC_REGISTER_FNAME	"slics"
 #ifdef	OLD_PROC
@@ -1576,6 +1577,41 @@ static int encode_rbsbits_t1(xpd_t *xpd, int pos, int bits)
 	return 0;
 }
 
+static void send_idlebits(xpd_t *xpd, bool saveold)
+{
+	struct PRI_priv_data	*priv;
+	byte			save_rs[NUM_CAS_RS_E];
+	int			i;
+
+	if (!SPAN_REGISTERED(xpd))
+		return;
+	priv = xpd->priv;
+	BUG_ON(!priv);
+	XPD_DBG(SIGNAL, xpd, "saveold=%d\n", saveold);
+	if (saveold)
+		memcpy(save_rs, priv->cas_ts_e, sizeof(save_rs));
+	for_each_line(xpd, i) {
+		struct dahdi_chan	*chan = XPD_CHAN(xpd, i);
+
+		pri_rbsbits(chan, chan->idlebits);
+	}
+	if (saveold)
+		memcpy(priv->cas_ts_e, save_rs, sizeof(save_rs));
+}
+
+static void send_oldbits(xpd_t *xpd)
+{
+	struct PRI_priv_data	*priv;
+	int			i;
+
+	BUG_ON(!xpd);
+	priv = xpd->priv;
+	BUG_ON(!priv);
+	XPD_DBG(SIGNAL, xpd, "\n");
+	for (i = 0; i < cas_numregs(xpd); i++)
+		write_cas_reg(xpd, i , priv->cas_ts_e[i]);
+}
+
 static int pri_rbsbits(struct dahdi_chan *chan, int bits)
 {
 	xpd_t			*xpd;
@@ -1835,6 +1871,12 @@ static void layer1_state(xpd_t *xpd, byte data_low)
 		XPD_NOTICE(xpd, "Alarms: 0x%X (%s) => 0x%X (%s)\n",
 				xpd->span.alarms, str1,
 				alarms, str2);
+		if (priv->is_cas) {
+			if (alarms == DAHDI_ALARM_NONE)
+				send_oldbits(xpd);
+			else if (xpd->span.alarms == DAHDI_ALARM_NONE)
+				send_idlebits(xpd, 1);
+		}
 		xpd->span.alarms = alarms;
 		dahdi_alarm_notify(&xpd->span);
 		set_clocking(xpd);
