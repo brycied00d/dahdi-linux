@@ -3,7 +3,7 @@ KERNEL=="*_ep*", GOTO="xpp_usb_add_end"
 KERNEL=="[0-9]*", GOTO="xpp_usb_add_end"
 
 # Load firmware into the Xorcom Astribank device:
-SYSFS{idVendor}=="e4e4", SYSFS{idProduct}=="11[3456][01]", \
+SYSFS{idVendor}=="e4e4", SYSFS{idProduct}=="11[3456][013]", \
 	RUN+="/usr/share/dahdi/xpp_fxloader udev $sysfs{idVendor}/$sysfs{idProduct}/$sysfs{bcdDevice}"
 
 LABEL="xpp_usb_add_end"
