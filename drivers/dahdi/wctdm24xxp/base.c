@@ -417,6 +417,9 @@ static int config_vpmadt032(struct vpmadt032 *vpm, struct wctdm *wc)
 		return -1;
 	}
 
+	vpm->companding = (wc->span.deflaw == DAHDI_LAW_MULAW) ?
+				ADT_COMP_ULAW : ADT_COMP_ALAW;
+
 	for (i = 0; i < vpm->options.channels; ++i) {
 		vpm->curecstate[i].tap_length = 0;
 		vpm->curecstate[i].nlp_type = vpm->options.vpmnlptype;
