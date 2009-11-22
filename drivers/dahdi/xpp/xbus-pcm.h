@@ -71,17 +71,18 @@ struct xpp_ticker {		/* for rate calculation */
  * xbus ticker to a reference ticker.
  */
 struct xpp_drift {
-	int			wanted_offset;		/* fixed */
 	int			delta_tick;		/* from ref_ticker */
 	int			lost_ticks;		/* occurances */
 	int			lost_tick_count;
-	int			delta_max;
-	int			delta_min;
-	int			median;			/* (max + min) / 2	*/
-	int			jitter;			/* max - min		*/
-	int			calc_drift;
-	int			kicks_up;
-	int			kicks_down;
+	int			sync_inaccuracy;
+	struct xpp_timestamp	last_lost_tick;
+	long			delta_sum;
+	int			offset_prev;
+	int			offset_range;
+	int			offset_min;
+	int			offset_max;
+	int			min_speed;
+	int			max_speed;
 	spinlock_t		lock;
 };
 
