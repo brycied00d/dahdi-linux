@@ -61,8 +61,14 @@ static xbus_t			*global_ticker;
 static struct xpp_ticker	global_ticks_series;
 
 #define	PROC_SYNC		"sync"
+#define SYNC_CYCLE		500	/* Sampling cycle in usec */
+#define SYNC_CYCLE_SAMPLE 	100	/* Samples from end of SYNC_CYCLE */
+#define SYNC_CONVERGE		10	/* Number of SYNC_CYCLE's to converge speed */
+#define SYNC_CENTER		500	/* Offset from ref_ticker to other AB's */
+#define SYNC_DELTA		40	/* If within +/-SYNC_DELTA, try to stay there */
 #define	BIG_TICK_INTERVAL	1000
-#define	SYNC_ADJ_MAX		63	/* maximal firmware drift unit (63) */
+#define	SYNC_ADJ_MAX		20	/* maximal firmware drift unit (hardware limit 63) */
+
 /*
  * The USB bulk endpoints have a large jitter in the timing of frames
  * from the AB to the ehci-hcd. This is because we cannot predict
@@ -123,12 +129,6 @@ static int xpp_ticker_step(struct xpp_ticker *ticker, const struct timeval *t)
 	return cycled;
 }
 
-static inline void driftinfo_recalc(struct xpp_drift *driftinfo)
-{
-	driftinfo->delta_max = INT_MIN;
-	driftinfo->delta_min = INT_MAX;
-}
-
 /*
  * No locking. It is called only from:
  *   - update_sync_master() in a globall spinlock protected code.
@@ -136,11 +136,12 @@ static inline void driftinfo_recalc(struct xpp_drift *driftinfo)
  */
 static inline void xbus_drift_clear(xbus_t *xbus)
 {
-	struct xpp_drift	*driftinfo = &xbus->drift;
+	struct xpp_drift	*di = &xbus->drift;
 
-	driftinfo_recalc(driftinfo);
-	driftinfo->calc_drift = 0;
+	do_gettimeofday(&di->last_lost_tick.tv);
 	ticker_set_cycle(&xbus->ticker, SYNC_ADJ_QUICK);
+	di->max_speed = -SYNC_ADJ_MAX;
+	di->min_speed =  SYNC_ADJ_MAX;
 }
 
 void xpp_drift_init(xbus_t *xbus)
@@ -148,7 +149,6 @@ void xpp_drift_init(xbus_t *xbus)
 	memset(&xbus->drift, 0, sizeof(xbus->drift));
 	spin_lock_init(&xbus->drift.lock);
 	xpp_ticker_init(&xbus->ticker);
-	xbus->drift.wanted_offset = 500;
 	xbus_drift_clear(xbus);
 }
 
@@ -168,110 +168,123 @@ static void sample_tick(xbus_t *xbus, int sample)
 #define	sample_tick(x,y)
 #endif
 
+/*
+ * The following function adjust the clock of an astribank according
+ * to our reference clock (another astribank or another DAHDI device).
+ *
+ * It is VERY hard to stabilise these corrections:
+ *    - The measurments are affected by 125usec USB micro-frames.
+ *    - However, if we are off by more than +/-500usec we are risking
+ *      loosing frames.
+ *
+ * Every change must be tested rigorously with many device combinations
+ * including abrupt changes in sync -- to verify the stability of the
+ * algorithm.
+ */
 static void xpp_drift_step(xbus_t *xbus, const struct timeval *tv)
 {
-	struct xpp_drift	*driftinfo = &xbus->drift;
+	struct xpp_drift	*di = &xbus->drift;
 	struct xpp_ticker	*ticker = &xbus->ticker;
 	unsigned long		flags;
-	bool			cycled;
 
-	spin_lock_irqsave(&driftinfo->lock, flags);
-	cycled = xpp_ticker_step(&xbus->ticker, tv);
+	spin_lock_irqsave(&di->lock, flags);
+	xpp_ticker_step(&xbus->ticker, tv);
+	/*
+	 * Do we need to be synchronized and is there an established reference
+	 * ticker (another Astribank or another DAHDI device) already?
+	 */
 	if(ref_ticker && ref_ticker != &xbus->ticker && syncer && xbus->sync_mode == SYNC_MODE_PLL) {
 		int	new_delta_tick = ticker->count - ref_ticker->count;
-		int	lost_ticks = new_delta_tick - driftinfo->delta_tick;
+		int	lost_ticks = new_delta_tick - di->delta_tick;
+		long	usec_delta;
 
-		driftinfo->delta_tick = new_delta_tick;
+		di->delta_tick = new_delta_tick;
 		if(lost_ticks) {
 			static int	rate_limit;
 
-			driftinfo->lost_ticks++;
-			driftinfo->lost_tick_count += abs(lost_ticks);
-
+			/*
+			 * We just lost some ticks. Just report it and don't
+			 * try to adjust anything until we are stable again.
+			 */
+			di->lost_ticks++;
+			di->lost_tick_count += abs(lost_ticks);
 			if((rate_limit++ % 1003) == 0) {
-				XBUS_DBG(SYNC, xbus, "Lost %d tick%s\n",
+				XBUS_NOTICE(xbus, "Lost %d tick%s\n",
 					lost_ticks,
 					(abs(lost_ticks) > 1) ? "s": "");
 			}
-			ticker_set_cycle(ticker, SYNC_ADJ_QUICK);
+			xbus_drift_clear(xbus);
 			if(abs(lost_ticks) > 100)
 				ticker->count = ref_ticker->count;
 		} else {
-			long	usec_delta;
-			bool	nofix = 0;
-
+			/* Sample a delta */
 			usec_delta = (long)usec_diff(
 					&ticker->last_sample.tv,
 					&ref_ticker->last_sample.tv);
-			usec_delta -= driftinfo->wanted_offset;
 			sample_tick(xbus, usec_delta);
-			if(abs(usec_delta) > 300) {
+			if ((ticker->count % SYNC_CYCLE) > (SYNC_CYCLE - SYNC_CYCLE_SAMPLE))
+				di->delta_sum  += usec_delta;
+					
+			if((ticker->count % SYNC_CYCLE) == 0) {
 				/*
-				 * We are close to the edge, send a brutal
-				 * fix, and skip calculation until next time.
+				 * Full sampling cycle passed. Let's calculate
 				 */
-				if(usec_delta > 0 && xbus->sync_adjustment > -SYNC_ADJ_MAX) {
-					XBUS_DBG(SYNC, xbus, "Pullback usec_delta=%ld\n", usec_delta);
-					driftinfo->kicks_down++;
-					send_drift(xbus, -SYNC_ADJ_MAX);	/* emergency push */
-				}
-				if(usec_delta < 0 && xbus->sync_adjustment < SYNC_ADJ_MAX) {
-					XBUS_DBG(SYNC, xbus, "Pushback usec_delta=%ld\n", usec_delta);
-					driftinfo->kicks_up++;
-					send_drift(xbus, SYNC_ADJ_MAX);		/* emergency push */
-				}
-				ticker_set_cycle(ticker, SYNC_ADJ_QUICK);
-				nofix = 1;
-			} else {
-				/* good data, use it */
-				if(usec_delta > driftinfo->delta_max)
-					driftinfo->delta_max = usec_delta;
-				if(usec_delta < driftinfo->delta_min)
-					driftinfo->delta_min = usec_delta;
-			}
-			if(!nofix && cycled) {
-				int	offset = 0;
+				int	offset		= di->delta_sum / SYNC_CYCLE_SAMPLE - SYNC_CENTER;
+				int	offset_prev	= di->offset_prev;
+				int	speed		= xbus->sync_adjustment;
+				int	fix		= 0;
+				int	best_speed	= (di->max_speed + di->min_speed) >> 1;
 
-				driftinfo->median = (driftinfo->delta_max + driftinfo->delta_min) / 2;
-				driftinfo->jitter = driftinfo->delta_max - driftinfo->delta_min;
-				if(abs(driftinfo->median) >= 150) {	/* more than 1 usb uframe */
-					int	factor = abs(driftinfo->median) / 125;
-
-					factor = 1 + (factor * 8000) / ticker->cycle;
-					if(driftinfo->median > 0)
-						offset = driftinfo->calc_drift - factor;
-					else
-						offset = driftinfo->calc_drift + factor;
-					/* for large median, push some more */
-					if(abs(driftinfo->median) >= 300) {	/* more than 2 usb uframes */
-						ticker_set_cycle(ticker, SYNC_ADJ_QUICK);
-						XBUS_NOTICE(xbus,
-								"Back to quick: median=%d\n",
-								driftinfo->median);
-					}
+				if      (offset > 0 && offset < SYNC_DELTA) {
+					speed = best_speed - 1;
+				} else if (offset < 0 && offset > -SYNC_DELTA) {
+					speed = best_speed + 1;
 				} else {
-					//ticker_set_cycle(ticker, ticker->cycle + 500);
+					if (offset > 0) {
+						if (offset > offset_prev) 
+							fix--;
+					} else {
+						if (offset < offset_prev) 
+							fix++;
+					}
+					speed += fix;
 				}
-				driftinfo->calc_drift = offset;
-				XBUS_DBG(SYNC, xbus,
-						"ADJ: min=%d max=%d jitter=%d median=%d offset=%d\n",
-						driftinfo->delta_min,
-						driftinfo->delta_max,
-						driftinfo->jitter,
-						driftinfo->median,
-						offset);
-				if(offset < -SYNC_ADJ_MAX)
-					offset = -SYNC_ADJ_MAX;
-				if(offset > SYNC_ADJ_MAX)
-					offset = SYNC_ADJ_MAX;
-				xbus->sync_adjustment_offset = offset;
-				if(xbus != syncer && xbus->sync_adjustment != offset)
-					send_drift(xbus, offset);
-				driftinfo_recalc(driftinfo);
+				if (speed < -SYNC_ADJ_MAX)
+					speed = -SYNC_ADJ_MAX;
+				if (speed > SYNC_ADJ_MAX)
+					speed =  SYNC_ADJ_MAX;
+				if (speed < di->min_speed)
+					di->min_speed    = speed;
+				if (speed > di->max_speed)
+					di->max_speed    = speed;
+				if(offset > di->offset_max)
+					di->offset_max = offset;
+				if(offset < di->offset_min)
+					di->offset_min = offset;
+
+				XBUS_DBG(SYNC, xbus, "offset: %d, min_speed=%d, max_speed=%d, usec_delta(last)=%ld\n",
+					 offset_prev, di->min_speed, di->max_speed, usec_delta);
+				XBUS_DBG(SYNC, xbus, "ADJ: speed=%d (best_speed=%d) fix=%d\n", 
+					speed, best_speed, fix);
+				xbus->sync_adjustment_offset = speed;
+				if(xbus != syncer && xbus->sync_adjustment != speed)
+					send_drift(xbus, speed);
+				di->sync_inaccuracy = abs(offset) + abs(di->offset_range) / 2;
+				if(ticker->count >= SYNC_CYCLE * SYNC_CONVERGE) {
+					di->offset_range = di->offset_max - di->offset_min;
+					di->offset_min = INT_MAX;
+					di->offset_max = -INT_MAX;
+					if(di->max_speed > best_speed)
+						di->max_speed--;
+					if(di->min_speed < best_speed)
+						di->min_speed++;
+				}
+				di->offset_prev = offset;
+				di->delta_sum      = 0;
 			}
 		}
 	}
-	spin_unlock_irqrestore(&driftinfo->lock, flags);
+	spin_unlock_irqrestore(&di->lock, flags);
 }
 
 const char *sync_mode_name(enum sync_mode mode)

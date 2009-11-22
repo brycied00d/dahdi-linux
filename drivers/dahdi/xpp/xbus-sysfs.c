@@ -121,10 +121,8 @@ static DEVICE_ATTR_READER(timing_show, dev, buf)
 	len += snprintf(buf + len, PAGE_SIZE - len, "%-3s", sync_mode_name(xbus->sync_mode));
 	if(xbus->sync_mode == SYNC_MODE_PLL) {
 		len += snprintf(buf + len, PAGE_SIZE - len,
-				" %5d: jitter %4d median %4d calc_drift %3d lost (%4d,%4d) : ",
+				" %5d: lost (%4d,%4d) : ",
 					xbus->ticker.cycle,
-					driftinfo->jitter, driftinfo->median,
-					driftinfo->calc_drift,
 					driftinfo->lost_ticks, driftinfo->lost_tick_count);
 		len += snprintf(buf + len, PAGE_SIZE - len,
 				"DRIFT %3d %ld sec ago",
@@ -212,25 +210,52 @@ static DEVICE_ATTR_READER(driftinfo_show, dev, buf)
 	xbus_t			*xbus;
 	struct xpp_drift	*di;
 	struct xpp_ticker	*ticker;
+	struct timeval		now;
 	int			len = 0;
+	int			hours;
+	int			minutes;
+	int			seconds;
+	int			speed_range;
+	int			uframes_inaccuracy;
+	int			i;
 
 	xbus = dev_to_xbus(dev);
 	di = &xbus->drift;
 	ticker = &xbus->ticker;
-#define	SHOW(ptr,item)	len += snprintf(buf + len, PAGE_SIZE - len, "%-15s: %d\n", #item, (ptr)->item)
+	/*
+	 * Calculate lost ticks time
+	 */
+	do_gettimeofday(&now);
+	seconds = now.tv_sec - di->last_lost_tick.tv.tv_sec;
+	minutes = seconds / 60;
+	seconds = seconds % 60;
+	hours = minutes / 60;
+	minutes = minutes % 60;
+#define	SHOW(ptr,item)	len += snprintf(buf + len, PAGE_SIZE - len, "%-15s: %8d\n", #item, (ptr)->item)
+	len += snprintf(buf + len, PAGE_SIZE - len, "%-15s: %8d (was %d:%02d:%02d ago)\n",
+		"lost_ticks", di->lost_ticks, hours, minutes, seconds);
+	speed_range = abs(di->max_speed - di->min_speed);
+	uframes_inaccuracy = di->sync_inaccuracy / 125;
+	len += snprintf(buf + len, PAGE_SIZE - len, "%-15s: %8d ",
+		"instability", speed_range + uframes_inaccuracy);
+	if(xbus->sync_mode == SYNC_MODE_AB) {
+		buf[len++] = '-';
+	} else {
+		for(i = 0; len < PAGE_SIZE - 1 && i < speed_range + uframes_inaccuracy; i++)
+			buf[len++] = '#';
+	}
+	buf[len++] = '\n';
+	len += snprintf(buf + len, PAGE_SIZE - len, "%-15s: %8d (uframes)\n", "inaccuracy", uframes_inaccuracy);
+	len += snprintf(buf + len, PAGE_SIZE - len, "%-15s: %8d\n", "speed_range", speed_range);
 	SHOW(xbus, sync_adjustment);
-	SHOW(di, wanted_offset);
-	SHOW(di, delta_tick);
-	SHOW(di, lost_ticks);
-	SHOW(di, kicks_up);
-	SHOW(di, kicks_down);
-	SHOW(di, delta_min);
-	SHOW(di, delta_max);
-	SHOW(di, median);
-	SHOW(di, jitter);
-	SHOW(di, calc_drift);
+	len += snprintf(buf + len, PAGE_SIZE - len, "%-15s: %8d\n", "offset (usec)", di->offset_prev);
+	SHOW(di, offset_range);
+	len += snprintf(buf + len, PAGE_SIZE - len, "%-15s: %8d\n", "best_speed", (di->max_speed + di->min_speed) / 2);
+	SHOW(di, min_speed);
+	SHOW(di, max_speed);
 	SHOW(ticker, cycle);
 	SHOW(ticker, tick_period);
+	SHOW(ticker, count);
 #undef	SHOW
 	return len;
 }
