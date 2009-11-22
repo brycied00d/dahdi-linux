@@ -491,7 +491,8 @@ static int bri_check_stat(xpd_t *xpd, struct dahdi_chan *dchan, byte *buf, int l
 	return 0;
 }
 
-int bri_hdlc_putbuf(xpd_t *xpd, struct dahdi_chan *dchan, unsigned char *buf, int len)
+static int bri_hdlc_putbuf(xpd_t *xpd, struct dahdi_chan *dchan,
+		unsigned char *buf, int len)
 {
 #ifdef	CONFIG_DAHDI_BRI_DCHANS
 	struct BRI_priv_data	*priv;
@@ -519,7 +520,7 @@ int bri_hdlc_putbuf(xpd_t *xpd, struct dahdi_chan *dchan, unsigned char *buf, in
 	return 0;
 }
 
-void bri_hdlc_finish(xpd_t *xpd, struct dahdi_chan *dchan)
+static void bri_hdlc_finish(xpd_t *xpd, struct dahdi_chan *dchan)
 {
 	struct BRI_priv_data	*priv;
 
@@ -691,7 +692,8 @@ static void bri_hdlc_hard_xmit(struct dahdi_chan *chan)
 }
 #endif
 
-int bri_hdlc_getbuf(struct dahdi_chan *dchan, unsigned char *buf, unsigned int *size)
+static int bri_hdlc_getbuf(struct dahdi_chan *dchan, unsigned char *buf,
+		unsigned int *size)
 {
 	int			len = *size;
 	int			eoframe;
@@ -1275,7 +1277,8 @@ static int bri_shutdown(struct dahdi_span *span)
 	return 0;
 }
 
-void BRI_card_pcm_recompute(xbus_t *xbus, xpd_t *xpd, xpp_line_t dont_care)
+static void BRI_card_pcm_recompute(xbus_t *xbus, xpd_t *xpd,
+		xpp_line_t dont_care)
 {
 	int		i;
 	int		line_count;
