@@ -1566,7 +1566,8 @@ static void handle_leds(struct t1 *wc)
 
 	led = wc->ledstate;
 
-	if (wc->span.alarms & (DAHDI_ALARM_RED | DAHDI_ALARM_BLUE)) {
+	if ((wc->span.alarms & (DAHDI_ALARM_RED | DAHDI_ALARM_BLUE))
+		|| wc->losalarmcount) {
 		/* When we're in red alarm, blink the led once a second. */
 		if (time_after(jiffies, wc->blinktimer)) {
 			led = (led & __LED_GREEN) ? SET_LED_RED(led) : UNSET_LED_REDGREEN(led);
