@@ -1617,6 +1617,7 @@ static int hdlc_rx_frame(struct b4xxp_span *bspan)
 	char debugbuf[256];
 	unsigned long irq_flags;
 	struct b4xxp *b4 = bspan->parent;
+	unsigned char stat;
 
 	fifo = bspan->fifos[2];
 
@@ -1644,10 +1645,14 @@ static int hdlc_rx_frame(struct b4xxp_span *bspan)
 	zleft = zlen + 1;	/* include STAT byte that the HFC injects after FCS */
 
 	do {
-		if (zleft > WCB4XXP_HDLC_BUF_LEN)
+		int truncated;
+		if (zleft > WCB4XXP_HDLC_BUF_LEN) {
+			truncated = 1;
 			j = WCB4XXP_HDLC_BUF_LEN;
-		else
+		} else {
+			truncated = 0;
 			j = zleft;
+		}
 
 		spin_lock_irqsave(&b4->fifolock, irq_flags);
 		hfc_setreg_waitbusy(b4, R_FIFO, (fifo << V_FIFO_NUM_SHIFT) | V_FIFO_DIR);
@@ -1656,8 +1661,8 @@ static int hdlc_rx_frame(struct b4xxp_span *bspan)
 		spin_unlock_irqrestore(&b4->fifolock, irq_flags);
 
 /* don't send STAT byte to DAHDI */
-		if (bspan->sigchan)
-			dahdi_hdlc_putbuf(bspan->sigchan, buf, (j == WCB4XXP_HDLC_BUF_LEN) ? j : j - 1);
+		if ((bspan->sigchan) && (j > 1))
+			dahdi_hdlc_putbuf(bspan->sigchan, buf, truncated ? j : j - 1);
 
 		zleft -= j;
 		if (DBG_HDLC && DBG_SPANFILTER) {
@@ -1666,6 +1671,7 @@ static int hdlc_rx_frame(struct b4xxp_span *bspan)
 			for (i=0; i < j; i++) printk("%02x%c", buf[i], (i < ( j - 1)) ? ' ':'\n');
 		}
 	} while (zleft > 0);
+	stat = buf[j - 1];
 
 /* Frame received, increment F2 and get an updated count of frames left */
 	spin_lock_irqsave(&b4->fifolock, irq_flags);
@@ -1684,7 +1690,6 @@ static int hdlc_rx_frame(struct b4xxp_span *bspan)
 			dev_notice(b4->dev, "odd, zlen less then 3?\n");
 		dahdi_hdlc_abort(bspan->sigchan, DAHDI_EVENT_ABORT);
 	} else {
-		unsigned char stat = buf[i - 1];
 
 /* if STAT != 0, indicates bad frame */
 		if (stat != 0x00) {
