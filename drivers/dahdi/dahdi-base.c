@@ -6887,7 +6887,7 @@ static inline void __dahdi_ec_chunk(struct dahdi_chan *ss, unsigned char *rxchun
 						ss->ec_state->status.mode = ECHO_MODE_STARTTRAINING;
 					}
 				}
-				if ((ss->ec_state->status.mode == ECHO_MODE_AWAITINGECHO) && (txlin > 8000)) {
+				if (ss->ec_state->status.mode == ECHO_MODE_AWAITINGECHO) {
 					ss->ec_state->status.last_train_tap = 0;
 					ss->ec_state->status.mode = ECHO_MODE_TRAINING;
 				}
