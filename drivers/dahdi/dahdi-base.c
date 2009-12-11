@@ -946,9 +946,12 @@ static inline void calc_fcs(struct dahdi_chan *ss, int inwritebuf)
 	data[len - 1] = (fcs >> 8) & 0xff;
 }
 
-static int dahdi_reallocbufs(struct dahdi_chan *ss, int j, int numbufs)
+static int dahdi_reallocbufs(struct dahdi_chan *ss, int blocksize, int numbufs)
 {
-	unsigned char *newbuf, *oldbuf;
+	unsigned char *newtxbuf = NULL;
+	unsigned char *newrxbuf = NULL;
+	unsigned char *oldtxbuf = NULL;
+	unsigned char *oldrxbuf = NULL;
 	unsigned long flags;
 	int x;
 
@@ -960,25 +963,32 @@ static int dahdi_reallocbufs(struct dahdi_chan *ss, int j, int numbufs)
 		numbufs = DAHDI_MAX_NUM_BUFS;
 
 	/* We need to allocate our buffers now */
-	if (j) {
-		if (!(newbuf = kcalloc(j * 2, numbufs, GFP_KERNEL)))
+	if (blocksize) {
+		newtxbuf = kzalloc(blocksize * numbufs, GFP_KERNEL);
+		if (NULL == newtxbuf)
 			return -ENOMEM;
-	} else
-		newbuf = NULL;
+		newrxbuf = kzalloc(blocksize * numbufs, GFP_KERNEL);
+		if (NULL == newrxbuf) {
+			kfree(newtxbuf);
+			return -ENOMEM;
+		}
+	}
 
-	/* Now that we've allocated our new buffer, we can safely
+	/* Now that we've allocated our new buffers, we can safely
  	   move things around... */
 
 	spin_lock_irqsave(&ss->lock, flags);
 
-	ss->blocksize = j; /* set the blocksize */
-	oldbuf = ss->readbuf[0]; /* Keep track of the old buffer */
+	ss->blocksize = blocksize; /* set the blocksize */
+	oldrxbuf = ss->readbuf[0]; /* Keep track of the old buffer */
+	oldtxbuf = ss->writebuf[0];
 	ss->readbuf[0] = NULL;
 
-	if (newbuf) {
+	if (newrxbuf) {
+		BUG_ON(NULL == newtxbuf);
 		for (x = 0; x < numbufs; x++) {
-			ss->readbuf[x] = newbuf + x * j;
-			ss->writebuf[x] = newbuf + (numbufs + x) * j;
+			ss->readbuf[x] = newrxbuf + x * blocksize;
+			ss->writebuf[x] = newtxbuf + x * blocksize;
 		}
 	} else {
 		for (x = 0; x < numbufs; x++) {
@@ -997,7 +1007,7 @@ static int dahdi_reallocbufs(struct dahdi_chan *ss, int j, int numbufs)
 
 	/* Keep track of where our data goes (if it goes
 	   anywhere at all) */
-	if (newbuf) {
+	if (newrxbuf) {
 		ss->inreadbuf = 0;
 		ss->inwritebuf = 0;
 	} else {
@@ -1021,8 +1031,8 @@ static int dahdi_reallocbufs(struct dahdi_chan *ss, int j, int numbufs)
 
 	spin_unlock_irqrestore(&ss->lock, flags);
 
-	if (oldbuf)
-		kfree(oldbuf);
+	kfree(oldtxbuf);
+	kfree(oldrxbuf);
 
 	return 0;
 }
