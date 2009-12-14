@@ -593,12 +593,12 @@ void xbus_request_removal(xbus_t *xbus)
 		xpd_t *xpd = xpd_of(xbus, i);
 		if(xpd) {
 			if(SPAN_REGISTERED(xpd)) {
-				int i;
+				int j;
 
 				dahdi_alarm_notify(&xpd->span);
 				XPD_DBG(DEVICES, xpd, "Queuing DAHDI_EVENT_REMOVED on all channels to ask user to release them\n");
-				for (i=0; i<xpd->span.channels; i++) {
-					dahdi_qevent_lock(XPD_CHAN(xpd, i),DAHDI_EVENT_REMOVED);
+				for (j=0; j<xpd->span.channels; j++) {
+					dahdi_qevent_lock(XPD_CHAN(xpd, j),DAHDI_EVENT_REMOVED);
 				}
 			}
 			xpd_device_unregister(xpd);
