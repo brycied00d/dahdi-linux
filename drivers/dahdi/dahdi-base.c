@@ -5301,6 +5301,10 @@ static int dahdi_chan_ioctl(struct inode *inode, struct file *file, unsigned int
 				kfree(rxgain);
 			if (oldconf) dahdi_check_conf(oldconf);
 		}
+#ifdef	DAHDI_AUDIO_NOTIFY
+		if (chan->span->audio_notify)
+			chan->span->audio_notify(chan, j);
+#endif
 		break;
 	case DAHDI_HDLCPPP:
 #ifdef CONFIG_DAHDI_PPP

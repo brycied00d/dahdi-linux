@@ -839,6 +839,11 @@ struct dahdi_span {
 	/*! Opt: Used to tell an onboard HDLC controller that there is data ready to transmit */
 	void (*hdlc_hard_xmit)(struct dahdi_chan *chan);
 
+#ifdef	DAHDI_AUDIO_NOTIFY
+	/*! Opt: audio is used, don't optimize out */
+	int (*audio_notify)(struct dahdi_chan *chan, int yes);
+#endif
+
 	/* Used by DAHDI only -- no user servicable parts inside */
 	int spanno;			/*!< Span number for DAHDI */
 	int offset;			/*!< Offset within a given card */
