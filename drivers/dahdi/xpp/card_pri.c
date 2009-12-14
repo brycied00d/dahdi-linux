@@ -551,25 +551,44 @@ static bool valid_pri_modes(const xpd_t *xpd)
 	return 1;
 }
 
-static void pri_pcm_update(xpd_t *xpd)
+static void PRI_card_pcm_recompute(xbus_t *xbus, xpd_t *xpd,
+		xpp_line_t pcm_mask)
 {
 	struct PRI_priv_data	*priv;
-	int			channels = xpd->channels;
-	xpp_line_t		mask = BITMASK(xpd->channels);
-	uint			pcm_len;
+	int			i;
+	int			line_count = 0;
 	unsigned long		flags;
+	uint			pcm_len;
 
+	BUG_ON(!xpd);
 	priv = xpd->priv;
+	spin_lock_irqsave(&xpd->lock_recompute_pcm, flags);
+	//XPD_DBG(SIGNAL, xpd, "pcm_mask=0x%X\n", pcm_mask);
+	/* Add/remove all the trivial cases */
+	pcm_mask |= xpd->offhook_state;
+	for_each_line(xpd, i)
+		if (IS_SET(pcm_mask, i))
+			line_count++;
 	if(priv->is_cas) {
 		if(priv->pri_protocol == PRI_PROTO_E1) {
 			/* CAS: Don't send PCM to D-Channel */
-			channels--;
-			mask &= ~BIT(PRI_DCHAN_IDX(priv));
+			line_count--;
+			pcm_mask &= ~BIT(PRI_DCHAN_IDX(priv));
 		}
 	}
-	pcm_len = RPACKET_HEADERSIZE + sizeof(xpp_line_t)  +  channels * DAHDI_CHUNKSIZE;
-	spin_lock_irqsave(&xpd->lock_recompute_pcm, flags);
-	update_wanted_pcm_mask(xpd, mask, pcm_len);
+	/*
+	 * FIXME: Workaround a bug in sync code of the Astribank.
+	 *        Send dummy PCM for sync.
+	 */
+	if (xpd->addr.unit == 0 && pcm_mask == 0) {
+		pcm_mask = BIT(0);
+		line_count = 1;
+	}
+	pcm_len = (line_count)
+		? RPACKET_HEADERSIZE + sizeof(xpp_line_t) +
+			line_count * DAHDI_CHUNKSIZE
+		: 0L;
+	update_wanted_pcm_mask(xpd, pcm_mask, pcm_len);
 	spin_unlock_irqrestore(&xpd->lock_recompute_pcm, flags);
 }
 
@@ -631,7 +650,8 @@ static int set_pri_proto(xpd_t *xpd, enum pri_protocol set_proto)
 	priv->pri_protocol = set_proto;
 	priv->is_cas = -1;
 	xpd->channels = pri_num_channels(set_proto);
-	pri_pcm_update(xpd);
+	xpd->offhook_state = BITMASK(xpd->channels);
+	CALL_XMETHOD(card_pcm_recompute, xpd->xbus, xpd, 0);
 	priv->deflaw = deflaw;
 	priv->dchan_num = dchan_num;
 	priv->local_loopback = 0;
@@ -1016,7 +1036,7 @@ static int pri_lineconfig(xpd_t *xpd, int lineconfig)
 		force_cas = 1;
 		set_mode_cas(xpd, 1);
 	}
-	pri_pcm_update(xpd);
+	CALL_XMETHOD(card_pcm_recompute, xpd->xbus, xpd, 0);
 	/*
 	 * E1's can enable CRC checking
 	 * CRC4 is legal only for E1, and it is checked by pri_linecompat()
@@ -1238,6 +1258,19 @@ static int PRI_card_remove(xbus_t *xbus, xpd_t *xpd)
 	return 0;
 }
 
+#ifdef	DAHDI_AUDIO_NOTIFY
+static int pri_audio_notify(struct dahdi_chan *chan, int on)
+{
+	xpd_t		*xpd = chan->pvt;
+	int		pos = chan->chanpos - 1;
+
+	BUG_ON(!xpd);
+	LINE_DBG(SIGNAL, xpd, pos, "PRI-AUDIO: %s\n", (on) ? "on" : "off");
+	mark_offhook(xpd, pos, on);
+	return 0;
+}
+#endif
+
 static int PRI_card_dahdi_preregistration(xpd_t *xpd, bool on)
 {
 	xbus_t			*xbus;
@@ -1279,12 +1312,14 @@ static int PRI_card_dahdi_preregistration(xpd_t *xpd, bool on)
 	}
 	if(!priv->is_cas)
 		clear_bit(DAHDI_FLAGBIT_RBS, &xpd->span.flags);
-	xpd->offhook_state = xpd->wanted_pcm_mask;
 	xpd->span.spanconfig = pri_spanconfig;
 	xpd->span.chanconfig = pri_chanconfig;
 	xpd->span.startup = pri_startup;
 	xpd->span.shutdown = pri_shutdown;
 	xpd->span.rbsbits = pri_rbsbits;
+#ifdef	DAHDI_AUDIO_NOTIFY
+	xpd->span.audio_notify = pri_audio_notify;
+#endif
 	return 0;
 }
 
@@ -1436,18 +1471,24 @@ static int PRI_card_tick(xbus_t *xbus, xpd_t *xpd)
 
 static int PRI_card_ioctl(xpd_t *xpd, int pos, unsigned int cmd, unsigned long arg)
 {
+	struct dahdi_chan	*chan;
+
 	BUG_ON(!xpd);
 	if(!XBUS_IS(xpd->xbus, READY))
 		return -ENODEV;
+	chan = XPD_CHAN(xpd, pos);
 	switch (cmd) {
 		case DAHDI_TONEDETECT:
 			/*
 			 * Asterisk call all span types with this (FXS specific)
 			 * call. Silently ignore it.
 			 */
-			LINE_DBG(SIGNAL, xpd, pos, "PRI: Starting a call\n");
-			/* fall-through */
+			LINE_DBG(SIGNAL, xpd, pos, "PRI: TONEDETECT (%s)\n",
+				(chan->flags & DAHDI_FLAG_AUDIO) ?
+					"AUDIO" : "SILENCE");
+			return -ENOTTY;
 		case DAHDI_ONHOOKTRANSFER:
+			LINE_DBG(SIGNAL, xpd, pos, "PRI: ONHOOKTRANSFER\n");
 			return -ENOTTY;
 		default:
 			report_bad_ioctl(THIS_MODULE->name, xpd, pos, cmd);
@@ -2098,7 +2139,7 @@ static xproto_table_t PROTO_TABLE(PRI) = {
 		.card_dahdi_preregistration	= PRI_card_dahdi_preregistration,
 		.card_dahdi_postregistration	= PRI_card_dahdi_postregistration,
 		.card_tick	= PRI_card_tick,
-		.card_pcm_recompute	= generic_card_pcm_recompute,
+		.card_pcm_recompute	= PRI_card_pcm_recompute,
 		.card_pcm_fromspan	= PRI_card_pcm_fromspan,
 		.card_pcm_tospan	= PRI_card_pcm_tospan,
 		.card_ioctl	= PRI_card_ioctl,
@@ -2634,6 +2675,11 @@ static int __init card_pri_startup(void)
 	if((ret = xpd_driver_register(&pri_driver.driver)) < 0)
 		return ret;
 	INFO("revision %s\n", XPP_VERSION);
+#ifdef	DAHDI_AUDIO_NOTIFY
+	INFO("FEATURE: WITH DAHDI_AUDIO_NOTIFY\n");
+#else
+	INFO("FEATURE: WITHOUT DAHDI_AUDIO_NOTIFY\n");
+#endif
 	xproto_register(&PROTO_TABLE(PRI));
 	return 0;
 }
