@@ -416,7 +416,7 @@ in README.Astribank .
 Internals
 ---------
 DAHDI Device Files
-~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~
 Userspace programs will usually interact with DAHDI through device
 files under the /dev/dahdi directory (pedantically: character device files 
 with major number 196) . Those device files can be generated statically
@@ -440,7 +440,7 @@ or dynamically through the udev system.
 
 
 DAHDI Timing
-~~~~~~~~~~~~~
+~~~~~~~~~~~~
 A PBX system should generally have a single clock. If you are connected to a
 telephony provider via a digital interface (e.g: E1, T1) you should also
 typically use the provider's clock (as you get through the interface). Hence
@@ -490,6 +490,47 @@ Both channels and spans are identified by enumerating numbers (beginning
 with 1). The number of the channel is the lowest unused one when it is
 generated, and ditto for spans.
 
+There are up to 128 spans and 1024 channels. This is a hard-wired limit
+(see dahdi/user.h . Several places throuout the code assume a channel
+number fits in a 16 bits number). Channel and span numbers start at 1.
+
+
+Dynamic Spans
+~~~~~~~~~~~~~
+Dynamic spans are spans that are not represented by real hardware.
+Currently there are two types of them:
+
+tdmoe::
+  TDM over Ethernet. A remote span is identified by an ethernet (MAC)
+  address.
+
+local::
+  Generates a span that is actually a loopback to a different local
+  span.
+
+Modules that support the dynamic spans are typically loaded at the time
+the ioctl DAHDI_DYNAMIC_CREATE is called. This is typically called by
+dahdi_cfg when it has a line such as:
+
+  dynamic,somename,params
+
+in /etc/dahdi/system.conf . In that case it will typically try to load
+(through modprobe) the modules dahdi_dynamic and
+dahdi_dynamic_'somename'. It will then pass 'params' to it.
+
+Dynamic spans are known to be tricky and are some of the least-tested
+parts of DAHDI.
+
+
+Echo Cancellers
+~~~~~~~~~~~~~~~
+(To be documented later)
+
+
+Tone Zones
+~~~~~~~~~~
+(To be documented later)
+
 
 PROCFS Interface: /proc/dahdi
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -525,6 +566,218 @@ If the channel is in use (typically opened by Asterisk) then you will
 see an extra '(In use)':
 
            2 XPP_FXS/0/0/1 FXOLS (In use)
+
+
+User-space Interface
+~~~~~~~~~~~~~~~~~~~~
+User-space programs can only work with DAHDI channels. The basic
+operation is 'read()' to read audio from the device and write() to write
+audio to it. Audio can be encoded as either alaw (G.711a) or (m)ulaw
+(G.711u). See the ioctl DAHDI_SETLAW.
+
+While it is technically possible to use /dev/dahdi/NUMBER directly, this
+will only work for channel numbers up to 249. Generally you should use:
+
+  int channo = CHAN_NUMBER_TO_OPEN;
+  int rc;
+  int fd = open("/dev/dahdi/channel", O_RDRW, 0600);
+  // Make sure fd >= 0
+  rc = ioctl(fd, DAHDI_SPECIFY, &channo) < 0);
+  // Make sure this rc >= 0
+
+FIXME: there's more to tell about the user-space interface.
+
+
+Configuration
+~~~~~~~~~~~~~
+Most of the configuration is applied from userspace using the tool
+'dahdi_cfg' in the package dahdi_tools. This section will not cover the
+specifics of that file. Rather it will cover the way configuration from
+this file is applied. Also note that there are other methods to
+configure DAHDI drivers: there are <<_module_parameters,Module
+Parameters>>. The xpp driver have their own separate initialization
+scripts and xpp.conf that arecovered in README.Astribank.
+
+When a span is registered, it is considered "unconfigured". Only after
+dahdi_cfg has been run to apply configuration, the span is ready to run.
+The only exception to that is 'dahdi_dummy', which does not need any
+configuration.
+
+Some of the configuration is handled by the DAHDI core. Some of it is
+handled by callbacks, which are function pointers in the `struct
+dahdi_span': 'spanconfig', 'chanconfig' and (in a way) 'startup'.
+
+Dahdi_cfg starts by reading the configuration from the configuration
+file ('/etc/dahdi/system.conf', by default), and creating a local
+configuration to apply. If you use -v, at this stage it will pront the
+configuration that is "about to be configured". Then it will start to
+actually apply the configuration.
+
+Before actually applying configuration, it destroys any existing
+<<_dynamic_spans,dynamic spans>> and generates new ones (if so
+configured. FIXME: what about running DAHDI_SPANCONFIG for new dynamic
+spans?).
+
+Next thing it will do is apply the parameters from *span* lines using
+the ioctl DAHDI_SPANCONFIG. Some generic processing of parameters passed
+in DAHDI_SPANCONFIG is done in the DAHDI core, in the callback function
+spanconfig in , but most of it is left to 'spanconfig' callback of the
+span (if it exists. This one typically does not exists on analog cards).
+
+Now dahdi_cfg will ask each existing channel for its existing
+configuration and apply configuration if configuration changes are
+needed. Configuration is applied to the channels using the ioctl call
+DAHDI_CHANCONFIG ioctl. As in the case of the span configuration, part
+of it is applied by the DAHDI core, and then it is handed over to the
+span's chanconfig callback. Typically all spans will have such a
+callback.
+
+<<_echo_cancellers,Echo cancellers>> and <<_tone_zones,tone-zones>> are
+handled separately later. 
+
+Once everything is done, the ioctl DAHDI_STARTUP is called for every
+span. This is also translated to a call to the optional span callback
+'startup'.
+
+Finally the ioctl DAHDI_HDLC_RATE is called for every channel (that is:
+if '56k' is not set for the channel, it will be explicitly set to the
+standard HDLC rate of 64k).
+
+
+Low-Level Drivers
+~~~~~~~~~~~~~~~~~
+Low-level drivers create spans ('struct dahdi_span'). They register the
+spans with the DAHDI core using 'dahdi_register()'.
+
+'struct dahdi_span' has a number of informative members that are updated
+solely by the low-level driver:
+
+name::
+  A concise span name. E.g.: Foo/1
+desc::
+  A slightly longer span name.
+spantype::
+  Span type in text form.
+manufacturer::
+  Span's device manufacturer
+devicetype::
+  Span's device type
+location::
+  span device's location in system
+irq::
+  IRQ for this span's hardware
+irqmisses::
+  Interrupt misses
+timingslips::
+  Clock slips
+
+There are various function pointers in the struct 'dahdi_span' which are
+used by the DAHDI core to call the low-level driver. Most of them are
+optional.
+
+The following apply to a span:
+
+setchunksize::
+  FIXME: seems to be unused.
+
+spanconfig::
+  Basic span configuration (called from dahdi_cfg).
+	
+startup::
+  Last minute initialization after the configuration was applied.
+	
+shutdown::
+  Explicit shutdown (e.g. for dynamic spans). Normally not needed.
+	
+maint::
+  Enable/disable maintinance mode (FIXME: document).
+
+sync_tick::
+  Get notified that the master span has ticked.
+
+The following apply to a single channel.
+
+chanconfig::
+  Configure the channel (called from dahdi_cfg).
+
+open::
+  Channel was opened for read/write from user-space.
+
+close::
+  Channel was closed by user-space.
+
+ioctl::
+  Handle extra ioctls. Should return -ENOTTY if ioctl is not known to
+  the channel
+
+echocan_create::
+  Create a custom echo canceller. Normally used for providing a hardware
+  echo canceller. If NULL, the standard DAHDI echo canceller modules
+  will be used.
+
+rbsbits::
+  Copy signalling bits to device. See below on signalling.
+
+hooksig::
+  Implement RBS-like signalling-handling. See below on signalling.
+
+sethook::
+  Handle signalling yourself. See below on signalling.
+
+hdlc_hard_xmit::
+  Used to tell an onboard HDLC controller that there is data ready to
+  transmit.
+
+audio_notify::
+  (if DAHDI_AUDIO_NOTIFY is set) - be notified when the channel is (or
+  isn't) in audio mode. Which may mean (for an ISDN B-channel) that its
+  data need not be sent.
+
+There are several alternative methods for a span to use for
+signalling. One of them should be used.
+
+Signalling: rbsbits
+^^^^^^^^^^^^^^^^^^^
+If the device is a CAS interface, the driver should copy the signalling
+bits to and from the other side, and DAHDI will handle the signalling.
+The driver just need to provide a 'rbsbits' and set DAHDI_FLAG_RBS in
+the span->flags.
+
+Note that 'rbs' (Robed Bits Signalling) here merely refers to the (up
+to) 4 signalling bits of the channel. In T1 they are transmitted by
+"robbing" bits from the channels and hence the name. In E1 they are
+transmitted in a timeframe of their own.
+
+The driver should then signal a change in the signalling bits in a
+channel using dahdi_rbsbits().
+
+
+Signalling: hooksig
+^^^^^^^^^^^^^^^^^^^
+If the device does not know about signalling bits, but has their
+equivalents (i.e. can disconnect battery, detect off hook, generate
+ring, etc directly) then the driver can specify a 'sethook' function and
+set DAHDI_FLAG_RBS in span->flags. In that case DAHDI will call that
+function whenever the signalling state changes.
+
+The hooksig function is only used if the rbsbits function is not set.
+
+The span should notify DAHDI of a change of signalling in a channel using
+dahdi_hooksig().
+
+
+Signalling: sethook
+^^^^^^^^^^^^^^^^^^^
+Alternatively, if DAHDI_FLAG_RBS is not set in the flags of the span (to
+use either rbsbits or hooksig), the DAHDI core will try to call the
+'sethook' function of the span (if it exists) to handle individual hook
+states.
+
+The span should then notify DAHDI of a change in the signalling state
+using dahdi_sethook().
+
+FIXME: anybody using this one?
+
 
 ABI Compatibility
 ~~~~~~~~~~~~~~~~~
