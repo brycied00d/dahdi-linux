@@ -1733,7 +1733,7 @@ voicebus_init(struct pci_dev *pdev, u32 framesize, const char *board_name,
 	 * this driver. */
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 23)
 	vb->buffer_cache = kmem_cache_create(board_name, vb->framesize, 0,
-#if LINUX_VERSION_CODE == KERNEL_VERSION(2, 6, 22)
+#if defined(CONFIG_SLUB) && (LINUX_VERSION_CODE == KERNEL_VERSION(2, 6, 22))
 				SLAB_HWCACHE_ALIGN | SLAB_STORE_USER, NULL, NULL);
 #else
 				SLAB_HWCACHE_ALIGN, NULL, NULL);
