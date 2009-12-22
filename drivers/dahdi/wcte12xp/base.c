@@ -1883,7 +1883,7 @@ static int __init te12xp_init(void)
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 23)
 	cmd_cache = kmem_cache_create(THIS_MODULE->name, sizeof(struct command), 0,
-#if LINUX_VERSION_CODE == KERNEL_VERSION(2, 6, 22)
+#if defined(CONFIG_SLUB) && (LINUX_VERSION_CODE == KERNEL_VERSION(2, 6, 22))
 				SLAB_HWCACHE_ALIGN | SLAB_STORE_USER, NULL, NULL);
 #else
 				SLAB_HWCACHE_ALIGN, NULL, NULL);
