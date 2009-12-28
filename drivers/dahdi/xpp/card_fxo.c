@@ -170,7 +170,7 @@ struct FXO_priv_data {
 static const char *power2str(enum power_state pw)
 {
 	switch(pw) {
-		case POWER_UNKNOWN:	return "UNKOWN";
+		case POWER_UNKNOWN:	return "UNKNOWN";
 		case POWER_OFF:		return "OFF";
 		case POWER_ON:		return "ON";
 	}
