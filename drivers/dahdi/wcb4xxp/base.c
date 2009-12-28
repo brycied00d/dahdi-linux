@@ -20,7 +20,6 @@
  * this program for more details.
  */
 
-#include <linux/autoconf.h>
 #include <linux/init.h>
 
 #include <linux/kernel.h>	/* printk() */
