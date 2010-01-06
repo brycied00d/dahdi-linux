@@ -48,6 +48,10 @@
 #include <linux/sched.h>
 #include <linux/list.h>
 
+#ifdef HAVE_UNLOCKED_IOCTL
+#include <linux/smp_lock.h>
+#endif
+
 #include <linux/ppp_defs.h>
 
 #include <asm/atomic.h>
@@ -5628,47 +5632,80 @@ static int dahdi_prechan_ioctl(struct file *file, unsigned int cmd, unsigned lon
 	return 0;
 }
 
-static int dahdi_ioctl(struct file *file, unsigned int cmd, unsigned long data)
+#ifdef HAVE_UNLOCKED_IOCTL
+static long dahdi_ioctl(struct file *file, unsigned int cmd, unsigned long data)
+#else
+static int dahdi_ioctl(struct inode *inode, struct file *file,
+		unsigned int cmd, unsigned long data)
+#endif
 {
 	int unit = UNIT(file);
 	struct dahdi_chan *chan;
 	struct dahdi_timer *timer;
+	int ret;
 
-	if (!unit)
-		return dahdi_ctl_ioctl(file, cmd, data);
+#ifdef HAVE_UNLOCKED_IOCTL
+	lock_kernel();
+#endif
+
+	if (!unit) {
+		ret = dahdi_ctl_ioctl(file, cmd, data);
+		goto unlock_exit;
+	}
 
 	if (unit == 250) {
 		/* dahdi_transcode should have updated the file_operations on
 		 * this file object on open, so we shouldn't be here. */
 		WARN_ON(1);
-		return -EFAULT;
+		ret = -EFAULT;
+		goto unlock_exit;
 	}
 
 	if (unit == 253) {
 		timer = file->private_data;
 		if (timer)
-			return dahdi_timer_ioctl(file, cmd, data, timer);
+			ret = dahdi_timer_ioctl(file, cmd, data, timer);
 		else
-			return -EINVAL;
+			ret = -EINVAL;
+		goto unlock_exit;
 	}
 	if (unit == 254) {
 		chan = file->private_data;
 		if (chan)
-			return dahdi_chan_ioctl(file, cmd, data, chan->channo);
+			ret = dahdi_chan_ioctl(file, cmd, data, chan->channo);
 		else
-			return dahdi_prechan_ioctl(file, cmd, data, unit);
+			ret = dahdi_prechan_ioctl(file, cmd, data, unit);
+		goto unlock_exit;
 	}
 	if (unit == 255) {
 		chan = file->private_data;
 		if (!chan) {
 			module_printk(KERN_NOTICE, "No pseudo channel structure to read?\n");
-			return -EINVAL;
+			ret = -EINVAL;
+			goto unlock_exit;
 		}
-		return dahdi_chanandpseudo_ioctl(file, cmd, data, chan->channo);
+		ret = dahdi_chanandpseudo_ioctl(file, cmd, data, chan->channo);
+		goto unlock_exit;
 	}
-	return dahdi_chan_ioctl(file, cmd, data, unit);
+	ret = dahdi_chan_ioctl(file, cmd, data, unit);
+
+unlock_exit:
+#ifdef HAVE_UNLOCKED_IOCTL
+	unlock_kernel();
+#endif
+	return ret;
 }
 
+#ifdef HAVE_COMPAT_IOCTL
+static long dahdi_ioctl_compat(struct file *file, unsigned int cmd,
+		unsigned long data)
+{
+	if (cmd == DAHDI_SFCONFIG)
+		return -ENOTTY; /* Not supported yet */
+
+	return dahdi_ioctl(file, cmd, data);
+}
+#endif
 
 /**
  * dahdi_register() - unregister a new DAHDI span
@@ -8334,17 +8371,20 @@ module_param(deftaps, int, 0644);
 
 static struct file_operations dahdi_fops = {
 	.owner   = THIS_MODULE,
-	.llseek  = NULL,
 	.open    = dahdi_open,
 	.release = dahdi_release,
+#ifdef HAVE_UNLOCKED_IOCTL
+	.unlocked_ioctl  = dahdi_ioctl,
+#ifdef HAVE_COMPAT_IOCTL
+	.compat_ioctl = dahdi_ioctl_compat,
+#endif
+#else
 	.ioctl   = dahdi_ioctl,
+#endif
 	.read    = dahdi_read,
 	.write   = dahdi_write,
 	.poll    = dahdi_poll,
 	.mmap    = dahdi_mmap,
-	.flush   = NULL,
-	.fsync   = NULL,
-	.fasync  = NULL,
 };
 
 #ifdef CONFIG_DAHDI_WATCHDOG
