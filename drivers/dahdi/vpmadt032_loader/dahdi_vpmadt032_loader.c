@@ -66,55 +66,59 @@ vpmlinkage static void memfree(void *ptr)
 
 struct private_context {
 	struct voicebus *vb;
-	void *old_rx;
-	void *old_tx;
-	void *old_context;
 	void *pvt;
 	struct completion done;
 };
 
 static void init_private_context(struct private_context *ctx)
 {
-	memset(ctx, 0, sizeof(ctx));
 	init_completion(&ctx->done);
 }
 
-static void handle_receive(void *vbb, void *context)
+static void handle_receive(struct voicebus *vb, void *vbb)
 {
-	struct private_context *ctx = context;
+	struct private_context *ctx = pci_get_drvdata(vb->pdev);
 	__vpmadt032_receive(ctx->pvt, vbb);
 	if (__vpmadt032_done(ctx->pvt))
 		complete(&ctx->done);
 }
 
-static void handle_transmit(void *vbb, void *context)
+static void handle_transmit(struct voicebus *vb, void *vbb)
 {
-	struct private_context *ctx = context;
+	struct private_context *ctx = pci_get_drvdata(vb->pdev);
 	__vpmadt032_transmit(ctx->pvt, vbb);
 	voicebus_transmit(ctx->vb, vbb);
 }
+
+static const struct voicebus_operations loader_operations = {
+	.handle_receive = handle_receive,
+	.handle_transmit = handle_transmit,
+};
 
 static int vpmadt032_load_firmware(struct voicebus *vb)
 {
 	int ret = 0;
 	struct private_context *ctx;
-	struct pci_dev *pdev = voicebus_get_pci_dev(vb);
+	const struct voicebus_operations *old;
+	void *old_drvdata;
 	might_sleep();
-	ctx = kmalloc(sizeof(struct private_context), GFP_KERNEL);
+	ctx = kzalloc(sizeof(struct private_context), GFP_KERNEL);
 	if (!ctx)
 		return -ENOMEM;
 	init_private_context(ctx);
 	ctx->vb = vb;
 	ret = __vpmadt032_start_load(
-			0, pdev->vendor << 16 | pdev->device,
+			0, vb->pdev->vendor << 16 | vb->pdev->device,
 			&ctx->pvt);
 	if (ret)
 		goto error_exit;
-	voicebus_get_handlers(vb, &ctx->old_rx, &ctx->old_tx,
-		&ctx->old_context);
-	voicebus_set_handlers(vb, handle_receive, handle_transmit, ctx);
+	old_drvdata = pci_get_drvdata(vb->pdev);
+	pci_set_drvdata(vb->pdev, ctx);
+	old = vb->ops;
+	vb->ops = &loader_operations;
 	wait_for_completion(&ctx->done);
-	voicebus_set_handlers(vb, ctx->old_rx, ctx->old_tx, ctx->old_context);
+	vb->ops = old;
+	pci_set_drvdata(vb->pdev, old_drvdata);
 	__vpmadt032_cleanup(ctx->pvt);
 error_exit:
 	kfree(ctx);

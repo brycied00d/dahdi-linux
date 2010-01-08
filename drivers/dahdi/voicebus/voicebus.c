@@ -41,33 +41,17 @@
 #include "vpmadtreg.h"
 #include "GpakCust.h"
 
-#define INTERRUPT 0	/* Run the deferred processing in the ISR. */
-#define TASKLET 1	/* Run in a tasklet. */
-#define TIMER 2		/* Run in a system timer. */
-#define WORKQUEUE 3	/* Run in a workqueue. */
-#ifndef VOICEBUS_DEFERRED
-#define VOICEBUS_DEFERRED INTERRUPT
-#endif
 #if VOICEBUS_DEFERRED == WORKQUEUE
 #define VOICEBUS_ALLOC_FLAGS GFP_KERNEL
 #else
 #define VOICEBUS_ALLOC_FLAGS GFP_ATOMIC
 #endif
 
-/* Define CONFIG_VOICEBUS_SYSFS to create some attributes under the pci device.
- * This is disabled by default because it hasn't been tested on the full range
- * of supported kernels. */
-#undef CONFIG_VOICEBUS_SYSFS
-
 #if VOICEBUS_DEFERRED == TIMER
 #if HZ < 1000
 /* \todo Put an error message here. */
 #endif
 #endif
-
-/*! The number of descriptors in both the tx and rx descriptor ring. */
-#define DRING_SIZE	(1 << 7)  /* Must be a power of 2 */
-#define DRING_MASK	(DRING_SIZE-1)
 
 /* Interrupt status' reported in SR_CSR5 */
 #define TX_COMPLETE_INTERRUPT 		0x00000001
@@ -119,90 +103,9 @@ struct voicebus_descriptor {
 	volatile __le32 container; /* Unused */
 } __attribute__((packed));
 
-struct voicebus_descriptor_list {
-	/* Pointer to an array of descriptors to give to hardware. */
-	struct voicebus_descriptor *desc;
-	/* Read completed buffers from the head. */
-	unsigned int 	head;
-	/* Write ready buffers to the tail. */
-	unsigned int 	tail;
-	/* Array to save the kernel virtual address of pending buffers. */
-	void  		*pending[DRING_SIZE];
-	/* PCI Bus address of the descriptor list. */
-	dma_addr_t	desc_dma;
-	/*! The number of buffers currently submitted to the hardware. */
-	atomic_t 	count;
-	/*! The number of bytes to pad each descriptor for cache alignment. */
-	unsigned int	padding;
-};
-
-/**
- * struct voicebus -
- *
- * @tx_idle_vbb:
- * @tx_idle_vbb_dma_addr:
- * @max_latency: Do not allow the driver to automatically insert more than this
- * 		 much latency to the tdm stream by default.
- * @count:	The number of non-idle buffers that we should be expecting.
- */
-struct voicebus {
-	/*! The system pci device for this VoiceBus interface. */
-	struct pci_dev *pdev;
-	/*! Protects access to card registers and this structure. You should
-	 * hold this lock before accessing most of the members of this data
-	 * structure or the card registers. */
-	spinlock_t lock;
-	/*! The size of the transmit and receive buffers for this card. */
-	u32 framesize;
-	/*! The number of u32s in the host system cache line. */
-	u8 cache_line_size;
-	/*! Pool to allocate memory for the tx and rx descriptor rings. */
-	struct voicebus_descriptor_list rxd;
-	struct voicebus_descriptor_list txd;
-	void 		*idle_vbb;
-	dma_addr_t	idle_vbb_dma_addr;
-	/*! Level of debugging information.  0=None, 5=Insane. */
-	atomic_t debuglevel;
-	/*! Cache of buffer objects. */
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 20)
-	kmem_cache_t *buffer_cache;
-#else
-	struct kmem_cache *buffer_cache;
-#endif
-	/*! Base address of the VoiceBus interface registers in I/O space. */
-	u32 iobase;
-	/*! The IRQ line for this VoiceBus interface. */
-	unsigned int irq;
-#if VOICEBUS_DEFERRED == WORKQUEUE
-	/*! Process buffers in the context of this workqueue. */
-	struct workqueue_struct *workqueue;
-	/*! Work item to process tx / rx buffers. */
-	struct work_struct workitem;
-#elif VOICEBUS_DEFERRED == TASKLET
-	/*! Process buffers in the context of a tasklet. */
-	struct tasklet_struct 	tasklet;
-#elif VOICEBUS_DEFERRED == TIMER
-	/*! Process buffers in a timer without generating interrupts. */
-	struct timer_list timer;
-#endif
-	/*! Callback function to board specific module to process frames. */
-	void (*handle_receive)(void *vbb, void *context);
-	void (*handle_transmit)(void *vbb, void *context);
-	/*! Data to pass to the receive and transmit callback. */
-	void *context;
-	struct completion stopped_completion;
-	/*! Flags */
-	unsigned long flags;
-	/*! Number of tx buffers to queue up before enabling interrupts. */
-	unsigned int 	min_tx_buffer_count;
-	unsigned int	max_latency;
-	void		*vbb_stash[DRING_SIZE];
-	unsigned int	count;
-};
-
 static inline void handle_transmit(struct voicebus *vb, void *vbb)
 {
-	vb->handle_transmit(vbb, vb->context);
+	vb->ops->handle_transmit(vb, vbb);
 }
 
 /*
@@ -397,41 +300,6 @@ voicebus_set_minlatency(struct voicebus *vb, unsigned int ms)
 	return 0;
 }
 EXPORT_SYMBOL(voicebus_set_minlatency);
-
-void
-voicebus_get_handlers(struct voicebus *vb, void **handle_receive,
-	void **handle_transmit, void **context)
-{
-	LOCKS_VOICEBUS;
-	BUG_ON(!handle_receive);
-	BUG_ON(!handle_transmit);
-	BUG_ON(!context);
-	VBLOCK(vb);
-	*handle_receive = vb->handle_receive;
-	*handle_transmit = vb->handle_transmit;
-	*context = vb->context;
-	VBUNLOCK(vb);
-	return;
-}
-EXPORT_SYMBOL(voicebus_get_handlers);
-
-void
-voicebus_set_handlers(struct voicebus *vb,
-	void (*handle_receive)(void *buffer, void *context),
-	void (*handle_transmit)(void *buffer, void *context),
-	void *context)
-{
-	LOCKS_VOICEBUS;
-	BUG_ON(!handle_receive);
-	BUG_ON(!handle_transmit);
-	BUG_ON(!context);
-	VBLOCK(vb);
-	vb->handle_receive = handle_receive;
-	vb->handle_transmit = handle_transmit;
-	vb->context = context;
-	VBUNLOCK(vb);
-}
-EXPORT_SYMBOL(voicebus_set_handlers);
 
 /*! \brief Returns the number of buffers currently on the transmit queue. */
 int
@@ -682,20 +550,6 @@ voicebus_alloc(struct voicebus *vb)
 	return vbb;
 }
 
-void
-voicebus_setdebuglevel(struct voicebus *vb, u32 level)
-{
-	atomic_set(&vb->debuglevel, level);
-}
-EXPORT_SYMBOL(voicebus_setdebuglevel);
-
-int
-voicebus_getdebuglevel(struct voicebus *vb)
-{
-	return atomic_read(&vb->debuglevel);
-}
-EXPORT_SYMBOL(voicebus_getdebuglevel);
-
 /*! \brief Resets the voicebus hardware interface. */
 static int
 vb_reset_interface(struct voicebus *vb)
@@ -717,7 +571,7 @@ vb_reset_interface(struct voicebus *vb)
 		pci_access = DEFAULT_PCI_ACCESS | (0x3 << 14);
 		break;
 	default:
-		if (atomic_read(&vb->debuglevel)) {
+		if (*vb->debug) {
 			dev_warn(&vb->pdev->dev, "Host system set a cache "
 				 "size of %d which is not supported. "
 				 "Disabling memory write line and memory "
@@ -1024,10 +878,6 @@ voicebus_start(struct voicebus *vb)
 	void *vbb;
 	int ret;
 
-	WARN_ON(pci_get_drvdata(vb->pdev) != vb);
-	if (pci_get_drvdata(vb->pdev) != vb)
-		return -EFAULT;
-
 	if (!vb_is_stopped(vb))
 		return -EBUSY;
 
@@ -1235,7 +1085,6 @@ voicebus_release(struct voicebus *vb)
 	kmem_cache_destroy(vb->buffer_cache);
 	release_region(vb->iobase, 0xff);
 	pci_disable_device(vb->pdev);
-	kfree(vb);
 }
 EXPORT_SYMBOL(voicebus_release);
 
@@ -1518,7 +1367,7 @@ static void vb_deferred(struct voicebus *vb)
 	 * the caller, but this needs more work.... */
 	while ((vb->vbb_stash[0] = vb_get_completed_rxb(vb))) {
 		if (vb->count) {
-			vb->handle_receive(vb->vbb_stash[0], vb->context);
+			vb->ops->handle_receive(vb, vb->vbb_stash[0]);
 			--vb->count;
 		}
 		vb_submit_rxb(vb, vb->vbb_stash[0]);
@@ -1662,45 +1511,26 @@ vb_tasklet(unsigned long data)
  * \todo Complete this description.
  */
 int
-voicebus_init(struct pci_dev *pdev, u32 framesize, const char *board_name,
-		  void (*handle_receive)(void *vbb, void *context),
-		  void (*handle_transmit)(void *vbb, void *context),
-		  void *context,
-		  u32 debuglevel,
-		  struct voicebus **vbp
-		  )
+voicebus_init(struct voicebus *vb, const char *board_name)
 {
 	int retval = 0;
-	struct voicebus *vb;
 
-	BUG_ON(NULL == pdev);
+	BUG_ON(NULL == vb);
 	BUG_ON(NULL == board_name);
-	BUG_ON(0 == framesize);
-	BUG_ON(NULL == handle_receive);
-	BUG_ON(NULL == handle_transmit);
+	BUG_ON(NULL == vb->ops);
+	BUG_ON(NULL == vb->pdev);
+	BUG_ON(0 == vb->framesize);
+	BUG_ON(NULL == vb->debug);
 
 	/* ----------------------------------------------------------------
 	   Initialize the pure software constructs.
 	   ---------------------------------------------------------------- */
-	*vbp = NULL;
-	vb = kmalloc(sizeof(*vb), GFP_KERNEL);
-	if (NULL == vb) {
-		dev_dbg(&vb->pdev->dev, "Failed to allocate memory for "
-			"voicebus interface.\n");
-		retval = -ENOMEM;
-		goto cleanup;
-	}
-	memset(vb, 0, sizeof(*vb));
-	vb->pdev = pdev;
-	pci_set_drvdata(pdev, vb);
-	voicebus_setdebuglevel(vb, debuglevel);
 	vb->max_latency = VOICEBUS_DEFAULT_MAXLATENCY;
 
 	spin_lock_init(&vb->lock);
 	init_completion(&vb->stopped_completion);
 	set_bit(STOP, &vb->flags);
 	clear_bit(IN_DEFERRED_PROCESSING, &vb->flags);
-	vb->framesize = framesize;
 	vb->min_tx_buffer_count = VOICEBUS_DEFAULT_LATENCY;
 
 #if VOICEBUS_DEFERRED == WORKQUEUE
@@ -1724,10 +1554,6 @@ voicebus_init(struct pci_dev *pdev, u32 framesize, const char *board_name,
 	vb->timer.function = vb_timer;
 	vb->timer.data = (unsigned long)vb;
 #endif
-
-	vb->handle_receive = handle_receive;
-	vb->handle_transmit = handle_transmit;
-	vb->context = context;
 
 	/* \todo This cache should be shared by all instances supported by
 	 * this driver. */
@@ -1777,7 +1603,7 @@ voicebus_init(struct pci_dev *pdev, u32 framesize, const char *board_name,
 		goto cleanup;
 	}
 
-	if (pci_enable_device(pdev)) {
+	if (pci_enable_device(vb->pdev)) {
 		dev_err(&vb->pdev->dev, "Failed call to pci_enable_device.\n");
 		retval = -EIO;
 		goto cleanup;
@@ -1785,12 +1611,12 @@ voicebus_init(struct pci_dev *pdev, u32 framesize, const char *board_name,
 
 	/* \todo This driver should be modified to use the memory mapped I/O
 	   as opposed to IO space for portability and performance. */
-	if (0 == (pci_resource_flags(pdev, 0)&IORESOURCE_IO)) {
+	if (0 == (pci_resource_flags(vb->pdev, 0)&IORESOURCE_IO)) {
 		dev_err(&vb->pdev->dev, "BAR0 is not IO Memory.\n");
 		retval = -EIO;
 		goto cleanup;
 	}
-	vb->iobase = pci_resource_start(pdev, 0);
+	vb->iobase = pci_resource_start(vb->pdev, 0);
 	if (NULL == request_region(vb->iobase, 0xff, board_name)) {
 		dev_err(&vb->pdev->dev, "IO Registers are in use by another "
 			"module.\n");
@@ -1812,17 +1638,17 @@ voicebus_init(struct pci_dev *pdev, u32 framesize, const char *board_name,
 	/* ----------------------------------------------------------------
 	   Configure the hardware interface.
 	   ---------------------------------------------------------------- */
-	if (pci_set_dma_mask(pdev, DMA_BIT_MASK(32))) {
+	if (pci_set_dma_mask(vb->pdev, DMA_BIT_MASK(32))) {
 		release_region(vb->iobase, 0xff);
 		dev_warn(&vb->pdev->dev, "No suitable DMA available.\n");
 		goto cleanup;
 	}
 
-	pci_set_master(pdev);
+	pci_set_master(vb->pdev);
 	vb_enable_io_access(vb);
 
 #if VOICEBUS_DEFERRED != TIMER
-	retval = request_irq(pdev->irq, vb_isr, DAHDI_IRQ_SHARED,
+	retval = request_irq(vb->pdev->irq, vb_isr, DAHDI_IRQ_SHARED,
 			     board_name, vb);
 	if (retval) {
 		dev_warn(&vb->pdev->dev, "Failed to request interrupt line.\n");
@@ -1830,17 +1656,12 @@ voicebus_init(struct pci_dev *pdev, u32 framesize, const char *board_name,
 	}
 #endif
 
-	*vbp = vb;
 	return retval;
 cleanup:
-	if (NULL == vb)
-		return retval;
 
 #if VOICEBUS_DEFERRED == WORKQUEUE
-
 	if (vb->workqueue)
 		destroy_workqueue(vb->workqueue);
-
 #elif VOICEBUS_DEFERRED == TASKLET
 	tasklet_kill(&vb->tasklet);
 #endif
@@ -1864,7 +1685,6 @@ cleanup:
 	if (vb->pdev)
 		pci_disable_device(vb->pdev);
 
-	kfree(vb);
 	WARN_ON(0 == retval);
 	return retval;
 }
@@ -1878,12 +1698,6 @@ voicebus_get_pci_dev(struct voicebus *vb)
 	return vb->pdev;
 }
 EXPORT_SYMBOL(voicebus_get_pci_dev);
-
-void *voicebus_pci_dev_to_context(struct pci_dev *pdev)
-{
-	return ((struct voicebus *)pci_get_drvdata(pdev))->context;
-}
-EXPORT_SYMBOL(voicebus_pci_dev_to_context);
 
 static spinlock_t loader_list_lock;
 static struct list_head binary_loader_list;

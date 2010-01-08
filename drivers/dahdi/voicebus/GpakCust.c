@@ -54,7 +54,7 @@ static rwlock_t ifacelock;
 static struct vpmadt032 *ifaces[MAX_DSP_CORES];
 
 #define vpm_info(vpm, format, arg...)         \
-        dev_info(&voicebus_get_pci_dev(vpm->vb)->dev , format , ## arg)
+	dev_info(&vpm->vb->pdev->dev , format , ## arg)
 
 static inline struct vpmadt032 *find_iface(const unsigned short dspid)
 {
@@ -609,13 +609,12 @@ vpmadt032_init(struct vpmadt032 *vpm, struct voicebus *vb)
 
 	res = vpmadtreg_loadfirmware(vb);
 	if (res) {
-		struct pci_dev *pdev = voicebus_get_pci_dev(vb);
-		dev_printk(KERN_INFO, &pdev->dev, "Failed to load the firmware.\n");
+		dev_info(&vb->pdev->dev, "Failed to load the firmware.\n");
 		return res;
 	}
 	vpm->curpage = -1;
 
-	dev_info(&voicebus_get_pci_dev(vb)->dev, "Booting VPMADT032\n");
+	dev_info(&vb->pdev->dev, "Booting VPMADT032\n");
 	set_bit(VPM150M_SWRESET, &vpm->control);
 	while (test_bit(VPM150M_SWRESET, &vpm->control))
 		msleep(1);
