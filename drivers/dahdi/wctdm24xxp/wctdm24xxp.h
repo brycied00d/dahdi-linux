@@ -227,7 +227,7 @@ struct wctdm {
 	int echocanpos;
 	int blinktimer;
 #endif	
-	struct voicebus *vb;
+	struct voicebus vb;
 	struct dahdi_chan *chans[NUM_CARDS];
 	struct dahdi_echocan_state *ec[NUM_CARDS];
 	int initialized;

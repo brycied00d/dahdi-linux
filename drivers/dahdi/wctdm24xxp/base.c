@@ -1798,20 +1798,20 @@ static inline void wctdm_isr_misc(struct wctdm *wc)
 	}
 }
 
-static void handle_receive(void* vbb, void* context)
+static void handle_receive(struct voicebus *vb, void* vbb)
 {
-	struct wctdm *wc = context;
+	struct wctdm *wc = container_of(vb, struct wctdm, vb);
 	wctdm_receiveprep(wc, vbb);
 }
 
-static void handle_transmit(void* vbb, void* context)
+static void handle_transmit(struct voicebus *vb, void* vbb)
 {
-	struct wctdm *wc = context;
+	struct wctdm *wc = container_of(vb, struct wctdm, vb);
 	memset(vbb, 0, SFRAME_SIZE);
 	wctdm_transmitprep(wc, vbb);
 	wctdm_isr_misc(wc);
 	wc->intcount++;
-	voicebus_transmit(wc->vb, vbb);
+	voicebus_transmit(&wc->vb, vbb);
 }
 
 static int wctdm_voicedaa_insane(struct wctdm *wc, int card)
@@ -3268,7 +3268,7 @@ static int wctdm_dacs(struct dahdi_chan *dst, struct dahdi_chan *src)
 static int wctdm_initialize(struct wctdm *wc)
 {
 	int x;
-	struct pci_dev *pdev = voicebus_get_pci_dev(wc->vb);
+	struct pci_dev *pdev = wc->vb.pdev;
 
 	/* DAHDI stuff */
 	sprintf(wc->span.name, "WCTDM/%d", wc->pos);
@@ -3663,7 +3663,7 @@ retry:
 		wc->vpmadt032->setchanconfig_from_state = setchanconfig_from_state;
 		wc->vpmadt032->options.channels = wc->span.channels;
 		get_default_portconfig(&portconfig);
-		res = vpmadt032_init(wc->vpmadt032, wc->vb);
+		res = vpmadt032_init(wc->vpmadt032, &wc->vb);
 		if (res) {
 			vpmadt032_free(wc->vpmadt032);
 			wc->vpmadt032 = NULL;
@@ -3703,6 +3703,11 @@ static void free_wc(struct wctdm *wc)
 	kfree(wc);
 }
 
+static const struct voicebus_operations voicebus_operations = {
+	.handle_receive = handle_receive,
+	.handle_transmit = handle_transmit,
+};
+
 static int __devinit wctdm_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 {
 	struct wctdm *wc;
@@ -3730,16 +3735,20 @@ static int __devinit wctdm_init_one(struct pci_dev *pdev, const struct pci_devic
 
 	snprintf(wc->board_name, sizeof(wc->board_name)-1, "%s%d",
 		 wctdm_driver.name, i);
-	ret = voicebus_init(pdev, SFRAME_SIZE, wc->board_name,
-		handle_receive, handle_transmit, wc, debug, &wc->vb);
+
+	pci_set_drvdata(pdev, wc);
+	wc->vb.ops = &voicebus_operations;
+	wc->vb.framesize = SFRAME_SIZE;
+	wc->vb.pdev = pdev;
+	wc->vb.debug = &debug;
+	ret = voicebus_init(&wc->vb, wc->board_name);
 	if (ret) {
 		kfree(wc);
 		return ret;
 	}
-	BUG_ON(!wc->vb);
 
 	if (VOICEBUS_DEFAULT_LATENCY != latency) {
-		voicebus_set_minlatency(wc->vb, latency);
+		voicebus_set_minlatency(&wc->vb, latency);
 	}
 
 	spin_lock_init(&wc->reglock);
@@ -3768,17 +3777,15 @@ static int __devinit wctdm_init_one(struct pci_dev *pdev, const struct pci_devic
 
 
 	if (wctdm_initialize(wc)) {
-		voicebus_release(wc->vb);
-		wc->vb = NULL;
+		voicebus_release(&wc->vb);
 		kfree(wc);
 		return -EIO;
 	}
 
-	voicebus_lock_latency(wc->vb);
+	voicebus_lock_latency(&wc->vb);
 
-	if (voicebus_start(wc->vb)) {
+	if (voicebus_start(&wc->vb))
 		BUG_ON(1);
-	}
 	
 	/* Now track down what modules are installed */
 	wctdm_locate_modules(wc);
@@ -3797,7 +3804,7 @@ static int __devinit wctdm_init_one(struct pci_dev *pdev, const struct pci_devic
 	printk(KERN_INFO "Found a Wildcard TDM: %s (%d modules)\n",
 	       wc->desc->name, wc->desc->ports);
 	
-	voicebus_unlock_latency(wc->vb);
+	voicebus_unlock_latency(&wc->vb);
 	return 0;
 }
 
@@ -3809,8 +3816,7 @@ static void wctdm_release(struct wctdm *wc)
 		dahdi_unregister(&wc->span);
 	}
 
-	voicebus_release(wc->vb);
-	wc->vb = NULL;
+	voicebus_release(&wc->vb);
 
 	spin_lock(&ifacelock);
 	for (i = 0; i < WC_MAX_IFACES; i++)
@@ -3824,7 +3830,7 @@ static void wctdm_release(struct wctdm *wc)
 
 static void __devexit wctdm_remove_one(struct pci_dev *pdev)
 {
-	struct wctdm *wc = voicebus_pci_dev_to_context(pdev);
+	struct wctdm *wc = pci_get_drvdata(pdev);
 	struct vpmadt032 *vpm = wc->vpmadt032;
 
 	if (wc) {
@@ -3834,7 +3840,7 @@ static void __devexit wctdm_remove_one(struct pci_dev *pdev)
 			flush_scheduled_work();
 		}
 
-		voicebus_stop(wc->vb);
+		voicebus_stop(&wc->vb);
 
 		if (vpm) {
 			vpmadt032_free(wc->vpmadt032);

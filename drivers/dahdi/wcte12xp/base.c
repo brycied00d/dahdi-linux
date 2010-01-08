@@ -1186,9 +1186,7 @@ static int t1_software_init(struct t1 *wc)
 {
 	int x;
 	int num;
-	struct pci_dev* dev;
-
-	dev = voicebus_get_pci_dev(wc->vb);
+	struct pci_dev *pdev = wc->vb.pdev;
 
 	/* Find position */
 	for (x = 0; x < sizeof(ifaces) / sizeof(ifaces[0]); x++) {
@@ -1210,12 +1208,13 @@ static int t1_software_init(struct t1 *wc)
 	set_span_devicetype(wc);
 
 	snprintf(wc->span.location, sizeof(wc->span.location) - 1,
-		"PCI Bus %02d Slot %02d", dev->bus->number, PCI_SLOT(dev->devfn) + 1);
+		"PCI Bus %02d Slot %02d", pdev->bus->number,
+		PCI_SLOT(pdev->devfn) + 1);
 
 	wc->span.owner = THIS_MODULE;
 	wc->span.spanconfig = t1xxp_spanconfig;
 	wc->span.chanconfig = t1xxp_chanconfig;
-	wc->span.irq = dev->irq;
+	wc->span.irq = pdev->irq;
 	wc->span.startup = t1xxp_startup;
 	wc->span.shutdown = t1xxp_shutdown;
 	wc->span.rbsbits = t1xxp_rbsbits;
@@ -1375,7 +1374,7 @@ static int t1_hardware_post_init(struct t1 *wc)
 
 		wc->vpmadt032->setchanconfig_from_state = setchanconfig_from_state;
 
-		res = vpmadt032_init(wc->vpmadt032, wc->vb);
+		res = vpmadt032_init(wc->vpmadt032, &wc->vb);
 		if (res) {
 			vpmadt032_free(wc->vpmadt032);
 			wc->vpmadt032=NULL;
@@ -1692,21 +1691,19 @@ static inline void t1_receiveprep(struct t1 *wc, unsigned char* readchunk)
 	}
 }
 
-static void
-t1_handle_transmit(void* vbb, void* context)
+static void t1_handle_transmit(struct voicebus *vb, void *vbb)
 {
-	struct t1* wc = context;
+	struct t1 *wc = container_of(vb, struct t1, vb);
 	memset(vbb, 0, SFRAME_SIZE);
 	atomic_inc(&wc->txints);
 	t1_transmitprep(wc, vbb);
-	voicebus_transmit(wc->vb, vbb);
+	voicebus_transmit(&wc->vb, vbb);
 	handle_leds(wc);
 }
 
-static void
-t1_handle_receive(void* vbb, void* context)
+static void t1_handle_receive(struct voicebus *vb, void* vbb)
 {
-	struct t1* wc = context;
+	struct t1 *wc = container_of(vb, struct t1, vb);
 	t1_receiveprep(wc, vbb);
 }
 
@@ -1735,6 +1732,11 @@ te12xp_timer(unsigned long data)
 	schedule_work(&wc->timer_work);
 	return;
 }
+
+static const struct voicebus_operations voicebus_operations = {
+	.handle_receive = t1_handle_receive,
+	.handle_transmit = t1_handle_transmit,
+};
 
 static int __devinit te12xp_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 {
@@ -1786,9 +1788,13 @@ static int __devinit te12xp_init_one(struct pci_dev *pdev, const struct pci_devi
 #	endif
 
 	snprintf(wc->name, sizeof(wc->name)-1, "wcte12xp%d", index);
-	if ((res = voicebus_init(pdev, SFRAME_SIZE, wc->name,
-				 t1_handle_receive, t1_handle_transmit, wc,
-				 debug, &wc->vb))) {
+	pci_set_drvdata(pdev, wc);
+	wc->vb.ops = &voicebus_operations;
+	wc->vb.pdev = pdev;
+	wc->vb.framesize = SFRAME_SIZE;
+	wc->vb.debug = &debug;
+	res = voicebus_init(&wc->vb, wc->name);
+	if (res) {
 		WARN_ON(1);
 		free_wc(wc);
 		ifaces[index] = NULL;
@@ -1796,11 +1802,11 @@ static int __devinit te12xp_init_one(struct pci_dev *pdev, const struct pci_devi
 	}
 	
 	if (VOICEBUS_DEFAULT_LATENCY != latency) {
-		voicebus_set_minlatency(wc->vb, latency);
+		voicebus_set_minlatency(&wc->vb, latency);
 	}
 
-	voicebus_lock_latency(wc->vb);
-	voicebus_start(wc->vb);
+	voicebus_lock_latency(&wc->vb);
+	voicebus_start(&wc->vb);
 	t1_hardware_post_init(wc);
 
 	for (x = 0; x < (wc->spantype == TYPE_E1 ? 31 : 24); x++) {
@@ -1821,13 +1827,13 @@ static int __devinit te12xp_init_one(struct pci_dev *pdev, const struct pci_devi
 	mod_timer(&wc->timer, jiffies + HZ/5);
 	t1_software_init(wc);
 	module_printk("Found a %s\n", wc->variety);
-	voicebus_unlock_latency(wc->vb);
+	voicebus_unlock_latency(&wc->vb);
 	return 0;
 }
 
 static void __devexit te12xp_remove_one(struct pci_dev *pdev)
 {
-	struct t1 *wc = voicebus_pci_dev_to_context(pdev);
+	struct t1 *wc = pci_get_drvdata(pdev);
 #ifdef VPM_SUPPORT
 	unsigned long flags;
 	struct vpmadt032 *vpm = wc->vpmadt032;
@@ -1847,9 +1853,7 @@ static void __devexit te12xp_remove_one(struct pci_dev *pdev)
 	flush_scheduled_work();
 	del_timer_sync(&wc->timer);
 
-	BUG_ON(!wc->vb);
-	voicebus_release(wc->vb);
-	wc->vb = NULL;
+	voicebus_release(&wc->vb);
 
 #ifdef VPM_SUPPORT
 	if(vpm) {

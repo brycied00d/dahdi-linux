@@ -124,7 +124,7 @@ struct t1 {
 	struct dahdi_chan *chans[32];					/* Channels */
 	struct dahdi_echocan_state *ec[32];				/* Echocan state for channels */
 	unsigned long ctlreg;
-	struct voicebus* vb;
+	struct voicebus vb;
 	atomic_t txints;
 	int vpm100;
 	struct vpmadt032 *vpmadt032;
@@ -140,6 +140,6 @@ struct t1 {
 };
 
 #define t1_info(t1, format, arg...)         \
-        dev_info(&voicebus_get_pci_dev(t1->vb)->dev , format , ## arg)
+	dev_info(&t1->vb.pdev->dev , format , ## arg)
 
 #endif

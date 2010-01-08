@@ -21,9 +21,6 @@
 #ifndef __VPMADTREG_H__
 #define __VPMADTREG_H__
 
-struct vpmadt032;
-struct voicebus;
-
 struct vpmadt_loader {
 	struct module *owner;
 	struct list_head node;
