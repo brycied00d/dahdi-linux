@@ -49,6 +49,10 @@
 #include "voicebus/GpakCust.h"
 #include "voicebus/GpakApi.h"
 
+#if VOICEBUS_SFRAME_SIZE != SFRAME_SIZE
+#error VOICEBUS_SFRAME_SIZE != SFRAME_SIZE
+#endif
+
 struct pci_driver te12xp_driver;
 
 int debug = 0;
@@ -1791,7 +1795,6 @@ static int __devinit te12xp_init_one(struct pci_dev *pdev, const struct pci_devi
 	pci_set_drvdata(pdev, wc);
 	wc->vb.ops = &voicebus_operations;
 	wc->vb.pdev = pdev;
-	wc->vb.framesize = SFRAME_SIZE;
 	wc->vb.debug = &debug;
 	res = voicebus_init(&wc->vb, wc->name);
 	if (res) {
