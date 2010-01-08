@@ -64,6 +64,10 @@ Tx Gain - W/Pre-Emphasis: -23.99 to 0.00 db
 #include "voicebus/GpakCust.h"
 #include "voicebus/GpakApi.h"
 
+#if VOICEBUS_SFRAME_SIZE != SFRAME_SIZE
+#error SFRAME_SIZE must match the VOICEBUS_SFRAME_SIZE
+#endif
+
 /*
   Experimental max loop current limit for the proslic
   Loop current limit is from 20 mA to 41 mA in steps of 3
@@ -3738,7 +3742,6 @@ static int __devinit wctdm_init_one(struct pci_dev *pdev, const struct pci_devic
 
 	pci_set_drvdata(pdev, wc);
 	wc->vb.ops = &voicebus_operations;
-	wc->vb.framesize = SFRAME_SIZE;
 	wc->vb.pdev = pdev;
 	wc->vb.debug = &debug;
 	ret = voicebus_init(&wc->vb, wc->board_name);

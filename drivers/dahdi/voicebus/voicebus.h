@@ -33,6 +33,8 @@
 #define VOICEBUS_DEFAULT_MAXLATENCY	25
 #define VOICEBUS_MAXLATENCY_BUMP	6
 
+#define VOICEBUS_SFRAME_SIZE 1004
+
 /*! The number of descriptors in both the tx and rx descriptor ring. */
 #define DRING_SIZE	(1 << 7)  /* Must be a power of 2 */
 #define DRING_MASK	(DRING_SIZE-1)
@@ -78,18 +80,11 @@ struct voicebus_descriptor_list {
 struct voicebus {
 	struct pci_dev		*pdev;
 	spinlock_t		lock;
-	u32 framesize;
-	u8 cache_line_size;
 	struct voicebus_descriptor_list rxd;
 	struct voicebus_descriptor_list txd;
 	void			*idle_vbb;
 	dma_addr_t		idle_vbb_dma_addr;
 	const int		*debug;
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 20)
-	kmem_cache_t *buffer_cache;
-#else
-	struct kmem_cache *buffer_cache;
-#endif
 	u32			iobase;
 #if VOICEBUS_DEFERRED == WORKQUEUE
 	struct workqueue_struct *workqueue;

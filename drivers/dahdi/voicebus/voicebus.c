@@ -95,6 +95,12 @@
 
 #define OWN_BIT (1 << 31)
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 20)
+static kmem_cache_t *buffer_cache;
+#else
+static struct kmem_cache *buffer_cache;
+#endif
+
 /* In memory structure shared by the host and the adapter. */
 struct voicebus_descriptor {
 	volatile __le32 des0;
@@ -188,6 +194,7 @@ vb_initialize_descriptors(struct voicebus *vb, struct voicebus_descriptor_list *
 	int i;
 	struct voicebus_descriptor *d;
 	const u32 END_OF_RING = 0x02000000;
+	u8 cache_line_size;
 
 	BUG_ON(!dl);
 
@@ -197,9 +204,15 @@ vb_initialize_descriptors(struct voicebus *vb, struct voicebus_descriptor_list *
 	 * cache-line sizes that we support.
 	 *
 	 */
-	if ((0x08 == vb->cache_line_size) || (0x10 == vb->cache_line_size) ||
-	    (0x20 == vb->cache_line_size)) {
-		dl->padding = (vb->cache_line_size*sizeof(u32)) - sizeof(*d);
+	if (pci_read_config_byte(vb->pdev, 0x0c, &cache_line_size)) {
+		dev_err(&vb->pdev->dev, "Failed read of cache line "
+			"size from PCI configuration space.\n");
+		return -EIO;
+	}
+
+	if ((0x08 == cache_line_size) || (0x10 == cache_line_size) ||
+	    (0x20 == cache_line_size)) {
+		dl->padding = (cache_line_size*sizeof(u32)) - sizeof(*d);
 	} else {
 		dl->padding = 0;
 	}
@@ -226,10 +239,11 @@ static int
 vb_initialize_tx_descriptors(struct voicebus *vb)
 {
 	int i;
-	int des1 = 0xe4800000 | vb->framesize;
+	int des1 = 0xe4800000 | VOICEBUS_SFRAME_SIZE;
 	struct voicebus_descriptor *d;
 	struct voicebus_descriptor_list *dl = &vb->txd;
 	const u32 END_OF_RING = 0x02000000;
+	u8 cache_line_size;
 
 	WARN_ON(!dl);
 	WARN_ON((NULL == vb->idle_vbb) || (0 == vb->idle_vbb_dma_addr));
@@ -240,9 +254,15 @@ vb_initialize_tx_descriptors(struct voicebus *vb)
 	 * cache-line sizes that we support.
 	 *
 	 */
-	if ((0x08 == vb->cache_line_size) || (0x10 == vb->cache_line_size) ||
-	    (0x20 == vb->cache_line_size)) {
-		dl->padding = (vb->cache_line_size*sizeof(u32)) - sizeof(*d);
+	if (pci_read_config_byte(vb->pdev, 0x0c, &cache_line_size)) {
+		dev_err(&vb->pdev->dev, "Failed read of cache line "
+			"size from PCI configuration space.\n");
+		return -EIO;
+	}
+
+	if ((0x08 == cache_line_size) || (0x10 == cache_line_size) ||
+	    (0x20 == cache_line_size)) {
+		dl->padding = (cache_line_size*sizeof(u32)) - sizeof(*d);
 	} else {
 		dl->padding = 0;
 	}
@@ -270,7 +290,7 @@ static int
 vb_initialize_rx_descriptors(struct voicebus *vb)
 {
 	return vb_initialize_descriptors(
-		vb, &vb->rxd, vb->framesize, DMA_FROM_DEVICE);
+		vb, &vb->rxd, VOICEBUS_SFRAME_SIZE, DMA_FROM_DEVICE);
 }
 
 /*! \brief  Use to set the minimum number of buffers queued to the hardware
@@ -398,7 +418,7 @@ vb_cleanup_tx_descriptors(struct voicebus *vb)
 		if (d->buffer1 && (d->buffer1 != vb->idle_vbb_dma_addr)) {
 			WARN_ON(!dl->pending[i]);
 			dma_unmap_single(&vb->pdev->dev, d->buffer1,
-					 vb->framesize, DMA_TO_DEVICE);
+					 VOICEBUS_SFRAME_SIZE, DMA_TO_DEVICE);
 			voicebus_free(vb, dl->pending[i]);
 		}
 		d->buffer1 = vb->idle_vbb_dma_addr;
@@ -424,7 +444,7 @@ vb_cleanup_rx_descriptors(struct voicebus *vb)
 		d = vb_descriptor(dl, i);
 		if (d->buffer1) {
 			dma_unmap_single(&vb->pdev->dev, d->buffer1,
-					 vb->framesize, DMA_FROM_DEVICE);
+					 VOICEBUS_SFRAME_SIZE, DMA_FROM_DEVICE);
 			d->buffer1 = 0;
 			BUG_ON(!dl->pending[i]);
 			voicebus_free(vb, dl->pending[i]);
@@ -546,7 +566,7 @@ void*
 voicebus_alloc(struct voicebus *vb)
 {
 	void *vbb;
-	vbb = kmem_cache_alloc(vb->buffer_cache, VOICEBUS_ALLOC_FLAGS);
+	vbb = kmem_cache_alloc(buffer_cache, VOICEBUS_ALLOC_FLAGS);
 	return vbb;
 }
 
@@ -558,9 +578,16 @@ vb_reset_interface(struct voicebus *vb)
 	u32 reg;
 	u32 pci_access;
 	const u32 DEFAULT_PCI_ACCESS = 0xfff80002;
+	u8 cache_line_size;
 	BUG_ON(in_interrupt());
 
-	switch (vb->cache_line_size) {
+	if (pci_read_config_byte(vb->pdev, 0x0c, &cache_line_size)) {
+		dev_err(&vb->pdev->dev, "Failed read of cache line "
+			"size from PCI configuration space.\n");
+		return -EIO;
+	}
+
+	switch (cache_line_size) {
 	case 0x08:
 		pci_access = DEFAULT_PCI_ACCESS | (0x1 << 14);
 		break;
@@ -575,7 +602,7 @@ vb_reset_interface(struct voicebus *vb)
 			dev_warn(&vb->pdev->dev, "Host system set a cache "
 				 "size of %d which is not supported. "
 				 "Disabling memory write line and memory "
-				 "read line.\n", vb->cache_line_size);
+				 "read line.\n", cache_line_size);
 		}
 		pci_access = 0xfe584202;
 		break;
@@ -660,7 +687,7 @@ show_buffer(struct voicebus *vb, void *vbb)
 	c = vbb;
 	printk(KERN_DEBUG "Packet %d\n", count);
 	printk(KERN_DEBUG "");
-	for (x = 1; x <= vb->framesize; ++x) {
+	for (x = 1; x <= VOICEBUS_SFRAME_SIZE; ++x) {
 		printk("%02x ", c[x]);
 		if (x % 16 == 0)
 			printk("\n");
@@ -690,7 +717,7 @@ int voicebus_transmit(struct voicebus *vb, void *vbb)
 	dl->pending[dl->tail] = vbb;
 	dl->tail = (++(dl->tail)) & DRING_MASK;
 	d->buffer1 = dma_map_single(&vb->pdev->dev, vbb,
-				    vb->framesize, DMA_TO_DEVICE);
+				    VOICEBUS_SFRAME_SIZE, DMA_TO_DEVICE);
 	SET_OWNED(d); /* That's it until the hardware is done with it. */
 	atomic_inc(&dl->count);
 	return 0;
@@ -720,7 +747,7 @@ vb_submit_rxb(struct voicebus *vb, void *vbb)
 	dl->pending[tail] = vbb;
 	dl->tail = (++tail) & DRING_MASK;
 	d->buffer1 = dma_map_single(&vb->pdev->dev, vbb,
-				    vb->framesize, DMA_FROM_DEVICE);
+				    VOICEBUS_SFRAME_SIZE, DMA_FROM_DEVICE);
 	SET_OWNED(d); /* That's it until the hardware is done with it. */
 	atomic_inc(&dl->count);
 	return 0;
@@ -753,7 +780,7 @@ vb_get_completed_txb(struct voicebus *vb)
 		return NULL;
 
 	dma_unmap_single(&vb->pdev->dev, d->buffer1,
-			 vb->framesize, DMA_TO_DEVICE);
+			 VOICEBUS_SFRAME_SIZE, DMA_TO_DEVICE);
 
 	vbb = dl->pending[head];
 	dl->head = (++head) & DRING_MASK;
@@ -777,7 +804,7 @@ vb_get_completed_rxb(struct voicebus *vb)
 		return NULL;
 
 	dma_unmap_single(&vb->pdev->dev, d->buffer1,
-			 vb->framesize, DMA_FROM_DEVICE);
+			 VOICEBUS_SFRAME_SIZE, DMA_FROM_DEVICE);
 	vbb = dl->pending[head];
 	dl->head = (++head) & DRING_MASK;
 	d->buffer1 = 0;
@@ -792,7 +819,7 @@ vb_get_completed_rxb(struct voicebus *vb)
 void
 voicebus_free(struct voicebus *vb, void *vbb)
 {
-	kmem_cache_free(vb->buffer_cache, vbb);
+	kmem_cache_free(buffer_cache, vbb);
 }
 
 /*!
@@ -1079,10 +1106,9 @@ voicebus_release(struct voicebus *vb)
 	vb_free_descriptors(vb, &vb->txd);
 	vb_free_descriptors(vb, &vb->rxd);
 	if (vb->idle_vbb_dma_addr) {
-		dma_free_coherent(&vb->pdev->dev, vb->framesize,
+		dma_free_coherent(&vb->pdev->dev, VOICEBUS_SFRAME_SIZE,
 				  vb->idle_vbb, vb->idle_vbb_dma_addr);
 	}
-	kmem_cache_destroy(vb->buffer_cache);
 	release_region(vb->iobase, 0xff);
 	pci_disable_device(vb->pdev);
 }
@@ -1220,7 +1246,7 @@ static unsigned int vb_recover_tx_descriptor_list(struct voicebus *vb)
 		WARN_ON(d->buffer1 == vb->idle_vbb_dma_addr);
 		WARN_ON(!dl->pending[dl->head]);
 		dma_unmap_single(&vb->pdev->dev, d->buffer1,
-				 vb->framesize, DMA_TO_DEVICE);
+				 VOICEBUS_SFRAME_SIZE, DMA_TO_DEVICE);
 		vbb = dl->pending[dl->head];
 		atomic_dec(&dl->count);
 		--behind;
@@ -1519,7 +1545,6 @@ voicebus_init(struct voicebus *vb, const char *board_name)
 	BUG_ON(NULL == board_name);
 	BUG_ON(NULL == vb->ops);
 	BUG_ON(NULL == vb->pdev);
-	BUG_ON(0 == vb->framesize);
 	BUG_ON(NULL == vb->debug);
 
 	/* ----------------------------------------------------------------
@@ -1555,30 +1580,6 @@ voicebus_init(struct voicebus *vb, const char *board_name)
 	vb->timer.data = (unsigned long)vb;
 #endif
 
-	/* \todo This cache should be shared by all instances supported by
-	 * this driver. */
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 23)
-	vb->buffer_cache = kmem_cache_create(board_name, vb->framesize, 0,
-#if defined(CONFIG_SLUB) && (LINUX_VERSION_CODE == KERNEL_VERSION(2, 6, 22))
-				SLAB_HWCACHE_ALIGN | SLAB_STORE_USER, NULL, NULL);
-#else
-				SLAB_HWCACHE_ALIGN, NULL, NULL);
-#endif
-#else
-#ifdef DEBUG
-	vb->buffer_cache = kmem_cache_create(board_name, vb->framesize, 0,
-				SLAB_HWCACHE_ALIGN | SLAB_STORE_USER |
-				SLAB_POISON | SLAB_DEBUG_FREE, NULL);
-#else
-	vb->buffer_cache = kmem_cache_create(board_name, vb->framesize, 0,
-				SLAB_HWCACHE_ALIGN, NULL);
-#endif
-#endif
-	if (NULL == vb->buffer_cache) {
-		dev_err(&vb->pdev->dev, "Failed to allocate buffer cache.\n");
-		goto cleanup;
-	}
-
 #ifdef CONFIG_VOICEBUS_SYSFS
 	dev_dbg(&vb->pdev->dev, "Creating sysfs attributes.\n");
 	retval = device_create_file(&vb->pdev->dev,
@@ -1594,12 +1595,6 @@ voicebus_init(struct voicebus *vb, const char *board_name)
 	   ---------------------------------------------------------------- */
 	if (pci_set_dma_mask(vb->pdev, DMA_BIT_MASK(32))) {
 		dev_err(&vb->pdev->dev, "No suitable DMA available.\n");
-		goto cleanup;
-	}
-
-	if (pci_read_config_byte(vb->pdev, 0x0c, &vb->cache_line_size)) {
-		dev_err(&vb->pdev->dev, "Failed read of cache line "
-			"size from PCI configuration space.\n");
 		goto cleanup;
 	}
 
@@ -1624,7 +1619,7 @@ voicebus_init(struct voicebus *vb, const char *board_name)
 		goto cleanup;
 	}
 
-	vb->idle_vbb = dma_alloc_coherent(&vb->pdev->dev, vb->framesize,
+	vb->idle_vbb = dma_alloc_coherent(&vb->pdev->dev, VOICEBUS_SFRAME_SIZE,
 					  &vb->idle_vbb_dma_addr, GFP_KERNEL);
 
 	retval = vb_initialize_tx_descriptors(vb);
@@ -1673,11 +1668,8 @@ cleanup:
 	if (vb->rxd.desc)
 		vb_free_descriptors(vb, &vb->rxd);
 
-	dma_free_coherent(&vb->pdev->dev, vb->framesize,
+	dma_free_coherent(&vb->pdev->dev, VOICEBUS_SFRAME_SIZE,
 			  vb->idle_vbb, vb->idle_vbb_dma_addr);
-
-	if (vb->buffer_cache)
-		kmem_cache_destroy(vb->buffer_cache);
 
 	if (vb->iobase)
 		release_region(vb->iobase, 0xff);
@@ -1777,11 +1769,41 @@ EXPORT_SYMBOL(vpmadtreg_unregister);
 int __init voicebus_module_init(void)
 {
 	int res;
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 23)
+	buffer_cache = kmem_cache_create(THIS_MODULE->name,
+					 VOICEBUS_SFRAME_SIZE, 0,
+#if defined(CONFIG_SLUB) && (LINUX_VERSION_CODE == KERNEL_VERSION(2, 6, 22))
+					 SLAB_HWCACHE_ALIGN |
+					 SLAB_STORE_USER, NULL,
+					 NULL);
+#else
+					 SLAB_HWCACHE_ALIGN, NULL,
+					 NULL);
+#endif
+#else
+#ifdef DEBUG
+	buffer_cache = kmem_cache_create(THIS_MODULE->name,
+					 VOICEBUS_SFRAME_SIZE, 0,
+					 SLAB_HWCACHE_ALIGN | SLAB_STORE_USER |
+					 SLAB_POISON | SLAB_DEBUG_FREE, NULL);
+#else
+	buffer_cache = kmem_cache_create(THIS_MODULE->name,
+					 VOICEBUS_SFRAME_SIZE, 0,
+					 SLAB_HWCACHE_ALIGN, NULL);
+#endif
+#endif
+
+	if (NULL == buffer_cache) {
+		printk(KERN_ERR "%s: Failed to allocate buffer cache.\n",
+		       THIS_MODULE->name);
+		return -ENOMEM;
+	}
+
 	/* This registration with dahdi.ko will fail since the span is not
 	 * defined, but it will make sure that this module is a dependency of
 	 * dahdi.ko, so that when it is being unloded, this module will be
-	 * unloaded as well.
-	 */
+	 * unloaded as well. */
 	dahdi_register(0, 0);
 	INIT_LIST_HEAD(&binary_loader_list);
 	spin_lock_init(&loader_list_lock);
@@ -1793,6 +1815,7 @@ int __init voicebus_module_init(void)
 
 void __exit voicebus_module_cleanup(void)
 {
+	kmem_cache_destroy(buffer_cache);
 	WARN_ON(!list_empty(&binary_loader_list));
 }
 
