@@ -213,9 +213,10 @@ static void xpp_drift_step(xbus_t *xbus, const struct timeval *tv)
 					lost_ticks,
 					(abs(lost_ticks) > 1) ? "s": "");
 			}
-			xbus_drift_clear(xbus);
-			if(abs(lost_ticks) > 100)
+			if(abs(lost_ticks) > 100) {
+				xbus_drift_clear(xbus);
 				ticker->count = ref_ticker->count;
+			}
 		} else {
 			/* Sample a delta */
 			usec_delta = (long)usec_diff(
