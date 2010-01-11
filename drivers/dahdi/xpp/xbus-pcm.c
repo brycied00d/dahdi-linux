@@ -209,7 +209,11 @@ static void xpp_drift_step(xbus_t *xbus, const struct timeval *tv)
 			di->lost_ticks++;
 			di->lost_tick_count += abs(lost_ticks);
 			if((rate_limit++ % 1003) == 0) {
-				XBUS_NOTICE(xbus, "Lost %d tick%s\n",
+				/* FIXME: This should be a NOTICE.
+				 * However we have several false ones at
+				 * startup.
+				 */
+				XBUS_DBG(SYNC, xbus, "Lost %d tick%s\n",
 					lost_ticks,
 					(abs(lost_ticks) > 1) ? "s": "");
 			}
