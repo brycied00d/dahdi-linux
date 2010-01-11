@@ -5723,6 +5723,7 @@ static long dahdi_ioctl_compat(struct file *file, unsigned int cmd,
 int dahdi_register(struct dahdi_span *span, int prefmaster)
 {
 	int x;
+	int res = 0;
 
 	if (!span)
 		return -EINVAL;
@@ -5768,7 +5769,12 @@ int dahdi_register(struct dahdi_span *span, int prefmaster)
 
 	for (x = 0; x < span->channels; x++) {
 		span->chans[x]->span = span;
-		dahdi_chan_reg(span->chans[x]);
+		res = dahdi_chan_reg(span->chans[x]);
+		if (res) {
+			for (x--; x >= 0; x--)
+				dahdi_chan_unreg(span->chans[x]);
+			goto unreg_channels;
+		}
 	}
 
 #ifdef CONFIG_PROC_FS
@@ -5804,6 +5810,10 @@ int dahdi_register(struct dahdi_span *span, int prefmaster)
 	}
 
 	return 0;
+
+unreg_channels:
+	spans[span->spanno] = NULL;
+	return res;
 }
 
 
