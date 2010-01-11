@@ -196,6 +196,7 @@ load)
 	# TODO: Find a way to use modprobe.
 	# Or implement a way to pass arguments to modules here (yuck)
 	set_modules_to_load
+	modprobe crc_ccitt || : # FIXME: Make this optional?
 	for module in $MODULES_LOAD; do
 		eval module_args="\$`basename ${module}`_ARGS"
 		insmod $MODULES_DIR/$module.ko $module_args
