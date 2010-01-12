@@ -42,6 +42,8 @@ static DEF_PARM(int, ring_debounce, 50, 0644, "Number of ticks to debounce a fal
 static DEF_PARM(int, caller_id_style, 0, 0444, "Caller-Id detection style: 0 - [BELL], 1 - [ETSI_FSK], 2 - [ETSI_DTMF]");
 static DEF_PARM(int, power_denial_safezone, 650, 0644, "msec after offhook to ignore power-denial ( (0 - disable power-denial)");
 static DEF_PARM(int, power_denial_minlen, 80, 0644, "Minimal detected power-denial length (msec) (0 - disable power-denial)");
+static DEF_PARM(uint, battery_threshold, 3, 0644, "Minimum voltage that shows there is battery");
+static DEF_PARM(uint, battery_debounce, 1000, 0644, "Minimum interval (msec) for detection of battery off");
 
 enum cid_style {
 	CID_STYLE_BELL		= 0,	/* E.g: US (Bellcore) */
@@ -70,8 +72,6 @@ enum fxo_leds {
  * fluctuation during ring won't trigger false detection.
  */
 #define	POLREV_THRESHOLD	200
-#define	BAT_THRESHOLD		3
-#define	BAT_DEBOUNCE		1000	/* compensate for battery voltage fluctuation (in ticks) */
 #define	POWER_DENIAL_CURRENT	3
 #define	POWER_DENIAL_DELAY	2500	/* ticks */
 
@@ -902,7 +902,7 @@ static void update_battery_voltage(xpd_t *xpd, byte data_low, xportno_t portno)
 	priv->battery_voltage[portno] = volts;
 	if(xpd->ringing[portno])
 		goto ignore_reading;	/* ring voltage create false alarms */
-	if(abs(volts) < BAT_THRESHOLD) {
+	if(abs(volts) < battery_threshold) {
 		/*
 		 * Check for battery voltage fluctuations
 		 */
@@ -911,7 +911,7 @@ static void update_battery_voltage(xpd_t *xpd, byte data_low, xportno_t portno)
 
 			milliseconds = priv->nobattery_debounce[portno]++ *
 				poll_battery_interval;
-			if(milliseconds > BAT_DEBOUNCE) {
+			if(milliseconds > battery_debounce) {
 				LINE_DBG(SIGNAL, xpd, portno, "BATTERY OFF voltage=%d\n", volts);
 				priv->battery[portno] = BATTERY_OFF;
 				dahdi_report_battery(xpd, portno);
