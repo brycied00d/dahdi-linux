@@ -308,7 +308,7 @@ struct t4 {
 #endif
 	int irq;			/* IRQ used by device */
 	int order;			/* Order */
-	int flags;			/* Device flags */
+	unsigned int falc31 : 1;	/* are we falc v3.1 (atomic not necessary) */
 	int master;				/* Are we master */
 	int ledreg;				/* LED Register */
 	unsigned int gpio;
@@ -396,7 +396,8 @@ static void t4_hdlc_hard_xmit(struct dahdi_chan *chan);
 static int t4_ioctl(struct dahdi_chan *chan, unsigned int cmd, unsigned long data);
 static void t4_tsi_assign(struct t4 *wc, int fromspan, int fromchan, int tospan, int tochan);
 static void t4_tsi_unassign(struct t4 *wc, int tospan, int tochan);
-static void __t4_set_timing_source(struct t4 *wc, int unit, int master, int slave);
+static void __t4_set_rclk_src(struct t4 *wc, int span);
+static void __t4_set_sclk_src(struct t4 *wc, int mode, int master, int slave);
 static void t4_check_alarms(struct t4 *wc, int span);
 static void t4_check_sigbits(struct t4 *wc, int span);
 
@@ -424,6 +425,9 @@ static void t4_check_sigbits(struct t4 *wc, int span);
 #define WC_RED    (1)
 #define WC_GREEN  (2)
 #define WC_YELLOW (3)
+
+#define WC_RECOVER 	0
+#define WC_SELF 	1
 
 #define MAX_T4_CARDS 64
 
@@ -548,6 +552,8 @@ static inline unsigned int __t4_framer_in(struct t4 *wc, int unit, const unsigne
 	}
 	ret = __t4_pci_in(wc, WC_LDATA);
  	__t4_pci_out(wc, WC_LADDR, (unit << 8) | (addr & 0xff));
+	if (unlikely(debug & DEBUG_REGS))
+		printk(KERN_INFO "Reading unit %d address %02x is %02x\n", unit, addr, ret & 0xff);
 	return ret & 0xff;
 }
 
@@ -1745,9 +1751,15 @@ static void t4_serial_setup(struct t4 *wc, int unit)
 	
 	/* Configure ports */
 	t4_framer_out(wc, unit, 0x80, 0x00);	/* PC1: SPYR/SPYX input on RPA/XPA */
-	t4_framer_out(wc, unit, 0x81, 0x22);	/* PC2: RMFB/XSIG output/input on RPB/XPB */
-	t4_framer_out(wc, unit, 0x82, 0x65);	/* PC3: Some unused stuff */
-	t4_framer_out(wc, unit, 0x83, 0x35);	/* PC4: Some more unused stuff */
+	if (wc->falc31) {
+			  t4_framer_out(wc, unit, 0x81, 0xBB);	/* PC2: RMFB/XSIG output/input on RPB/XPB */
+			  t4_framer_out(wc, unit, 0x82, 0xBB);	/* PC3: Some unused stuff */
+			  t4_framer_out(wc, unit, 0x83, 0xBB);	/* PC4: Some more unused stuff */
+	} else {
+			  t4_framer_out(wc, unit, 0x81, 0x22);	/* PC2: RMFB/XSIG output/input on RPB/XPB */
+			  t4_framer_out(wc, unit, 0x82, 0x65);	/* PC3: Some unused stuff */
+			  t4_framer_out(wc, unit, 0x83, 0x35);	/* PC4: Some more unused stuff */
+	}
 	t4_framer_out(wc, unit, 0x84, 0x01);	/* PC5: XMFS active low, SCLKR is input, RCLK is output */
 	if (debug & DEBUG_MAIN)
 		printk(KERN_DEBUG "Successfully initialized serial bus for unit %d\n", unit);
@@ -1762,48 +1774,40 @@ static DEFINE_SPINLOCK(synclock);
 static spinlock_t synclock = SPIN_LOCK_UNLOCKED;
 #endif
 
-static void __t4_set_timing_source(struct t4 *wc, int unit, int master, int slave)
+static void __t4_set_rclk_src(struct t4 *wc, int span)
 {
-	unsigned int timing;
-	int x;
-	if (unit != wc->syncsrc) {
-		timing = 0x34;		/* CMR1: RCLK unit, 8.192 Mhz TCLK, RCLK is 8.192 Mhz */
-		if ((unit > -1) && (unit < 4)) {
-			timing |= (unit << 6);
-			for (x=0;x<wc->numspans;x++)  /* set all 4 receive reference clocks to unit */
-				__t4_framer_out(wc, x, 0x44, timing);
-			wc->dmactrl |= (1 << 29);
-		} else {
-			for (x=0;x<wc->numspans;x++) /* set each receive reference clock to itself */
-				__t4_framer_out(wc, x, 0x44, timing | (x << 6));
-			wc->dmactrl &= ~(1 << 29);
-		}
-		if (slave)
-			wc->dmactrl |= (1 << 25);
-		else
-			wc->dmactrl &= ~(1 << 25);
-		if (master)
-			wc->dmactrl |= (1 << 24);
-		else
-			wc->dmactrl &= ~(1 << 24);
-		__t4_pci_out(wc, WC_DMACTRL, wc->dmactrl);
-		if (!master && !slave)
-			wc->syncsrc = unit;
-		if ((unit < 0) || (unit > 3))
-			unit = 0;
-		else
-			unit++;
-		if (!master && !slave) {
-			for (x=0;x<wc->numspans;x++)
-				wc->tspans[x]->span.syncsrc = unit;
-		}
+	int cmr1 = 0x38;	/* Clock Mode: RCLK sourced by DCO-R1
+				   by default, Disable Clock-Switching */
+
+	cmr1 |= (span << 6);
+	__t4_framer_out(wc, 0, 0x44, cmr1);
+
+	dev_info(&wc->dev->dev, "RCLK source set to span %d\n", span+1);
+}
+
+static void __t4_set_sclk_src(struct t4 *wc, int mode, int master, int slave)
+{
+	if (slave) {
+		wc->dmactrl |= (1 << 25);
+		dev_info(&wc->dev->dev, "SCLK is slaved to timing cable\n");
 	} else {
-		if (debug & DEBUG_MAIN)
-			printk(KERN_DEBUG "TE%dXXP: Timing source already set to %d\n", wc->numspans, unit);
+		wc->dmactrl &= ~(1 << 25);
 	}
-#if	0
-	printk(KERN_DEBUG "wct4xxp: Timing source set to %d\n",unit);
-#endif
+
+	if (master) {
+		wc->dmactrl |= (1 << 24);
+		dev_info(&wc->dev->dev, "SCLK is master to timing cable\n");
+	} else {
+		wc->dmactrl &= ~(1 << 24);
+	}
+
+	if (mode == WC_RECOVER)
+		wc->dmactrl |= (1 << 29); /* Recover timing from RCLK */
+
+	if (mode == WC_SELF)
+		wc->dmactrl &= ~(1 << 29);/* Provide timing from MCLK */
+
+	__t4_pci_out(wc, WC_DMACTRL, wc->dmactrl);
 }
 
 static inline void __t4_update_timing(struct t4 *wc)
@@ -1818,10 +1822,11 @@ static inline void __t4_update_timing(struct t4 *wc)
 			wc->tspans[i]->span.syncsrc = wc->syncsrc;
 		}
 		if (syncnum == wc->num) {
-			__t4_set_timing_source(wc, syncspan-1, 1, 0);
+			__t4_set_rclk_src(wc, syncspan-1);
+			__t4_set_sclk_src(wc, WC_RECOVER, 1, 0);
 			if (debug) printk(KERN_DEBUG "Card %d, using sync span %d, master\n", wc->num, syncspan);
 		} else {
-			__t4_set_timing_source(wc, syncspan-1, 0, 1);
+			__t4_set_sclk_src(wc, WC_RECOVER, 0, 1);
 			if (debug) printk(KERN_DEBUG "Card %d, using Timing Bus, NOT master\n", wc->num);	
 		}
 	}
@@ -1887,22 +1892,60 @@ found:
 static void __t4_set_timing_source_auto(struct t4 *wc)
 {
 	int x;
-	printk(KERN_INFO "timing source auto card %d!\n", wc->num);
+	int firstprio, secondprio;
+	firstprio = secondprio = 4;
+
+	dev_info(&wc->dev->dev, "timing source auto\n");
 	clear_bit(T4_CHECK_TIMING, &wc->checkflag);
 	if (timingcable) {
 		__t4_findsync(wc);
 	} else {
+		dev_info(&wc->dev->dev, "Evaluating spans for timing source\n");
 		for (x=0;x<wc->numspans;x++) {
-			if (wc->tspans[x]->sync) {
-				if ((wc->tspans[wc->tspans[x]->psync - 1]->span.flags & DAHDI_FLAG_RUNNING) && 
-					!(wc->tspans[wc->tspans[x]->psync - 1]->span.alarms & (DAHDI_ALARM_RED | DAHDI_ALARM_BLUE) )) {
-						/* Valid timing source */
-						__t4_set_timing_source(wc, wc->tspans[x]->psync - 1, 0, 0);
-						return;
+			if ((wc->tspans[x]->span.flags & DAHDI_FLAG_RUNNING) &&
+			   !(wc->tspans[x]->span.alarms & (DAHDI_ALARM_RED |
+							   DAHDI_ALARM_BLUE))) {
+				dev_info(&wc->dev->dev, "span %d is green : "\
+							"syncpos %d\n",
+						  x+1, wc->tspans[x]->syncpos);
+				if (wc->tspans[x]->syncpos) {
+					/* Valid rsync source in recovered
+					   timing mode */
+					if (firstprio == 4)
+						firstprio = x;
+					else if (wc->tspans[x]->syncpos <
+						wc->tspans[firstprio]->syncpos)
+						firstprio = x;
+				} else {
+					/* Valid rsync source in system timing
+					   mode */
+					if (secondprio == 4)
+						secondprio = x;
 				}
 			}
 		}
-		__t4_set_timing_source(wc, 4, 0, 0);
+		if (firstprio != 4) {
+			wc->syncsrc = firstprio;
+			__t4_set_rclk_src(wc, firstprio);
+			__t4_set_sclk_src(wc, WC_RECOVER, 0, 0);
+			dev_info(&wc->dev->dev, "Recovered timing mode, "\
+						"RCLK set to span %d\n",
+						firstprio+1);
+		} else if (secondprio != 4) {
+			wc->syncsrc = -1;
+			__t4_set_rclk_src(wc, secondprio);
+			__t4_set_sclk_src(wc, WC_SELF, 0, 0);
+			dev_info(&wc->dev->dev, "System timing mode, "\
+						"RCLK set to span %d\n",
+						secondprio+1);
+		} else {
+			wc->syncsrc = -1;
+			dev_info(&wc->dev->dev, "All spans in alarm : No valid"\
+						"span to source RCLK from\n");
+			/* Default rclk to lock with span 1 */
+			__t4_set_rclk_src(wc, 0);
+			__t4_set_sclk_src(wc, WC_SELF, 0, 0);
+		}
 	}
 }
 
@@ -1949,6 +1992,15 @@ static void __t4_configure_t1(struct t4 *wc, int unit, int lineconfig, int txlev
 
 	__t4_framer_out(wc, unit, 0x02, 0x50);	/* CMDR: Reset the receiver and transmitter line interface */
 	__t4_framer_out(wc, unit, 0x02, 0x00);	/* CMDR: Reset the receiver and transmitter line interface */
+
+	if (wc->falc31) {
+		if (debug)
+			printk(KERN_INFO "card %d span %d: setting Rtx to 0ohm for T1\n", wc->num, unit);
+		__t4_framer_out(wc, unit, 0x86, 0x00);	/* PC6: set Rtx to 0ohm for T1 */
+
+		// Hitting the bugfix register to fix errata #3
+		__t4_framer_out(wc, unit, 0xbd, 0x05);
+	}
 
 	__t4_framer_out(wc, unit, 0x3a, lim2);	/* LIM2: 50% peak amplitude is a "1" */
 	__t4_framer_out(wc, unit, 0x38, 0x0a);	/* PCD: LOS after 176 consecutive "zeros" */
@@ -2031,6 +2083,12 @@ static void __t4_configure_e1(struct t4 *wc, int unit, int lineconfig)
 	__t4_framer_out(wc, unit, 0x02, 0x50);	/* CMDR: Reset the receiver and transmitter line interface */
 	__t4_framer_out(wc, unit, 0x02, 0x00);	/* CMDR: Reset the receiver and transmitter line interface */
 
+	if (wc->falc31) {
+		if (debug)
+			printk(KERN_INFO "setting Rtx to 7.5ohm for E1\n");
+		__t4_framer_out(wc, unit, 0x86, 0x40);	/* PC6: turn on 7.5ohm Rtx for E1 */
+	}
+
 	/* Condition receive line interface for E1 after reset */
 	__t4_framer_out(wc, unit, 0xbb, 0x17);
 	__t4_framer_out(wc, unit, 0xbc, 0x55);
@@ -2100,9 +2158,9 @@ static int t4_startup(struct dahdi_span *span)
 			DAHDI_LIN2X(0,span->chans[i]),DAHDI_CHUNKSIZE);
 	}
 #endif
-	/* Force re-evaluation fo timing source */
-	if (timingcable)
-		wc->syncsrc = -1;
+	/* Force re-evaluation of timing source */
+	wc->syncsrc = -1;
+	set_bit(T4_CHECK_TIMING, &wc->checkflag);
 
 	if (ts->spantype == TYPE_E1) { /* if this is an E1 card */
 		__t4_configure_e1(wc, span->offset, span->lineconfig);
@@ -2119,7 +2177,6 @@ static int t4_startup(struct dahdi_span *span)
 		wc->spansstarted++;
 		/* enable interrupts */
 		/* Start DMA, enabling DMA interrupts on read only */
-		wc->dmactrl = 1 << 29;
 #if 0
 		/* Enable framer only interrupts */
 		wc->dmactrl |= 1 << 27;
@@ -2486,7 +2543,7 @@ static void t4_check_sigbits(struct t4 *wc, int span)
 
 static void t4_check_alarms(struct t4 *wc, int span)
 {
-	unsigned char c,d;
+	unsigned char c, d, e;
 	int alarms;
 	int x,j;
 	struct t4_span *ts = wc->tspans[span];
@@ -2558,10 +2615,15 @@ static void t4_check_alarms(struct t4 *wc, int span)
 			alarms |= DAHDI_ALARM_NOTOPEN;
 	}
 
-	if (c & 0x20) { /* LOF/LFA */
-		if (ts->alarmcount >= alarmdebounce)
+	if (c & 0x20) {
+		if (ts->alarmcount >= alarmdebounce) {
+
+			/* Disable Slip Interrupts */
+			e = __t4_framer_in(wc, span, 0x17);
+			__t4_framer_out(wc, span, 0x17, (e|0x03));
+
 			alarms |= DAHDI_ALARM_RED;
-		else {
+		} else {
 			if (unlikely(debug && !ts->alarmcount)) {
 				/* starting to debounce LOF/LFA */
 				printk(KERN_INFO "wct%dxxp: LOF/LFA detected "
@@ -2574,9 +2636,13 @@ static void t4_check_alarms(struct t4 *wc, int span)
 		ts->alarmcount = 0;
 
 	if (c & 0x80) { /* LOS */
-		if (ts->losalarmcount >= losalarmdebounce)
+		if (ts->losalarmcount >= losalarmdebounce) {
+			/* Disable Slip Interrupts */
+			e = __t4_framer_in(wc, span, 0x17);
+			__t4_framer_out(wc, span, 0x17, (e|0x03));
+
 			alarms |= DAHDI_ALARM_RED;
-		else {
+		} else {
 			if (unlikely(debug && !ts->losalarmcount)) {
 				/* starting to debounce LOS */
 				printk(KERN_INFO "wct%dxxp: LOS detected on "
@@ -2616,24 +2682,26 @@ static void t4_check_alarms(struct t4 *wc, int span)
 
 	/* If receiving alarms, go into Yellow alarm state */
 	if (alarms && !(ts->spanflags & FLAG_SENDINGYELLOW)) {
-		unsigned char fmr4;
-#if 1
-		printk(KERN_INFO "wct%dxxp: Setting yellow alarm on span %d\n",
-			wc->numspans, span + 1);
-#endif
 		/* We manually do yellow alarm to handle RECOVER and NOTOPEN, otherwise it's auto anyway */
+		unsigned char fmr4;
 		fmr4 = __t4_framer_in(wc, span, 0x20);
 		__t4_framer_out(wc, span, 0x20, fmr4 | 0x20);
+		dev_info(&wc->dev->dev, "Setting yellow alarm span %d\n",
+								span+1);
 		ts->spanflags |= FLAG_SENDINGYELLOW;
 	} else if ((!alarms) && (ts->spanflags & FLAG_SENDINGYELLOW)) {
 		unsigned char fmr4;
-#if 1
-		printk(KERN_INFO "wct%dxxp: Clearing yellow alarm on span %d\n",
-			wc->numspans, span + 1);
-#endif
 		/* We manually do yellow alarm to handle RECOVER  */
 		fmr4 = __t4_framer_in(wc, span, 0x20);
 		__t4_framer_out(wc, span, 0x20, fmr4 & ~0x20);
+		dev_info(&wc->dev->dev, "Clearing yellow alarm span %d\n",
+								span+1);
+
+		/* Re-enable timing slip interrupts */
+		e = __t4_framer_in(wc, span, 0x17);
+
+		__t4_framer_out(wc, span, 0x17, (e & ~(0x03)));
+
 		ts->spanflags &= ~FLAG_SENDINGYELLOW;
 	}
 
@@ -2773,7 +2841,9 @@ static inline void t4_framer_interrupt(struct t4 *wc, int span)
 	isr4 = (gis & FRMR_GIS_ISR4) ? t4_framer_in(wc, span, FRMR_ISR4) : 0;
 
 	if (debug & DEBUG_FRAMER)
-		printk(KERN_DEBUG "gis: %02x, isr0: %02x, isr1: %02x, isr2: %02x, isr3: %02x, isr4: %02x\n", gis, isr0, isr1, isr2, isr3, isr4);
+		printk(KERN_DEBUG "gis: %02x, isr0: %02x, isr1: %02x, isr2: "\
+				"%02x, isr3: %02x, isr4: %02x, intcount= %u\n",
+			     gis, isr0, isr1, isr2, isr3, isr4, wc->intcount);
 
 	if (isr0)
 		t4_check_sigbits(wc, span);
@@ -2784,8 +2854,10 @@ static inline void t4_framer_interrupt(struct t4 *wc, int span)
 			t4_check_alarms(wc, span);
 	} else {
 		/* T1 checks */
-		if (isr2 || (isr3 & 0x08)) 
+		if (isr2 || (isr3 & 0x08)) {
+			printk("card %d span %d: isr2=%x isr3=%x\n", wc->num, span, isr2, isr3);
 			t4_check_alarms(wc, span);		
+		}
 	}
 	if (!ts->span.alarms) {
 		if ((isr3 & 0x3) || (isr4 & 0xc0))
@@ -3023,7 +3095,7 @@ DAHDI_IRQ_HANDLER(t4_interrupt_gen2)
 		/* Acknowledge any pending interrupts */
 		t4_pci_out(wc, WC_INTR, 0x00000000);
 		spin_lock(&wc->reglock);
-		__t4_set_timing_source(wc, 4, 0, 0);
+		__t4_set_sclk_src(wc, WC_SELF, 0, 0);
 		spin_unlock(&wc->reglock);
 		return IRQ_RETVAL(1);
 	}
@@ -3558,7 +3630,7 @@ static int t4_hardware_init_1(struct t4 *wc, unsigned int cardflags)
 static int t4_hardware_init_2(struct t4 *wc)
 {
 	int x;
-	unsigned int falcver;
+	unsigned int regval;
 
 	if (t4_pci_in(wc, WC_VERSION) >= 0xc01a0165) {
 		wc->tspans[0]->spanflags |= FLAG_OCTOPT;
@@ -3567,10 +3639,31 @@ static int t4_hardware_init_2(struct t4 *wc)
 	/* Setup LEDS, take out of reset */
 	t4_pci_out(wc, WC_LEDS, 0x000000ff);
 	t4_activate(wc);
+
+	/* 
+	 * In order to find out the QFALC framer version, we have to temporarily term off compat
+	 * mode and take a peak at VSTR.  We turn compat back on when we are done.
+	 */
+	if (t4_framer_in(wc, 0, 0x4a) != 0x05)
+		printk(KERN_INFO "WARNING: FALC framer not intialized in compatibility mode.\n");
+	regval = t4_framer_in(wc, 0 ,0xd6);
+	regval |= (1 << 5); /* set COMP_DIS*/
+	t4_framer_out(wc, 0, 0xd6, regval);
+	if (t4_framer_in(wc, 0, 0x4a) == 0x05)
+		printk(KERN_INFO "card %d: FALC framer is v2.1 or earlier.\n", wc->num);
+	else if (t4_framer_in(wc, 0, 0x4a) == 0x20) {
+		printk(KERN_INFO "card %d: FALC framer is v3.1.\n", wc->num);
+		wc->falc31 = 1;
+	} else
+		printk(KERN_INFO "ERROR: FALC framer version is unknown (VSTR = 0x%02x).\n", 
+			t4_framer_in(wc, 0, 0x4a));
+	regval = t4_framer_in(wc, 0 ,0xd6);
+	regval &= ~(1 << 5); /* clear COMP_DIS*/
+	t4_framer_out(wc, 0, 0xd6, regval);
 	
 	t4_framer_out(wc, 0, 0x4a, 0xaa);
-	falcver = t4_framer_in(wc, 0 ,0x4a);
-	printk(KERN_INFO "FALC version: %08x, Board ID: %02x\n", falcver, wc->order);
+	regval = t4_framer_in(wc, 0 ,0x4a);
+	printk(KERN_INFO "FALC version: %08x, Board ID: %02x\n", regval, wc->order);
 
 	for (x=0;x< 11;x++)
 		printk(KERN_INFO "Reg %d: 0x%08x\n", x, t4_pci_in(wc, x));
@@ -3616,7 +3709,7 @@ static int __devinit t4_launch(struct t4 *wc)
 	}
 	set_bit(T4_CHECK_TIMING, &wc->checkflag);
 	spin_lock_irqsave(&wc->reglock, flags);
-	__t4_set_timing_source(wc,4, 0, 0);
+	__t4_set_sclk_src(wc, WC_SELF, 0, 0);
 	spin_unlock_irqrestore(&wc->reglock, flags);
 	tasklet_init(&wc->t4_tlet, t4_isr_bh, (unsigned long)wc);
 	return 0;
