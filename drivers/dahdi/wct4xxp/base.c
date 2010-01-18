@@ -193,9 +193,9 @@ static int noburst = 1;
 /* For 56kbps links, set this module parameter to 0x7f */
 static int hardhdlcmode = 0xff;
 
-static int latency = 15;
+static int latency = 1;
 
-static int ms_per_irq = 5;
+static int ms_per_irq = 1;
 
 #ifdef FANCY_ALARM
 static int altab[] = {
@@ -1543,6 +1543,7 @@ static int t4_spanconfig(struct dahdi_span *span, struct dahdi_lineconfig *lc)
 	/* If we're already running, then go ahead and apply the changes */
 	if (span->flags & DAHDI_FLAG_RUNNING)
 		return t4_startup(span);
+
 	printk(KERN_INFO "Done with spanconfig!\n");
 	return 0;
 }
@@ -2174,6 +2175,7 @@ static int t4_startup(struct dahdi_span *span)
 	struct t4_span *ts = span->pvt;
 	struct t4 *wc = ts->owner;
 
+	set_bit(T4_IGNORE_LATENCY, &wc->checkflag);
 	printk(KERN_INFO "About to enter startup!\n");
 	tspan = span->offset + 1;
 	if (tspan < 0) {
@@ -2268,6 +2270,7 @@ static int t4_startup(struct dahdi_span *span)
 	}
 #endif
 	printk(KERN_INFO "Completed startup!\n");
+	clear_bit(T4_IGNORE_LATENCY, &wc->checkflag);
 	return 0;
 }
 
@@ -3258,10 +3261,13 @@ DAHDI_IRQ_HANDLER(t4_interrupt_gen2)
 		rxident = (status >> 16) & 0x7f;
 		expected = (wc->rxident + ms_per_irq) % 128;
 	
-		if (rxident != expected) {
+		if ((rxident != expected) && !test_bit(T4_IGNORE_LATENCY, &wc->checkflag)) {
 			int needed_latency;
 
 			printk("!!! Missed interrupt.  Expected ident of %d and got ident of %d\n", expected, rxident);
+			if (test_bit(T4_IGNORE_LATENCY, &wc->checkflag)) {
+				printk("Should have ignored latency\n");
+			}
 			if (rxident > wc->rxident) {
 				needed_latency = rxident - wc->rxident;
 			} else {
@@ -3313,25 +3319,23 @@ DAHDI_IRQ_HANDLER(t4_interrupt_gen2)
 		}
 #else
 #if 1
-		//unsigned int reg12 = __t4_pci_in(wc, 12);
 		unsigned int reg5 = __t4_pci_in(wc, 5);
 
-		unsigned int readoff, writeoff;
-
-		//readoff = ((reg12 >> 16) << 1) & 0xffff;
-		//writeoff = (reg12 & 0xffff) << 1;
 		if (wc->intcount < 20) {
 			printk("Reg 5 is %08x\n", reg5);
-			//printk("Read @ %p and write @ %p\n", wc->readchunk + (readoff>>2), wc->writechunk + (writeoff >> 2));
 		}
 #endif
 
 		if (wc->flags & FLAG_5THGEN) {
 			unsigned int current_index = (reg5 >> 8) & 0x7f;
+#if 0
 			int catchup = 0;
+#endif
 
 			while (((wc->lastindex + 1) % wc->numbufs) != current_index) {
+#if 0
 				catchup++;
+#endif
 				wc->lastindex = (wc->lastindex + 1) % wc->numbufs;
 				setup_chunks(wc, wc->lastindex);
 				t4_prep_gen2(wc);
@@ -3941,10 +3945,6 @@ static int __devinit t4_init_one(struct pci_dev *pdev, const struct pci_device_i
 	struct devtype *dt;
 	unsigned int x, f;
 	int init_latency;
-#if 0
-	int y;
-	unsigned int *canary;
-#endif
 	
 	if (pci_enable_device(pdev)) {
 		return -EIO;
@@ -3958,21 +3958,6 @@ static int __devinit t4_init_one(struct pci_dev *pdev, const struct pci_device_i
 	spin_lock_init(&wc->reglock);
 	dt = (struct devtype *) (ent->driver_data);
 
-	/* FIXME */
-	dt->flags |= FLAG_5THGEN;
-	
-	if (dt->flags & FLAG_5THGEN) {
-		if ((ms_per_irq > 1) && (latency <= ((ms_per_irq) << 1)))
-			init_latency = ms_per_irq << 1;
-		else
-			init_latency = latency;
-	} else {
-		if (dt->flags & FLAG_2NDGEN)
-			init_latency = 1;
-		else
-			init_latency = 2;
-	}
-	
 	if (dt->flags & FLAG_2PORT) 
 		wc->numspans = 2;
 	else
@@ -3997,23 +3982,36 @@ static int __devinit t4_init_one(struct pci_dev *pdev, const struct pci_device_i
 	
 	wc->dev = pdev;
 	
-	if (t4_allocate_buffers(wc, init_latency, NULL, NULL)) {
-		return -ENOMEM;
-	}
-
-#if 0
-	memset((void *)wc->readchunk,0xff,DAHDI_MAX_CHUNKSIZE * 2 * 32 * 4);
-	/* Initialize canary */
-	canary = (unsigned int *)(wc->readchunk + DAHDI_CHUNKSIZE * 64 * 4 - 4);
-	*canary = (CANARY << 16) | (0xffff);
-#endif			
-	
 	/* Enable bus mastering */
 	pci_set_master(pdev);
 
 	/* Keep track of which device we are */
 	pci_set_drvdata(pdev, wc);
 	
+	/* FIXME */
+	dt->flags |= FLAG_5THGEN;
+	
+	if (t4_pci_in(wc, WC_VERSION) >= 0xc01a016d) {
+		wc->flags |= FLAG_5THGEN;
+	}
+
+	if (dt->flags & FLAG_5THGEN) {
+		if ((ms_per_irq > 1) && (latency <= ((ms_per_irq) << 1))) {
+			init_latency = ms_per_irq << 1;
+		} else
+			init_latency = latency;
+		printk(KERN_INFO "5th gen card with initial latency of %d and %d ms per IRQ\n", init_latency, ms_per_irq);
+	} else {
+		if (dt->flags & FLAG_2NDGEN)
+			init_latency = 1;
+		else
+			init_latency = 2;
+	}
+	
+	if (t4_allocate_buffers(wc, init_latency, NULL, NULL)) {
+		return -ENOMEM;
+	}
+
 	/* Initialize hardware */
 	t4_hardware_init_1(wc, dt->flags);
 	
