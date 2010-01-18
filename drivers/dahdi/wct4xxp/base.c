@@ -233,6 +233,13 @@ struct devtype {
 	unsigned int flags;
 };
 
+static struct devtype wct420p5 = { "Wildcard TE420 (5th Gen)", FLAG_5THGEN | FLAG_BURST | FLAG_2NDGEN | FLAG_3RDGEN | FLAG_EXPRESS };
+static struct devtype wct410p5 = { "Wildcard TE410P (5th Gen)", FLAG_5THGEN | FLAG_BURST | FLAG_2NDGEN | FLAG_3RDGEN };
+static struct devtype wct405p5 = { "Wildcard TE405P (5th Gen)", FLAG_5THGEN | FLAG_BURST | FLAG_2NDGEN | FLAG_3RDGEN };
+static struct devtype wct220p5 = { "Wildcard TE220 (5th Gen)", FLAG_5THGEN | FLAG_BURST | FLAG_2NDGEN | FLAG_3RDGEN | FLAG_2PORT | FLAG_EXPRESS };
+static struct devtype wct210p5 = { "Wildcard TE210P (5th Gen)", FLAG_5THGEN | FLAG_BURST | FLAG_2NDGEN | FLAG_3RDGEN | FLAG_2PORT };
+static struct devtype wct205p5 = { "Wildcard TE205P (5th Gen)", FLAG_5THGEN | FLAG_BURST | FLAG_2NDGEN | FLAG_3RDGEN | FLAG_2PORT };
+
 static struct devtype wct4xxp = { "Wildcard TE410P/TE405P (1st Gen)", 0 };
 static struct devtype wct420p4 = { "Wildcard TE420 (4th Gen)", FLAG_BURST | FLAG_2NDGEN | FLAG_3RDGEN | FLAG_EXPRESS };
 static struct devtype wct410p4 = { "Wildcard TE410P (4th Gen)", FLAG_BURST | FLAG_2NDGEN | FLAG_3RDGEN };
@@ -3988,13 +3995,12 @@ static int __devinit t4_init_one(struct pci_dev *pdev, const struct pci_device_i
 	spin_lock_init(&wc->reglock);
 	dt = (struct devtype *) (ent->driver_data);
 
-	if (dt->flags & FLAG_2PORT) 
+	if (wc->flags & FLAG_2PORT) 
 		wc->numspans = 2;
 	else
 		wc->numspans = 4;
 	
 	wc->variety = dt->desc;
-	wc->flags = dt->flags;
 	
 	wc->memaddr = pci_resource_start(pdev, 0);
 	wc->memlen = pci_resource_len(pdev, 0);
@@ -4017,11 +4023,9 @@ static int __devinit t4_init_one(struct pci_dev *pdev, const struct pci_device_i
 
 	/* Keep track of which device we are */
 	pci_set_drvdata(pdev, wc);
-	
-	if (t4_pci_in(wc, WC_VERSION) >= (unsigned int)0xc01a016d) {
-		wc->flags |= FLAG_5THGEN;
-	}
 
+	wc->flags = dt->flags;
+	
 	if (wc->flags & FLAG_5THGEN) {
 		if ((ms_per_irq > 1) && (latency <= ((ms_per_irq) << 1))) {
 			init_latency = ms_per_irq << 1;
@@ -4033,7 +4037,7 @@ static int __devinit t4_init_one(struct pci_dev *pdev, const struct pci_device_i
 		}
 		printk(KERN_INFO "5th gen card with initial latency of %d and %d ms per IRQ\n", init_latency, ms_per_irq);
 	} else {
-		if (dt->flags & FLAG_2NDGEN)
+		if (wc->flags & FLAG_2NDGEN)
 			init_latency = 1;
 		else
 			init_latency = 2;
@@ -4044,7 +4048,7 @@ static int __devinit t4_init_one(struct pci_dev *pdev, const struct pci_device_i
 	}
 
 	/* Initialize hardware */
-	t4_hardware_init_1(wc, dt->flags);
+	t4_hardware_init_1(wc, wc->flags);
 	
 	for(x = 0; x < MAX_T4_CARDS; x++) {
 		if (!cards[x])
@@ -4061,7 +4065,7 @@ static int __devinit t4_init_one(struct pci_dev *pdev, const struct pci_device_i
 	cards[x] = wc;
 	
 #ifdef ENABLE_WORKQUEUES
-	if (dt->flags & FLAG_2NDGEN) {
+	if (wc->flags & FLAG_2NDGEN) {
 		char tmp[20];
 
 		sprintf(tmp, "te%dxxp[%d]", wc->numspans, wc->num);
@@ -4103,14 +4107,14 @@ static int __devinit t4_init_one(struct pci_dev *pdev, const struct pci_device_i
 #ifdef ENABLE_WORKQUEUES
 		INIT_WORK(&wc->tspans[x]->swork, workq_handlespan, wc->tspans[x]);
 #endif				
-		wc->tspans[x]->spanflags |= dt->flags;
+		wc->tspans[x]->spanflags |= wc->flags;
 	}
 	
 	/* Continue hardware intiialization */
 	t4_hardware_init_2(wc);
 	
 #ifdef SUPPORT_GEN1
-	if (request_irq(pdev->irq, (dt->flags & FLAG_2NDGEN) ? t4_interrupt_gen2 : t4_interrupt, DAHDI_IRQ_SHARED_DISABLED, (wc->numspans == 2) ? "wct2xxp" : "wct4xxp", wc)) 
+	if (request_irq(pdev->irq, (wc->flags & FLAG_2NDGEN) ? t4_interrupt_gen2 : t4_interrupt, DAHDI_IRQ_SHARED_DISABLED, (wc->numspans == 2) ? "wct2xxp" : "wct4xxp", wc)) 
 #else
 		if (!(wc->tspans[0]->spanflags & FLAG_2NDGEN)) {
 			printk(KERN_NOTICE "This driver does not support 1st gen modules\n");
@@ -4247,6 +4251,9 @@ static struct pci_device_id t4_pci_tbl[] __devinitdata =
 {
 	{ 0x10ee, 0x0314, PCI_ANY_ID, PCI_ANY_ID, 0, 0, (unsigned long)&wct4xxp },
 
+ 	{ 0xd161, 0x0420, 0x0005,     PCI_ANY_ID, 0, 0, (unsigned long)&wct420p5 },
+	{ 0xd161, 0x0410, 0x0005,     PCI_ANY_ID, 0, 0, (unsigned long)&wct410p5 },
+	{ 0xd161, 0x0405, 0x0005,     PCI_ANY_ID, 0, 0, (unsigned long)&wct405p5 },
  	{ 0xd161, 0x0420, 0x0004,     PCI_ANY_ID, 0, 0, (unsigned long)&wct420p4 },
 	{ 0xd161, 0x0410, 0x0004,     PCI_ANY_ID, 0, 0, (unsigned long)&wct410p4 },
 	{ 0xd161, 0x0405, 0x0004,     PCI_ANY_ID, 0, 0, (unsigned long)&wct405p4 },
@@ -4255,6 +4262,9 @@ static struct pci_device_id t4_pci_tbl[] __devinitdata =
 	{ 0xd161, 0x0410, PCI_ANY_ID, PCI_ANY_ID, 0, 0, (unsigned long)&wct410p2 },
 	{ 0xd161, 0x0405, PCI_ANY_ID, PCI_ANY_ID, 0, 0, (unsigned long)&wct405p2 },
 
+ 	{ 0xd161, 0x0220, 0x0005,     PCI_ANY_ID, 0, 0, (unsigned long)&wct220p5 },
+	{ 0xd161, 0x0205, 0x0005,     PCI_ANY_ID, 0, 0, (unsigned long)&wct205p5 },
+	{ 0xd161, 0x0210, 0x0005,     PCI_ANY_ID, 0, 0, (unsigned long)&wct210p5 },
  	{ 0xd161, 0x0220, 0x0004,     PCI_ANY_ID, 0, 0, (unsigned long)&wct220p4 },
 	{ 0xd161, 0x0205, 0x0004,     PCI_ANY_ID, 0, 0, (unsigned long)&wct205p4 },
 	{ 0xd161, 0x0210, 0x0004,     PCI_ANY_ID, 0, 0, (unsigned long)&wct210p4 },
