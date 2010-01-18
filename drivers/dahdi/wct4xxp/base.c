@@ -4259,9 +4259,9 @@ static struct pci_device_id t4_pci_tbl[] __devinitdata =
 {
 	{ 0x10ee, 0x0314, PCI_ANY_ID, PCI_ANY_ID, 0, 0, (unsigned long)&wct4xxp },
 
- 	{ 0xd161, 0x0420, 0x0005,     PCI_ANY_ID, 0, 0, (unsigned long)&wct420p5 },
-	{ 0xd161, 0x0410, 0x0005,     PCI_ANY_ID, 0, 0, (unsigned long)&wct410p5 },
-	{ 0xd161, 0x0405, 0x0005,     PCI_ANY_ID, 0, 0, (unsigned long)&wct405p5 },
+ 	{ 0xd161, 0x1420, 0x0005,     PCI_ANY_ID, 0, 0, (unsigned long)&wct420p5 },
+	{ 0xd161, 0x1410, 0x0005,     PCI_ANY_ID, 0, 0, (unsigned long)&wct410p5 },
+	{ 0xd161, 0x1405, 0x0005,     PCI_ANY_ID, 0, 0, (unsigned long)&wct405p5 },
  	{ 0xd161, 0x0420, 0x0004,     PCI_ANY_ID, 0, 0, (unsigned long)&wct420p4 },
 	{ 0xd161, 0x0410, 0x0004,     PCI_ANY_ID, 0, 0, (unsigned long)&wct410p4 },
 	{ 0xd161, 0x0405, 0x0004,     PCI_ANY_ID, 0, 0, (unsigned long)&wct405p4 },
@@ -4270,9 +4270,9 @@ static struct pci_device_id t4_pci_tbl[] __devinitdata =
 	{ 0xd161, 0x0410, PCI_ANY_ID, PCI_ANY_ID, 0, 0, (unsigned long)&wct410p2 },
 	{ 0xd161, 0x0405, PCI_ANY_ID, PCI_ANY_ID, 0, 0, (unsigned long)&wct405p2 },
 
- 	{ 0xd161, 0x0220, 0x0005,     PCI_ANY_ID, 0, 0, (unsigned long)&wct220p5 },
-	{ 0xd161, 0x0205, 0x0005,     PCI_ANY_ID, 0, 0, (unsigned long)&wct205p5 },
-	{ 0xd161, 0x0210, 0x0005,     PCI_ANY_ID, 0, 0, (unsigned long)&wct210p5 },
+ 	{ 0xd161, 0x1220, 0x0005,     PCI_ANY_ID, 0, 0, (unsigned long)&wct220p5 },
+	{ 0xd161, 0x1205, 0x0005,     PCI_ANY_ID, 0, 0, (unsigned long)&wct205p5 },
+	{ 0xd161, 0x1210, 0x0005,     PCI_ANY_ID, 0, 0, (unsigned long)&wct210p5 },
  	{ 0xd161, 0x0220, 0x0004,     PCI_ANY_ID, 0, 0, (unsigned long)&wct220p4 },
 	{ 0xd161, 0x0205, 0x0004,     PCI_ANY_ID, 0, 0, (unsigned long)&wct205p4 },
 	{ 0xd161, 0x0210, 0x0004,     PCI_ANY_ID, 0, 0, (unsigned long)&wct210p4 },
