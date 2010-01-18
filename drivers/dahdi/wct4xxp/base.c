@@ -3995,6 +3995,8 @@ static int __devinit t4_init_one(struct pci_dev *pdev, const struct pci_device_i
 	spin_lock_init(&wc->reglock);
 	dt = (struct devtype *) (ent->driver_data);
 
+	wc->flags = dt->flags;
+
 	if (wc->flags & FLAG_2PORT) 
 		wc->numspans = 2;
 	else
@@ -4024,8 +4026,6 @@ static int __devinit t4_init_one(struct pci_dev *pdev, const struct pci_device_i
 	/* Keep track of which device we are */
 	pci_set_drvdata(pdev, wc);
 
-	wc->flags = dt->flags;
-	
 	if (wc->flags & FLAG_5THGEN) {
 		if ((ms_per_irq > 1) && (latency <= ((ms_per_irq) << 1))) {
 			init_latency = ms_per_irq << 1;
