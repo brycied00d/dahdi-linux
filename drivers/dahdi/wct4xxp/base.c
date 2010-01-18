@@ -561,14 +561,23 @@ static inline unsigned int __t4_framer_in(struct t4 *wc, int unit, const unsigne
 	unsigned int ret;
 	unit &= 0x3;
 	__t4_pci_out(wc, WC_LADDR, (unit << 8) | (addr & 0xff));
+	if (!pedanticpci)
+		__t4_pci_in(wc, WC_VERSION);
 	__t4_pci_out(wc, WC_LADDR, (unit << 8) | (addr & 0xff) | WC_LFRMR_CS | WC_LREAD);
-	if (pedanticpci) {
+	if (!pedanticpci) {
+		__t4_pci_in(wc, WC_VERSION);
+	} else {
 		__t4_pci_out(wc, WC_VERSION, 0);
 	}
 	ret = __t4_pci_in(wc, WC_LDATA);
  	__t4_pci_out(wc, WC_LADDR, (unit << 8) | (addr & 0xff));
+
 	if (unlikely(debug & DEBUG_REGS))
 		printk(KERN_INFO "Reading unit %d address %02x is %02x\n", unit, addr, ret & 0xff);
+
+	if (!pedanticpci)
+		__t4_pci_in(wc, WC_VERSION);
+
 	return ret & 0xff;
 }
 
@@ -590,8 +599,14 @@ static inline void __t4_framer_out(struct t4 *wc, int unit, const unsigned int a
 		printk(KERN_INFO "Writing %02x to address %02x of unit %d\n", value, addr, unit);
 	__t4_pci_out(wc, WC_LADDR, (unit << 8) | (addr & 0xff));
 	__t4_pci_out(wc, WC_LDATA, value);
+	if (!pedanticpci)
+		__t4_pci_in(wc, WC_VERSION);
 	__t4_pci_out(wc, WC_LADDR, (unit << 8) | (addr & 0xff) | WC_LFRMR_CS | WC_LWRITE);
+	if (!pedanticpci)
+		__t4_pci_in(wc, WC_VERSION);
 	__t4_pci_out(wc, WC_LADDR, (unit << 8) | (addr & 0xff));	
+	if (!pedanticpci)
+		__t4_pci_in(wc, WC_VERSION);
 	if (unlikely(debug & DEBUG_REGS)) printk(KERN_INFO "Write complete\n");
 #if 0
 	if ((addr != FRMR_TXFIFO) && (addr != FRMR_CMDR) && (addr != 0xbc))
@@ -639,11 +654,17 @@ static inline void __t4_raw_oct_out(struct t4 *wc, const unsigned int addr, cons
 	if (!octopt)
 		__t4_pci_out(wc, WC_LADDR, (WC_LWRITE));
 	__t4_pci_out(wc, WC_LADDR, (WC_LWRITE | WC_LALE));
+	if (!pedanticpci)
+		__t4_pci_in(wc, WC_VERSION);
 	if (!octopt)
 		__t4_gpio_set(wc, 0xff, (value >> 8));
 	__t4_pci_out(wc, WC_LDATA, (value & 0xffff));
 	__t4_pci_out(wc, WC_LADDR, (WC_LWRITE | WC_LALE | WC_LCS));
+	if (!pedanticpci)
+		__t4_pci_in(wc, WC_VERSION);
 	__t4_pci_out(wc, WC_LADDR, (0));
+	if (!pedanticpci)
+		__t4_pci_in(wc, WC_VERSION);
 }
 
 static inline unsigned int __t4_raw_oct_in(struct t4 *wc, const unsigned int addr)
@@ -655,9 +676,15 @@ static inline unsigned int __t4_raw_oct_in(struct t4 *wc, const unsigned int add
 	__t4_pci_out(wc, WC_LDATA, 0x10000 | (addr & 0xffff));
 	if (!octopt)
 		__t4_pci_out(wc, WC_LADDR, (WC_LWRITE));
+	if (!pedanticpci)
+		__t4_pci_in(wc, WC_VERSION);
 	__t4_pci_out(wc, WC_LADDR, (WC_LWRITE | WC_LALE));
+	if (!pedanticpci)
+		__t4_pci_in(wc, WC_VERSION);
 #ifdef PEDANTIC_OCTASIC_CHECKING 
 	__t4_pci_out(wc, WC_LADDR, (WC_LALE));
+	if (!pedanticpci)
+		__t4_pci_in(wc, WC_VERSION);
 #endif
 	if (!octopt) {
 		__t4_gpio_setdir(wc, 0xff, 0x00);
@@ -671,6 +698,8 @@ static inline unsigned int __t4_raw_oct_in(struct t4 *wc, const unsigned int add
 		ret |= (__t4_pci_in(wc, WC_GPIO) & 0xff) << 8;
 	}
 	__t4_pci_out(wc, WC_LADDR, (0));
+	if (!pedanticpci)
+		__t4_pci_in(wc, WC_VERSION);
 	if (!octopt)
 		__t4_gpio_setdir(wc, 0xff, 0xff);
 	return ret & 0xffff;
@@ -1737,12 +1766,10 @@ static void init_spans(struct t4 *wc)
 			mychans->chanpos = y + 1;
 		}
 	}
-<<<<<<< HEAD:drivers/dahdi/wct4xxp/base.c
+
 	set_span_devicetype(wc);
-=======
 	setup_chunks(wc, 0);
 	wc->lastindex = 0;
->>>>>>> wct4xxp: Gen 5 latency changes and performance enhancements (interrupt rate reduction, etc):drivers/dahdi/wct4xxp/base.c
 }
 
 static void t4_serial_setup(struct t4 *wc, int unit)
