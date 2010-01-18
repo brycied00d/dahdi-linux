@@ -698,6 +698,8 @@ static inline unsigned int __t4_raw_oct_in(struct t4 *wc, const unsigned int add
 		__t4_gpio_set(wc, 0xff, 0x00);
 	}
 	__t4_pci_out(wc, WC_LADDR, (WC_LREAD | WC_LALE | WC_LCS));
+	if (!pedanticpci)
+		__t4_pci_in(wc, WC_VERSION);
 	if (octopt) {
 		ret = __t4_pci_in(wc, WC_LDATA) & 0xffff;
 	} else {
