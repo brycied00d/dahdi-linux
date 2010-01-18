@@ -168,7 +168,7 @@ static inline int t4_queue_work(struct workqueue_struct *wq, struct work_struct 
 static int pedanticpci = 1;
 static int debug=0;
 static int timingcable = 0;
-static int t1e1override = 0xff;
+static int t1e1override = -1;  /* 0xff for E1, 0x00 for T1 */
 static int j1mode = 0;
 static int sigmode = FRMR_MODE_NO_ADDR_CMP;
 static int loopback = 0;
@@ -2215,7 +2215,8 @@ static int t4_startup(struct dahdi_span *span)
 		span->flags |= DAHDI_FLAG_RUNNING;
 		wc->spansstarted++;
 
-		__t4_pci_out(wc, 5, (ms_per_irq << 16) | wc->numbufs);
+		if (wc->flags & FLAG_5THGEN)
+			__t4_pci_out(wc, 5, (ms_per_irq << 16) | wc->numbufs);
 		/* enable interrupts */
 		/* Start DMA, enabling DMA interrupts on read only */
 #if 0
@@ -3274,6 +3275,8 @@ DAHDI_IRQ_HANDLER(t4_interrupt_gen2)
 				needed_latency = (128 - wc->rxident) + rxident;
 			}
 
+			needed_latency += 2;
+
 			if (needed_latency >= 128) {
 				printk("Truncating latency request to 127 instead of %d\n", needed_latency);
 				needed_latency = 127;
@@ -3320,8 +3323,8 @@ DAHDI_IRQ_HANDLER(t4_interrupt_gen2)
 #else
 #if 1
 		unsigned int reg5 = __t4_pci_in(wc, 5);
-
 		if (wc->intcount < 20) {
+
 			printk("Reg 5 is %08x\n", reg5);
 		}
 #endif
@@ -3988,18 +3991,19 @@ static int __devinit t4_init_one(struct pci_dev *pdev, const struct pci_device_i
 	/* Keep track of which device we are */
 	pci_set_drvdata(pdev, wc);
 	
-	/* FIXME */
-	dt->flags |= FLAG_5THGEN;
-	
-	if (t4_pci_in(wc, WC_VERSION) >= 0xc01a016d) {
+	if (t4_pci_in(wc, WC_VERSION) >= (unsigned int)0xc01a016d) {
 		wc->flags |= FLAG_5THGEN;
 	}
 
-	if (dt->flags & FLAG_5THGEN) {
+	if (wc->flags & FLAG_5THGEN) {
 		if ((ms_per_irq > 1) && (latency <= ((ms_per_irq) << 1))) {
 			init_latency = ms_per_irq << 1;
-		} else
-			init_latency = latency;
+		} else {
+			if (latency > 2)
+				init_latency = latency;
+			else
+				init_latency = 2;
+		}
 		printk(KERN_INFO "5th gen card with initial latency of %d and %d ms per IRQ\n", init_latency, ms_per_irq);
 	} else {
 		if (dt->flags & FLAG_2NDGEN)
