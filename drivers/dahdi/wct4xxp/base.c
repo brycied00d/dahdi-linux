@@ -3,7 +3,10 @@
  *
  * Written by Mark Spencer <markster@digium.com>
  * Based on previous works, designs, and archetectures conceived and
- * written by Jim Dixon <jim@lambdatel.com>.
+ *   written by Jim Dixon <jim@lambdatel.com>.
+ * Further modified, optimized, and maintained by 
+ *   Matthew Fredrickson <creslin@digium.com> and
+ *   Russ Meyerriecks <rmeyerriecks@digium.com>
  *
  * Copyright (C) 2001 Jim Dixon / Zapata Telephony.
  * Copyright (C) 2001-2005, Digium, Inc.
@@ -73,6 +76,8 @@
 #define DEBUG_ECHOCAN 	(1 << 4)
 #define DEBUG_RBS 		(1 << 5)
 #define DEBUG_FRAMER		(1 << 6)
+
+#define T4_BASE_SIZE (DAHDI_MAX_CHUNKSIZE * 32 * 4) 
 
 #ifdef ENABLE_WORKQUEUES
 #include <linux/cpu.h>
@@ -163,7 +168,7 @@ static inline int t4_queue_work(struct workqueue_struct *wq, struct work_struct 
 static int pedanticpci = 1;
 static int debug=0;
 static int timingcable = 0;
-static int t1e1override = -1; //0xFF; // -1 = jumper; 0xFF = E1
+static int t1e1override = 0xff;
 static int j1mode = 0;
 static int sigmode = FRMR_MODE_NO_ADDR_CMP;
 static int loopback = 0;
@@ -187,6 +192,10 @@ static int lastdtmfthreshold = VPM_DEFAULT_DTMFTHRESHOLD;
 static int noburst = 1;
 /* For 56kbps links, set this module parameter to 0x7f */
 static int hardhdlcmode = 0xff;
+
+static int latency = 15;
+
+static int ms_per_irq = 5;
 
 #ifdef FANCY_ALARM
 static int altab[] = {
@@ -212,6 +221,7 @@ static int altab[] = {
 #define FLAG_3RDGEN  (1 << 7)
 #define FLAG_BURST   (1 << 8)
 #define FLAG_EXPRESS (1 << 9)
+#define FLAG_5THGEN  (1 << 10)
 
 #define CANARY 0xc0de
 
@@ -342,6 +352,11 @@ struct t4 {
 	unsigned long checkflag;
 	struct tasklet_struct t4_tlet;
 	unsigned int vpm400checkstatus;
+	/* Latency related additions */
+	unsigned char rxident;
+	unsigned char lastindex;
+	int numbufs;
+	int needed_latency;
 	
 #ifdef VPM_SUPPORT
 	struct vpm450m *vpm450m;
@@ -1616,16 +1631,39 @@ static void set_span_devicetype(struct t4 *wc)
 */
 static unsigned int order_index[16];
 
+void setup_chunks(struct t4 *wc, int which)
+{
+	struct t4_span *ts;
+	int offset = 1;
+	int x, y;
+	int gen2;
+
+	if (!wc->t1e1)
+		offset += 4;
+
+	gen2 = (wc->tspans[0]->spanflags & FLAG_2NDGEN);
+
+	for (x = 0; x < wc->numspans; x++) {
+		ts = wc->tspans[x];
+		ts->writechunk = (void *)(wc->writechunk + x * 32 * 2);
+		ts->readchunk = (void *)(wc->readchunk + x * 32 * 2);
+		for (y=0;y<wc->tspans[x]->span.channels;y++) {
+			struct dahdi_chan *mychans = ts->chans[y];
+			if (gen2) {
+				mychans->writechunk = (void *)(wc->writechunk + ((x * 32 + y + offset) * 2) + (which * (1024 >> 2)));
+				mychans->readchunk = (void *)(wc->readchunk + ((x * 32 + y + offset) * 2) + (which * (1024 >> 2)));
+			}
+		}
+	}
+}
+
 static void init_spans(struct t4 *wc)
 {
 	int x,y;
 	int gen2;
-	int offset = 1;
 	struct t4_span *ts;
 	
 	gen2 = (wc->tspans[0]->spanflags & FLAG_2NDGEN);
-	if (!wc->t1e1)
-		offset += 4;
 	for (x = 0; x < wc->numspans; x++) {
 		ts = wc->tspans[x];
 		sprintf(ts->span.name, "TE%d/%d/%d", wc->numspans, wc->num, x + 1);
@@ -1688,8 +1726,6 @@ static void init_spans(struct t4 *wc)
 		ts->span.pvt = ts;
 		ts->owner = wc;
 		ts->span.offset = x;
-		ts->writechunk = (void *)(wc->writechunk + x * 32 * 2);
-		ts->readchunk = (void *)(wc->readchunk + x * 32 * 2);
 		init_waitqueue_head(&ts->span.maintq);
 		for (y=0;y<wc->tspans[x]->span.channels;y++) {
 			struct dahdi_chan *mychans = ts->chans[y];
@@ -1698,13 +1734,14 @@ static void init_spans(struct t4 *wc)
 									 DAHDI_SIG_FXOLS | DAHDI_SIG_FXOGS | DAHDI_SIG_FXOKS | DAHDI_SIG_CAS | DAHDI_SIG_EM_E1 | DAHDI_SIG_DACS_RBS;
 			mychans->pvt = wc;
 			mychans->chanpos = y + 1;
-			if (gen2) {
-				mychans->writechunk = (void *)(wc->writechunk + (x * 32 + y + offset) * 2);
-				mychans->readchunk = (void *)(wc->readchunk + (x * 32 + y + offset) * 2);
-			}
 		}
 	}
+<<<<<<< HEAD:drivers/dahdi/wct4xxp/base.c
 	set_span_devicetype(wc);
+=======
+	setup_chunks(wc, 0);
+	wc->lastindex = 0;
+>>>>>>> wct4xxp: Gen 5 latency changes and performance enhancements (interrupt rate reduction, etc):drivers/dahdi/wct4xxp/base.c
 }
 
 static void t4_serial_setup(struct t4 *wc, int unit)
@@ -2175,6 +2212,8 @@ static int t4_startup(struct dahdi_span *span)
 	if (!alreadyrunning) {
 		span->flags |= DAHDI_FLAG_RUNNING;
 		wc->spansstarted++;
+
+		__t4_pci_out(wc, 5, (ms_per_irq << 16) | wc->numbufs);
 		/* enable interrupts */
 		/* Start DMA, enabling DMA interrupts on read only */
 #if 0
@@ -3063,10 +3102,100 @@ DAHDI_IRQ_HANDLER(t4_interrupt)
 }
 #endif
 
+static int t4_allocate_buffers(struct t4 *wc, int numbufs, volatile unsigned int **oldalloc, dma_addr_t *oldwritedma)
+{
+	volatile unsigned int *alloc;
+	dma_addr_t writedma;
+
+	alloc =
+		/* 32 channels, Double-buffer, Read/Write, 4 spans */
+		(unsigned int *)pci_alloc_consistent(wc->dev, numbufs * T4_BASE_SIZE * 2, &writedma);
+
+	if (!alloc) {
+		printk(KERN_NOTICE "wct%dxxp: Unable to allocate DMA-able memory\n", wc->numspans);
+		return -ENOMEM;
+	}
+
+	if (oldwritedma)
+		*oldwritedma = wc->writedma;
+	if (oldalloc)
+		*oldalloc = wc->writechunk;
+
+	wc->writechunk = alloc;
+	wc->writedma = writedma;
+
+	/* Read is after the whole write piece (in words) */
+	wc->readchunk = wc->writechunk + (T4_BASE_SIZE * numbufs) / 4;
+	
+	/* Same thing but in bytes...  */
+	wc->readdma = wc->writedma + (T4_BASE_SIZE * numbufs);
+
+	wc->numbufs = numbufs;
+	
+	/* Initialize Write/Buffers to all blank data */
+	memset((void *)wc->writechunk,0x00, T4_BASE_SIZE * numbufs);
+	memset((void *)wc->readchunk,0xff, T4_BASE_SIZE * numbufs);
+
+	printk(KERN_NOTICE "DMA memory base of size %d at %p.  Read: %p and Write %p\n", numbufs * T4_BASE_SIZE * 2, wc->writechunk, wc->readchunk, wc->writechunk);
+
+	return 0;
+}
+
+static void t4_increase_latency(struct t4 *wc, int newlatency)
+{
+	unsigned long flags;
+	volatile unsigned int *oldalloc;
+	dma_addr_t oldaddr;
+	int oldbufs;
+
+	spin_lock_irqsave(&wc->reglock, flags);
+
+	__t4_pci_out(wc, WC_DMACTRL, 0x00000000);
+	/* Acknowledge any pending interrupts */
+	__t4_pci_out(wc, WC_INTR, 0x00000000);
+
+	__t4_pci_in(wc, WC_VERSION);
+
+	oldbufs = wc->numbufs;
+
+	if (t4_allocate_buffers(wc, newlatency, &oldalloc, &oldaddr)) {
+		printk("Error allocating latency buffers for latency of %d\n", newlatency);
+		__t4_pci_out(wc, WC_DMACTRL, wc->dmactrl);
+		spin_unlock_irqrestore(&wc->reglock, flags);
+		return;
+	}
+
+	__t4_pci_out(wc, WC_RDADDR, wc->readdma);
+	__t4_pci_out(wc, WC_WRADDR, wc->writedma);
+
+	__t4_pci_in(wc, WC_VERSION);
+
+	__t4_pci_out(wc, 5, (ms_per_irq << 16) | newlatency);
+	__t4_pci_out(wc, WC_DMACTRL, wc->dmactrl);
+
+	__t4_pci_in(wc, WC_VERSION);
+
+	wc->rxident = 0;
+	wc->lastindex = 0;
+
+	spin_unlock_irqrestore(&wc->reglock, flags);
+
+	pci_free_consistent(wc->dev, T4_BASE_SIZE * oldbufs * 2, (void *)oldalloc, oldaddr);
+
+	printk("Increased latency to %d\n", newlatency);
+
+}
+
 static void t4_isr_bh(unsigned long data)
 {
 	struct t4 *wc = (struct t4 *)data;
 
+	if (test_bit(T4_CHANGE_LATENCY, &wc->checkflag)) {
+		if (wc->needed_latency != wc->numbufs) {
+			t4_increase_latency(wc, wc->needed_latency);
+			clear_bit(T4_CHANGE_LATENCY, &wc->checkflag);
+		}
+	}
 #ifdef VPM_SUPPORT
 	if (wc->vpm) {
 		if (test_and_clear_bit(T4_CHECK_VPM, &wc->checkflag)) {
@@ -3086,7 +3215,14 @@ DAHDI_IRQ_HANDLER(t4_interrupt_gen2)
 {
 	struct t4 *wc = dev_id;
 	unsigned int status;
+	unsigned char rxident, expected;
 	
+#if 0
+	if (unlikely(test_bit(T4_CHANGE_LATENCY, &wc->checkflag))) {
+		goto out;
+	}
+#endif
+
 	/* Check this first in case we get a spurious interrupt */
 	if (unlikely(test_bit(T4_STOP_DMA, &wc->checkflag))) {
 		/* Stop DMA cleanly if requested */
@@ -3118,8 +3254,38 @@ DAHDI_IRQ_HANDLER(t4_interrupt_gen2)
 	}
 
 	wc->intcount++;
+	if ((wc->flags & FLAG_5THGEN) && (status & 0x2)) {
+		rxident = (status >> 16) & 0x7f;
+		expected = (wc->rxident + ms_per_irq) % 128;
+	
+		if (rxident != expected) {
+			int needed_latency;
 
-	if (unlikely((wc->intcount < 20) && debug))
+			printk("!!! Missed interrupt.  Expected ident of %d and got ident of %d\n", expected, rxident);
+			if (rxident > wc->rxident) {
+				needed_latency = rxident - wc->rxident;
+			} else {
+				needed_latency = (128 - wc->rxident) + rxident;
+			}
+
+			if (needed_latency >= 128) {
+				printk("Truncating latency request to 127 instead of %d\n", needed_latency);
+				needed_latency = 127;
+			}
+
+			if (needed_latency > wc->numbufs) {
+				printk("Need to increase latency.  Estimated latency should be %d\n", needed_latency);
+				wc->needed_latency = needed_latency;
+				__t4_pci_out(wc, WC_DMACTRL, 0x00000000);
+				set_bit(T4_CHANGE_LATENCY, &wc->checkflag);
+				goto out;
+			}
+		}
+	
+		wc->rxident = rxident;
+	}
+
+	if (unlikely((wc->intcount < 20)))
 
 		printk(KERN_INFO "2G: Got interrupt, status = %08x, CIS = %04x\n", status, t4_framer_in(wc, 0, FRMR_CIS));
 
@@ -3146,7 +3312,39 @@ DAHDI_IRQ_HANDLER(t4_interrupt_gen2)
 				atomic_dec(&wc->worklist);
 		}
 #else
-		t4_prep_gen2(wc);
+#if 1
+		//unsigned int reg12 = __t4_pci_in(wc, 12);
+		unsigned int reg5 = __t4_pci_in(wc, 5);
+
+		unsigned int readoff, writeoff;
+
+		//readoff = ((reg12 >> 16) << 1) & 0xffff;
+		//writeoff = (reg12 & 0xffff) << 1;
+		if (wc->intcount < 20) {
+			printk("Reg 5 is %08x\n", reg5);
+			//printk("Read @ %p and write @ %p\n", wc->readchunk + (readoff>>2), wc->writechunk + (writeoff >> 2));
+		}
+#endif
+
+		if (wc->flags & FLAG_5THGEN) {
+			unsigned int current_index = (reg5 >> 8) & 0x7f;
+			int catchup = 0;
+
+			while (((wc->lastindex + 1) % wc->numbufs) != current_index) {
+				catchup++;
+				wc->lastindex = (wc->lastindex + 1) % wc->numbufs;
+				setup_chunks(wc, wc->lastindex);
+				t4_prep_gen2(wc);
+			}
+#if 0
+			if (catchup > 1) {
+				printk("Caught up %d chunks\n", catchup);
+			}
+#endif
+		} else {
+			t4_prep_gen2(wc);
+		}
+
 #endif
 		t4_do_counters(wc);
 		spin_lock(&wc->reglock);
@@ -3191,7 +3389,8 @@ DAHDI_IRQ_HANDLER(t4_interrupt_gen2)
 
 	spin_unlock(&wc->reglock);
 
-	if (unlikely(test_bit(T4_CHECK_VPM, &wc->checkflag)))
+out:
+	if (unlikely(test_bit(T4_CHANGE_LATENCY, &wc->checkflag) || test_bit(T4_CHECK_VPM, &wc->checkflag)))
 		tasklet_schedule(&wc->t4_tlet);
 
 #ifndef ENABLE_WORKQUEUES
@@ -3741,7 +3940,7 @@ static int __devinit t4_init_one(struct pci_dev *pdev, const struct pci_device_i
 	struct t4 *wc;
 	struct devtype *dt;
 	unsigned int x, f;
-	int basesize;
+	int init_latency;
 #if 0
 	int y;
 	unsigned int *canary;
@@ -3758,10 +3957,21 @@ static int __devinit t4_init_one(struct pci_dev *pdev, const struct pci_device_i
 	memset(wc, 0x0, sizeof(*wc));
 	spin_lock_init(&wc->reglock);
 	dt = (struct devtype *) (ent->driver_data);
-	if (dt->flags & FLAG_2NDGEN)
-		basesize = DAHDI_MAX_CHUNKSIZE * 32 * 4;
-	else
-		basesize = DAHDI_MAX_CHUNKSIZE * 32 * 2 * 4;
+
+	/* FIXME */
+	dt->flags |= FLAG_5THGEN;
+	
+	if (dt->flags & FLAG_5THGEN) {
+		if ((ms_per_irq > 1) && (latency <= ((ms_per_irq) << 1)))
+			init_latency = ms_per_irq << 1;
+		else
+			init_latency = latency;
+	} else {
+		if (dt->flags & FLAG_2NDGEN)
+			init_latency = 1;
+		else
+			init_latency = 2;
+	}
 	
 	if (dt->flags & FLAG_2PORT) 
 		wc->numspans = 2;
@@ -3769,6 +3979,7 @@ static int __devinit t4_init_one(struct pci_dev *pdev, const struct pci_device_i
 		wc->numspans = 4;
 	
 	wc->variety = dt->desc;
+	wc->flags = dt->flags;
 	
 	wc->memaddr = pci_resource_start(pdev, 0);
 	wc->memlen = pci_resource_len(pdev, 0);
@@ -3786,23 +3997,10 @@ static int __devinit t4_init_one(struct pci_dev *pdev, const struct pci_device_i
 	
 	wc->dev = pdev;
 	
-	wc->writechunk = 
-		/* 32 channels, Double-buffer, Read/Write, 4 spans */
-		(unsigned int *)pci_alloc_consistent(pdev, basesize * 2, &wc->writedma);
-	if (!wc->writechunk) {
-		printk(KERN_NOTICE "wct%dxxp: Unable to allocate DMA-able memory\n", wc->numspans);
+	if (t4_allocate_buffers(wc, init_latency, NULL, NULL)) {
 		return -ENOMEM;
 	}
-	
-	/* Read is after the whole write piece (in words) */
-	wc->readchunk = wc->writechunk + basesize / 4;
-	
-	/* Same thing but in bytes...  */
-	wc->readdma = wc->writedma + basesize;
-	
-	/* Initialize Write/Buffers to all blank data */
-	memset((void *)wc->writechunk,0x00, basesize);
-	memset((void *)wc->readchunk,0xff, basesize);
+
 #if 0
 	memset((void *)wc->readchunk,0xff,DAHDI_MAX_CHUNKSIZE * 2 * 32 * 4);
 	/* Initialize canary */
@@ -4006,9 +4204,7 @@ static void __devexit t4_remove_one(struct pci_dev *pdev)
 	pci_release_regions(pdev);		
 	
 	/* Immediately free resources */
-
-	pci_free_consistent(pdev, basesize * 2,
-				(void *)wc->writechunk, wc->writedma);
+	pci_free_consistent(pdev, T4_BASE_SIZE * wc->numbufs * 2, (void *)wc->writechunk, wc->writedma);
 	
 	order_index[wc->order]--;
 	
