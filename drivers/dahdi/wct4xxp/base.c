@@ -325,6 +325,7 @@ struct t4 {
 #endif
 	int irq;			/* IRQ used by device */
 	int order;			/* Order */
+	int flags;                      /* Device flags */
 	unsigned int falc31 : 1;	/* are we falc v3.1 (atomic not necessary) */
 	int master;				/* Are we master */
 	int ledreg;				/* LED Register */
