@@ -109,6 +109,7 @@ struct t4_regs {
 #define T4_STOP_DMA		2
 #define T4_CHECK_TIMING		3
 #define T4_CHANGE_LATENCY	4
+#define T4_IGNORE_LATENCY	5
 
 #define WCT4_GET_REGS	_IOW (DAHDI_CODE, 60, struct t4_regs)
 
