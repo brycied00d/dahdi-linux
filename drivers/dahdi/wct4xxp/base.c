@@ -1684,8 +1684,8 @@ void setup_chunks(struct t4 *wc, int which)
 
 	for (x = 0; x < wc->numspans; x++) {
 		ts = wc->tspans[x];
-		ts->writechunk = (void *)(wc->writechunk + x * 32 * 2);
-		ts->readchunk = (void *)(wc->readchunk + x * 32 * 2);
+		ts->writechunk = (void *)(wc->writechunk + (x * 32 * 2) + (which * (1024 >> 2)));
+		ts->readchunk = (void *)(wc->readchunk + (x * 32 * 2) + (which * (1024 >> 2)));
 		for (y=0;y<wc->tspans[x]->span.channels;y++) {
 			struct dahdi_chan *mychans = ts->chans[y];
 			if (gen2) {
@@ -3301,7 +3301,9 @@ DAHDI_IRQ_HANDLER(t4_interrupt_gen2)
 		if ((rxident != expected) && !test_bit(T4_IGNORE_LATENCY, &wc->checkflag)) {
 			int needed_latency;
 
-			printk("!!! Missed interrupt.  Expected ident of %d and got ident of %d\n", expected, rxident);
+			if (debug & DEBUG_MAIN)
+				printk("!!! Missed interrupt.  Expected ident of %d and got ident of %d\n", expected, rxident);
+
 			if (test_bit(T4_IGNORE_LATENCY, &wc->checkflag)) {
 				printk("Should have ignored latency\n");
 			}
@@ -3311,7 +3313,7 @@ DAHDI_IRQ_HANDLER(t4_interrupt_gen2)
 				needed_latency = (128 - wc->rxident) + rxident;
 			}
 
-			needed_latency += 2;
+			needed_latency += 1;
 
 			if (needed_latency >= 128) {
 				printk("Truncating latency request to 127 instead of %d\n", needed_latency);
@@ -3319,7 +3321,11 @@ DAHDI_IRQ_HANDLER(t4_interrupt_gen2)
 			}
 
 			if (needed_latency > wc->numbufs) {
+				int x;
+
 				printk("Need to increase latency.  Estimated latency should be %d\n", needed_latency);
+				for (x = 0; x < wc->numspans; x++)
+					wc->tspans[x]->span.irqmisses++;
 				wc->needed_latency = needed_latency;
 				__t4_pci_out(wc, WC_DMACTRL, 0x00000000);
 				set_bit(T4_CHANGE_LATENCY, &wc->checkflag);
