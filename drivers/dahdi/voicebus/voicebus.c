@@ -1056,24 +1056,6 @@ voicebus_stop(struct voicebus *vb)
 }
 EXPORT_SYMBOL(voicebus_stop);
 
-#ifdef CONFIG_VOICEBUS_SYSFS
-static ssize_t
-voicebus_current_latency_show(struct device *dev,
-			      struct device_attribute *attr, char *buf)
-{
-	unsigned long flags;
-	struct voicebus *vb = dev_get_drvdata(dev);
-	unsigned int current_latency;
-	spin_lock_irqsave(&vb->lock, flags);
-	current_latency = vb->min_tx_buffer_count;
-	spin_unlock_irqrestore(&vb->lock, flags);
-	return sprintf(buf, "%d\n", current_latency);
-}
-
-DEVICE_ATTR(voicebus_current_latency, 0444,
-	    voicebus_current_latency_show, NULL);
-#endif
-
 /*!
  * \brief Prepare the interface for module unload.
  *
@@ -1086,10 +1068,6 @@ DEVICE_ATTR(voicebus_current_latency, 0444,
 void
 voicebus_release(struct voicebus *vb)
 {
-#ifdef CONFIG_VOICEBUS_SYSFS
-	device_remove_file(&vb->pdev->dev, &dev_attr_voicebus_current_latency);
-#endif
-
 	/* quiesce the hardware */
 	voicebus_stop(vb);
 #if VOICEBUS_DEFERRED == WORKQUEUE
@@ -1580,16 +1558,6 @@ voicebus_init(struct voicebus *vb, const char *board_name)
 	vb->timer.data = (unsigned long)vb;
 #endif
 
-#ifdef CONFIG_VOICEBUS_SYSFS
-	dev_dbg(&vb->pdev->dev, "Creating sysfs attributes.\n");
-	retval = device_create_file(&vb->pdev->dev,
-				    &dev_attr_voicebus_current_latency);
-	if (retval) {
-		dev_dbg(&vb->pdev->dev,
-			"Failed to create device attributes.\n");
-		goto cleanup;
-	}
-#endif
 	/* ----------------------------------------------------------------
 	   Configure the hardware / kernel module interfaces.
 	   ---------------------------------------------------------------- */

@@ -3710,6 +3710,25 @@ static void free_wc(struct wctdm *wc)
 	kfree(wc);
 }
 
+#ifdef CONFIG_VOICEBUS_SYSFS
+static ssize_t
+voicebus_current_latency_show(struct device *dev,
+			      struct device_attribute *attr, char *buf)
+{
+	unsigned long flags;
+	struct wctdm *wc = dev_get_drvdata(dev);
+	unsigned int current_latency;
+	spin_lock_irqsave(&wc->vb.lock, flags);
+	current_latency = wc->vb.min_tx_buffer_count;
+	spin_unlock_irqrestore(&wc->vb.lock, flags);
+	return sprintf(buf, "%d\n", current_latency);
+}
+
+DEVICE_ATTR(voicebus_current_latency, 0400,
+	    voicebus_current_latency_show, NULL);
+#endif
+
+
 static const struct voicebus_operations voicebus_operations = {
 	.handle_receive = handle_receive,
 	.handle_transmit = handle_transmit,
@@ -3753,6 +3772,15 @@ static int __devinit wctdm_init_one(struct pci_dev *pdev, const struct pci_devic
 		return ret;
 	}
 
+#ifdef CONFIG_VOICEBUS_SYSFS
+	dev_dbg(&wc->vb.pdev->dev, "Creating sysfs attributes.\n");
+	ret = device_create_file(&wc->vb.pdev->dev,
+				 &dev_attr_voicebus_current_latency);
+	if (ret) {
+		dev_info(&wc->vb.pdev->dev,
+			"Failed to create device attributes.\n");
+	}
+#endif
 	if (VOICEBUS_DEFAULT_LATENCY != latency) {
 		voicebus_set_minlatency(&wc->vb, latency);
 	}
@@ -3842,6 +3870,11 @@ static void __devexit wctdm_remove_one(struct pci_dev *pdev)
 	struct wctdm *wc = pci_get_drvdata(pdev);
 	struct vpmadt032 *vpm = wc->vpmadt032;
 
+#ifdef CONFIG_VOICEBUS_SYSFS
+	device_remove_file(&wc->vb.pdev->dev,
+			   &dev_attr_voicebus_current_latency);
+#endif
+
 	if (wc) {
 		if (vpm) {
 			clear_bit(VPM150M_DTMFDETECT, &vpm->control);
@@ -3929,6 +3962,7 @@ static void __exit wctdm_cleanup(void)
 {
 	pci_unregister_driver(&wctdm_driver);
 }
+
 
 module_param(debug, int, 0600);
 module_param(fxovoltage, int, 0600);
