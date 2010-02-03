@@ -3798,7 +3798,10 @@ static int __devinit wctdm_init_one(struct pci_dev *pdev, const struct pci_devic
 	
 	/* We should be ready for DAHDI to come in now. */
 	if (dahdi_register(&wc->span, 0)) {
-		printk(KERN_NOTICE "Unable to register span with DAHDI\n");
+		dev_info(&wc->vb.pdev->dev,
+			 "Unable to register span with DAHDI\n");
+		voicebus_release(&wc->vb);
+		kfree(wc);
 		return -1;
 	}
 
