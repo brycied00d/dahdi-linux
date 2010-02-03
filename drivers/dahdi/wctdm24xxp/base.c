@@ -178,7 +178,6 @@ static const struct wctdm_desc wcaex2400 = { "Wildcard AEX2400", FLAG_EXPRESS, 2
 static const struct wctdm_desc wcaex800 = { "Wildcard AEX800", FLAG_EXPRESS, 8 };
 static const struct wctdm_desc wcaex410 = { "Wildcard AEX410", FLAG_EXPRESS, 4 };
 
-static int acim2tiss[16] = { 0x0, 0x1, 0x4, 0x5, 0x7, 0x0, 0x0, 0x6, 0x0, 0x0, 0x0, 0x2, 0x0, 0x3 };
 
 struct wctdm *ifaces[WC_MAX_IFACES];
 spinlock_t ifacelock = SPIN_LOCK_UNLOCKED;
@@ -2478,7 +2477,10 @@ static int wctdm_init_proslic(struct wctdm *wc, int card, int fast, int manual, 
     wctdm_setreg(wc, card, 22, 0xff);
     wctdm_setreg(wc, card, 73, 0x04);
 	if (fxshonormode) {
-		fxsmode = acim2tiss[fxo_modes[_opermode].acim];
+		const int ACIM2TISS[16] = { 0x0, 0x1, 0x4, 0x5, 0x7, 0x0,
+					    0x0, 0x6, 0x0, 0x0, 0x0, 0x2,
+					    0x0, 0x3 };
+		fxsmode = ACIM2TISS[fxo_modes[_opermode].acim];
 		wctdm_setreg(wc, card, 10, 0x08 | fxsmode);
 		if (fxo_modes[_opermode].ring_osc)
 			wctdm_proslic_setreg_indirect(wc, card, 20, fxo_modes[_opermode].ring_osc);
