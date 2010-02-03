@@ -636,7 +636,7 @@ static inline void cmd_dequeue(struct wctdm *wc, unsigned char *writechunk, int 
  			writechunk[CMD_BYTE(card, 1, wc->altcs[card])] = 0x80 | ((curcmd >> 8) & 0x7f);
  		writechunk[CMD_BYTE(card, 2, wc->altcs[card])] = curcmd & 0xff;
 	} else if (wc->modtype[card] == MOD_TYPE_FXO) {
-		const int FXO_ADDRS[4] = { 0x00, 0x08, 0x04, 0x0c };
+		static const int FXO_ADDRS[4] = { 0x00, 0x08, 0x04, 0x0c };
 		int idx = CMD_BYTE(card, 0, wc->altcs[card]);
 		if (curcmd & __CMD_WR)
 			writechunk[idx] = 0x20 | FXO_ADDRS[subaddr];
