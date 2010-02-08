@@ -3,7 +3,7 @@
  *
  * Written by Mark Spencer <markster@linux-support.net>
  *
- * Copyright (C) 2001-2008, Digium, Inc.
+ * Copyright (C) 2001-2010, Digium, Inc.
  *
  * All rights reserved.
  *

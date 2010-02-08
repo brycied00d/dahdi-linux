@@ -6,7 +6,7 @@
  *
  * Written by Digium Incorporated <support@digium.com>
  *
- * Copyright (C) 2008-2009 Digium, Inc.  All rights reserved.
+ * Copyright (C) 2008-2010 Digium, Inc.  All rights reserved.
  *
  * See http://www.asterisk.org for more information about the Asterisk
  * project. Please do not directly contact any of the maintainers of this
