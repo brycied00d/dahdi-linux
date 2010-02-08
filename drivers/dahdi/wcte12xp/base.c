@@ -53,9 +53,7 @@
 #error VOICEBUS_SFRAME_SIZE != SFRAME_SIZE
 #endif
 
-struct pci_driver te12xp_driver;
-
-int debug = 0;
+static int debug;
 static int j1mode = 0;
 static int alarmdebounce = 2500; /* LOF/LFA def to 2.5s AT&T TR54016*/
 static int losalarmdebounce = 2500; /* LOS def to 2.5s AT&T TR54016*/
@@ -65,12 +63,12 @@ static int loopback = 0;
 static int t1e1override = -1;
 static int unchannelized = 0;
 static int latency = VOICEBUS_DEFAULT_LATENCY;
-int vpmsupport = 1;
+static int vpmsupport = 1;
 static int vpmtsisupport = 0;
 
-int vpmnlptype = DEFAULT_NLPTYPE;
-int vpmnlpthresh = DEFAULT_NLPTHRESH;
-int vpmnlpmaxsupp = DEFAULT_NLPMAXSUPP;
+static int vpmnlptype = DEFAULT_NLPTYPE;
+static int vpmnlpthresh = DEFAULT_NLPTHRESH;
+static int vpmnlpmaxsupp = DEFAULT_NLPMAXSUPP;
 
 static int echocan_create(struct dahdi_chan *chan, struct dahdi_echocanparams *ecp,
 			   struct dahdi_echocanparam *p, struct dahdi_echocan_state **ec);
@@ -87,7 +85,7 @@ static const struct dahdi_echocan_ops vpm150m_ec_ops = {
 	.echocan_free = echocan_free,
 };
 
-struct t1 *ifaces[WC_MAX_IFACES];
+static struct t1 *ifaces[WC_MAX_IFACES];
 spinlock_t ifacelock = SPIN_LOCK_UNLOCKED;
 
 struct t1_desc {
@@ -1893,7 +1891,7 @@ static struct pci_device_id te12xp_pci_tbl[] = {
 
 MODULE_DEVICE_TABLE(pci, te12xp_pci_tbl);
 
-struct pci_driver te12xp_driver = {
+static struct pci_driver te12xp_driver = {
 	.name = "wcte12xp",
 	.probe = te12xp_init_one,
 	.remove = __devexit_p(te12xp_remove_one),
