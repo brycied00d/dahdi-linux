@@ -133,9 +133,18 @@ static int vpmadt032_getreg_full_return(struct vpmadt032 *vpm, int pagechange,
 	u16 addr, u16 *outbuf, struct vpmadt032_cmd *cmd)
 {
 	unsigned long flags;
-	int ret = -EIO;
+	unsigned long ret;
 	BUG_ON(!cmd);
-	wait_for_completion(&cmd->complete);
+
+	/* We'll wait for 200ms */
+	ret = wait_for_completion_timeout(&cmd->complete, HZ/5);
+	if (unlikely(!ret)) {
+		spin_lock_irqsave(&vpm->list_lock, flags);
+		list_add_tail(&cmd->node, &vpm->free_cmds);
+		spin_unlock_irqrestore(&vpm->list_lock, flags);
+		return -EIO;
+	}
+
 	if (cmd->desc & __VPM150M_FIN) {
 		*outbuf = cmd->data;
 		cmd->desc = 0;
@@ -146,7 +155,7 @@ static int vpmadt032_getreg_full_return(struct vpmadt032 *vpm, int pagechange,
 	spin_lock_irqsave(&vpm->list_lock, flags);
 	list_add_tail(&cmd->node, &vpm->free_cmds);
 	spin_unlock_irqrestore(&vpm->list_lock, flags);
-	return ret;
+	return 0;
 }
 
 /* Read one of the registers on the VPMADT032 */

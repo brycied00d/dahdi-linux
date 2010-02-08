@@ -116,13 +116,17 @@ static int vpmadt032_load_firmware(struct voicebus *vb)
 	pci_set_drvdata(vb->pdev, ctx);
 	old = vb->ops;
 	vb->ops = &loader_operations;
-	wait_for_completion(&ctx->done);
+	if (wait_for_completion_timeout(&ctx->done, HZ*2)) {
+		dev_err(&vb->pdev->dev,
+			"Timeout waiting for load in %s.\n", __func__);
+		ret = -EIO;
+	}
 	vb->ops = old;
 	pci_set_drvdata(vb->pdev, old_drvdata);
 	__vpmadt032_cleanup(ctx->pvt);
 error_exit:
 	kfree(ctx);
-	return 0;
+	return ret;
 }
 
 static struct vpmadt_loader loader = {
