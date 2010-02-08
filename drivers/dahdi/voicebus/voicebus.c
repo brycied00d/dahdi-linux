@@ -1134,6 +1134,27 @@ static inline void vb_set_all_tx_owned(struct voicebus *vb)
 }
 
 /**
+ * vb_reset_tx_owned() - Reset the OWN bits on descriptors from tail to head.
+ *
+ * When there is a softunderun, this function will cleanup what should be the
+ * idle buffers that we do not expect to be in progress.
+ *
+ */
+static void vb_reset_tx_owned(struct voicebus *vb)
+{
+	struct voicebus_descriptor_list *dl = &vb->txd;
+	struct voicebus_descriptor *d;
+	unsigned int tail = dl->tail;
+
+	while (tail != dl->head) {
+		d = vb_descriptor(dl, tail);
+		SET_OWNED(d);
+		++tail;
+		tail &= DRING_MASK;
+	}
+}
+
+/**
  * __vb_get_default_behind_count() - Returns how many idle buffers are loaded in tx fifo.
  *
  * These buffers are going to be set, but the AN983 does not clear the owned
@@ -1336,16 +1357,21 @@ static void vb_deferred(struct voicebus *vb)
 	 * descriptor ring. Otherwise it's possible to take so much time
 	 * printing the dmesg output that we lose the lead that we got on the
 	 * hardware, resulting in a hard underrun condition. */
-	if (unlikely(softunderrun &&
-	    !test_bit(LATENCY_LOCKED, &vb->flags) && printk_ratelimit())) {
-		if (vb->max_latency != vb->min_tx_buffer_count) {
-			dev_info(&vb->pdev->dev, "Missed interrupt. "
-				 "Increasing latency to %d ms in order to "
-				 "compensate.\n", vb->min_tx_buffer_count);
-		} else {
-			dev_info(&vb->pdev->dev, "ERROR: Unable to service "
-				 "card within %d ms and unable to further "
-				 "increase latency.\n", vb->max_latency);
+	if (unlikely(softunderrun)) {
+		vb_reset_tx_owned(vb);
+		if (!test_bit(LATENCY_LOCKED, &vb->flags) &&
+		    printk_ratelimit()) {
+			if (vb->max_latency != vb->min_tx_buffer_count) {
+				dev_info(&vb->pdev->dev, "Missed interrupt. "
+					 "Increasing latency to %d ms in "
+					 "order to compensate.\n",
+					 vb->min_tx_buffer_count);
+			} else {
+				dev_info(&vb->pdev->dev, "ERROR: Unable to "
+					 "service card within %d ms and "
+					 "unable to further increase "
+					 "latency.\n", vb->max_latency);
+			}
 		}
 	}
 
