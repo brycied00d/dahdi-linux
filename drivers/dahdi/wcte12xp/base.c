@@ -38,6 +38,7 @@
 #include <linux/interrupt.h>
 #include <linux/workqueue.h>
 #include <linux/delay.h>
+#include <linux/sched.h>
 
 #include <dahdi/kernel.h>
 
@@ -1395,7 +1396,7 @@ static int t1_hardware_post_init(struct t1 *wc)
 	t1_setleds(wc, wc->ledstate);
 
 #ifdef VPM_SUPPORT
-	if (vpmsupport) {
+	if (!fatal_signal_pending(current) && vpmsupport) {
 		memset(&options, 0, sizeof(options));
 		options.debug = debug;
 		options.vpmnlptype = vpmnlptype;

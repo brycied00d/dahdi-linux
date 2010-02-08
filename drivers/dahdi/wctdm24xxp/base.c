@@ -3584,6 +3584,9 @@ static int wctdm_locate_modules(struct wctdm *wc)
 	/* Reset modules */
 	for (x=0;x<wc->cards;x++) {
 		int sane=0,ret=0,readi=0;
+
+		if (fatal_signal_pending(current))
+			break;
 retry:
 		/* Init with Auto Calibration */
 		if (!(ret = wctdm_init_proslic(wc, x, 0, 0, sane))) {
@@ -3644,6 +3647,9 @@ retry:
 			}
 		}
 	}
+
+	if (fatal_signal_pending(current))
+		return -EINTR;
 
 	if (!vpmsupport) {
 		printk(KERN_NOTICE "VPM: Support Disabled\n");

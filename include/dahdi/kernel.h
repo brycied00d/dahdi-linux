@@ -1176,6 +1176,11 @@ static inline short dahdi_txtone_nextsample(struct dahdi_chan *ss)
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 31)
 #define KERN_CONT ""
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 25)
+static inline int fatal_signal_pending(struct task_struct *p)
+{
+	return signal_pending(p) && sigismember(&p->pending.signal, SIGKILL);
+}
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 18)
 static inline void list_replace(struct list_head *old, struct list_head *new)
 {
@@ -1202,6 +1207,7 @@ wait_for_completion_timeout(struct completion *x, unsigned long timeout)
 #endif /* 2.6.11 */
 #endif /* 2.6.14 */
 #endif /* 2.6.18 */
+#endif /* 2.6.25 */
 #endif /* 2.6.31 */
 
 #ifndef DMA_BIT_MASK
