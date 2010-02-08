@@ -997,23 +997,6 @@ vb_clear_start_receive_bit(struct voicebus *vb)
 	VBUNLOCK(vb);
 }
 
-static unsigned long
-vb_wait_for_completion_timeout(struct completion *x, unsigned long timeout)
-{
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 11)
-	/* There is a race condition here.  If x->done is reset to 0
-	 * before the call to wait_for_completion after this thread wakes.
-	 */
-	timeout = wait_event_timeout(x->wait, x->done, timeout);
-	if (timeout)
-		wait_for_completion(x);
-
-	return timeout;
-#else
-	return wait_for_completion_timeout(x, timeout);
-#endif
-}
-
 /*!
  * \brief Stops the VoiceBus interface.
  *
@@ -1036,7 +1019,7 @@ voicebus_stop(struct voicebus *vb)
 	set_bit(STOP, &vb->flags);
 	vb_clear_start_transmit_bit(vb);
 	vb_clear_start_receive_bit(vb);
-	if (vb_wait_for_completion_timeout(&vb->stopped_completion, HZ)) {
+	if (wait_for_completion_timeout(&vb->stopped_completion, HZ)) {
 		BUG_ON(!vb_is_stopped(vb));
 	} else {
 		dev_warn(&vb->pdev->dev, "Timeout while waiting for board to "

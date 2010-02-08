@@ -1174,10 +1174,8 @@ static inline short dahdi_txtone_nextsample(struct dahdi_chan *ss)
 /*! Maximum audio mask */
 #define DAHDI_FORMAT_AUDIO_MASK	((1 << 16) - 1)
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,14)
-#define kzalloc(a, b) kcalloc(1, a, b)
-#endif
-
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 31)
+#define KERN_CONT ""
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 18)
 static inline void list_replace(struct list_head *old, struct list_head *new)
 {
@@ -1186,7 +1184,25 @@ static inline void list_replace(struct list_head *old, struct list_head *new)
         new->prev = old->prev;
         new->prev->next = new;
 }
-#endif
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 14)
+#define kzalloc(a, b) kcalloc(1, a, b)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 11)
+static inline unsigned long
+wait_for_completion_timeout(struct completion *x, unsigned long timeout)
+{
+	/* There is a race condition here.  If x->done is reset to 0
+	 * before the call to wait_for_completion after this thread wakes.
+	 */
+	timeout = wait_event_timeout(x->wait, x->done, timeout);
+	if (timeout)
+		wait_for_completion(x);
+
+	return timeout;
+}
+#endif /* 2.6.11 */
+#endif /* 2.6.14 */
+#endif /* 2.6.18 */
+#endif /* 2.6.31 */
 
 #ifndef DMA_BIT_MASK
 #define DMA_BIT_MASK(n)	(((n) == 64) ? ~0ULL : ((1ULL<<(n))-1))

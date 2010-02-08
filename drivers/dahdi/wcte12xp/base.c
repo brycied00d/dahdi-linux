@@ -559,7 +559,7 @@ static inline int t1_setreg(struct t1 *wc, int addr, int val)
 static int t1_getreg(struct t1 *wc, int addr)
 {
 	struct command *cmd =  NULL;
-	int ret;
+	unsigned long ret;
 
 	might_sleep();
 
@@ -570,7 +570,15 @@ static int t1_getreg(struct t1 *wc, int addr)
 	cmd->data = 0x00;
 	cmd->flags = __CMD_RD;
 	submit_cmd(wc, cmd);
-	wait_for_completion(&cmd->complete);
+	ret = wait_for_completion_timeout(&cmd->complete, HZ/5);
+	if (unlikely(ret)) {
+		if (printk_ratelimit()) {
+			dev_warn(&wc->vb.pdev->dev,
+				 "Timeout in %s\n", __func__);
+		}
+		free_cmd(wc, cmd);
+		return -EIO;
+	}
 	ret = cmd->data;
 	free_cmd(wc, cmd);
 	return ret;
@@ -592,8 +600,8 @@ static void t1_setleds(struct t1 *wc, int leds)
 
 static inline int t1_getpins(struct t1 *wc, int inisr)
 {
-	int ret = 0;
 	struct command *cmd;
+	unsigned long ret;
 
 	cmd = get_free_cmd(wc);
 	BUG_ON(!cmd);
@@ -602,10 +610,18 @@ static inline int t1_getpins(struct t1 *wc, int inisr)
 	cmd->data = 0x00;
 	cmd->flags = __CMD_PINS;
 	submit_cmd(wc, cmd);
-	wait_for_completion(&cmd->complete);
+	ret = wait_for_completion_timeout(&cmd->complete, HZ/5);
+	if (unlikely(ret)) {
+		if (printk_ratelimit()) {
+			dev_warn(&wc->vb.pdev->dev,
+				 "Timeout in %s\n", __func__);
+		}
+		free_cmd(wc, cmd);
+		return -EIO;
+	}
 	ret = cmd->data;
 	free_cmd(wc, cmd);
-	return ret;
+	return 0;
 }
 
 static void __t1xxp_set_clear(struct t1 *wc, int channo)
