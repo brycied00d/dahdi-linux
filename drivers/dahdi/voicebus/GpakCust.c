@@ -129,7 +129,7 @@ static struct vpmadt032_cmd *vpmadt032_getreg_full_async(struct vpmadt032 *vpm, 
 }
 
 /* Get the results from a previous call to vpmadt032_getreg_full_async. */
-int vpmadt032_getreg_full_return(struct vpmadt032 *vpm, int pagechange,
+static int vpmadt032_getreg_full_return(struct vpmadt032 *vpm, int pagechange,
 	u16 addr, u16 *outbuf, struct vpmadt032_cmd *cmd)
 {
 	unsigned long flags;
@@ -742,7 +742,7 @@ void gpakReadDspMemory(
 
 	vpmadt032_io_wait(vpm);
 	if ( NumWords < VPM150M_MAX_COMMANDS ) {
-		struct vpmadt032_cmd *cmds[VPM150M_MAX_COMMANDS] = {0};
+		struct vpmadt032_cmd *cmds[VPM150M_MAX_COMMANDS] = {NULL};
 		vpmadt032_setpage(vpm, DspAddress >> 16);
 		DspAddress &= 0xffff;
 		for (i=0; i < NumWords; ++i) {
