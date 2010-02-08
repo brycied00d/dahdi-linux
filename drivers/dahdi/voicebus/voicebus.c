@@ -1650,15 +1650,6 @@ cleanup:
 }
 EXPORT_SYMBOL(voicebus_init);
 
-
-/*! \brief Return the pci_dev in use by this voicebus interface. */
-struct pci_dev *
-voicebus_get_pci_dev(struct voicebus *vb)
-{
-	return vb->pdev;
-}
-EXPORT_SYMBOL(voicebus_get_pci_dev);
-
 static spinlock_t loader_list_lock;
 static struct list_head binary_loader_list;
 
@@ -1734,7 +1725,7 @@ int vpmadtreg_unregister(struct vpmadt_loader *loader)
 }
 EXPORT_SYMBOL(vpmadtreg_unregister);
 
-int __init voicebus_module_init(void)
+static int __init voicebus_module_init(void)
 {
 	int res;
 
@@ -1772,7 +1763,7 @@ int __init voicebus_module_init(void)
 	 * defined, but it will make sure that this module is a dependency of
 	 * dahdi.ko, so that when it is being unloded, this module will be
 	 * unloaded as well. */
-	dahdi_register(0, 0);
+	dahdi_register(NULL, 0);
 	INIT_LIST_HEAD(&binary_loader_list);
 	spin_lock_init(&loader_list_lock);
 	res = vpmadt032_module_init();
@@ -1781,7 +1772,7 @@ int __init voicebus_module_init(void)
 	return 0;
 }
 
-void __exit voicebus_module_cleanup(void)
+static void __exit voicebus_module_cleanup(void)
 {
 	kmem_cache_destroy(buffer_cache);
 	WARN_ON(!list_empty(&binary_loader_list));
