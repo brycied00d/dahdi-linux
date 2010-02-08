@@ -288,7 +288,9 @@ static inline int empty_slot(struct wctdm *wc, int card)
 	return -1;
 }
 
-void setchanconfig_from_state(struct vpmadt032 *vpm, int channel, GpakChannelConfig_t *chanconfig)
+static void
+setchanconfig_from_state(struct vpmadt032 *vpm, int channel,
+			 GpakChannelConfig_t *chanconfig)
 {
 	const struct vpmadt032_options *options;
 	GpakEcanParms_t *p;
@@ -3724,8 +3726,8 @@ voicebus_current_latency_show(struct device *dev,
 	return sprintf(buf, "%d\n", current_latency);
 }
 
-DEVICE_ATTR(voicebus_current_latency, 0400,
-	    voicebus_current_latency_show, NULL);
+static DEVICE_ATTR(voicebus_current_latency, 0400,
+		   voicebus_current_latency_show, NULL);
 #endif
 
 
