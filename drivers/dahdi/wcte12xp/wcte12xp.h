@@ -77,8 +77,6 @@
 #define TYPE_T1	1
 #define TYPE_E1	2
 
-#define module_printk(fmt, args...) printk(KERN_INFO "%s: " fmt, THIS_MODULE->name, ## args)
-#define debug_printk(level, fmt, args...) if (debug >= level) printk(KERN_DEBUG "%s (%s): " fmt, THIS_MODULE->name, __FUNCTION__, ## args)
 extern spinlock_t ifacelock;
 
 struct command {
