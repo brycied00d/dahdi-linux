@@ -4,7 +4,7 @@
  * Written by Mark Spencer <markster@digium.com>
  * Support for TDM800P and VPM150M by Matthew Fredrickson <creslin@digium.com>
  *
- * Copyright (C) 2005-2009 Digium, Inc.
+ * Copyright (C) 2005-2010 Digium, Inc.
  *
  * All rights reserved.
  *

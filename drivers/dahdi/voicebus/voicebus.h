@@ -6,7 +6,7 @@
  * Matthew Fredrickson <creslin@digium.com>, and
  * Michael Spiceland <mspiceland@digium.com>
  * 
- * Copyright (C) 2007-2009 Digium, Inc.
+ * Copyright (C) 2007-2010 Digium, Inc.
  *
  * All rights reserved.
  *

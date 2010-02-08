@@ -6,7 +6,7 @@
  * written by Jim Dixon <jim@lambdatel.com>.
  *
  * Copyright (C) 2001 Jim Dixon / Zapata Telephony.
- * Copyright (C) 2001 - 2008 Digium, Inc.
+ * Copyright (C) 2001 - 2010 Digium, Inc.
  *
  * All rights reserved.
  *

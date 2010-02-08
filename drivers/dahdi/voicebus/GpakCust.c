@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2005, Adaptive Digital Technologies, Inc.
- * Copyright (c) 2005-2009, Digium Incorporated
+ * Copyright (c) 2005-2010, Digium Incorporated
  *
  * File Name: GpakCust.c
  *
