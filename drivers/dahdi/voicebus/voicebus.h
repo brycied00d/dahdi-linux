@@ -58,6 +58,7 @@ struct voicebus;
 struct voicebus_operations {
 	void (*handle_receive)(struct voicebus *vb, void *vbb);
 	void (*handle_transmit)(struct voicebus *vb, void *vbb);
+	void (*handle_error)(struct voicebus *vb);
 };
 
 /**
@@ -94,6 +95,7 @@ struct voicebus {
 #elif VOICEBUS_DEFERRED == TIMER
 	struct timer_list	timer;
 #endif
+	struct work_struct	underrun_work;
 	const struct voicebus_operations *ops;
 	struct completion	stopped_completion;
 	unsigned long		flags;
