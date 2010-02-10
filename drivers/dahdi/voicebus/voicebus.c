@@ -141,12 +141,10 @@ static inline void handle_transmit(struct voicebus *vb, void *vbb)
 #endif
 
 /* Bit definitions for struct voicebus.flags */
-#define TX_UNDERRUN			1
-#define RX_UNDERRUN			2
-#define IN_DEFERRED_PROCESSING		3
-#define STOP				4
-#define STOPPED				5
-#define LATENCY_LOCKED			6
+#define IN_DEFERRED_PROCESSING		1
+#define STOP				2
+#define STOPPED				3
+#define LATENCY_LOCKED			4
 
 #if VOICEBUS_DEFERRED == WORKQUEUE
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 18)
@@ -629,23 +627,80 @@ vb_reset_interface(struct voicebus *vb)
 	return 0;
 }
 
+/*!
+ * \brief Give a frame to the hardware to use for receiving.
+ *
+ */
+static inline int
+vb_submit_rxb(struct voicebus *vb, void *vbb)
+{
+	struct voicebus_descriptor *d;
+	struct voicebus_descriptor_list *dl = &vb->rxd;
+	unsigned int tail = dl->tail;
+
+	d = vb_descriptor(dl, tail);
+
+	if (unlikely(d->buffer1)) {
+		/* Do not overwrite a buffer that is still in progress. */
+		WARN_ON(1);
+		voicebus_free(vb, vbb);
+		return -EBUSY;
+	}
+
+	dl->pending[tail] = vbb;
+	dl->tail = (++tail) & DRING_MASK;
+	d->buffer1 = dma_map_single(&vb->pdev->dev, vbb,
+				    VOICEBUS_SFRAME_SIZE, DMA_FROM_DEVICE);
+	SET_OWNED(d); /* That's it until the hardware is done with it. */
+	atomic_inc(&dl->count);
+	return 0;
+}
+
+static void setup_descriptors(struct voicebus *vb)
+{
+	int i;
+	void *vbb;
+
+	vb_cleanup_tx_descriptors(vb);
+	vb_cleanup_rx_descriptors(vb);
+
+	/* Tell the card where the descriptors are in host memory. */
+	vb_setctl(vb, 0x0020, (u32)vb->txd.desc_dma);
+	vb_setctl(vb, 0x0018, (u32)vb->rxd.desc_dma);
+
+	for (i = 0; i < DRING_SIZE; ++i) {
+		vbb = voicebus_alloc(vb);
+		if (unlikely(NULL == vbb)) {
+			BUG_ON(1);
+			/* \todo I need to make sure the driver can recover
+			 * from this condition. .... */
+		} else {
+			vb_submit_rxb(vb, vbb);
+		}
+	}
+
+	for (i = 0; i < vb->min_tx_buffer_count; ++i) {
+		vbb = voicebus_alloc(vb);
+
+		if (unlikely(NULL == vbb))
+			BUG_ON(1);
+		else
+			handle_transmit(vb, vbb);
+	}
+}
+
 static int
 vb_initialize_interface(struct voicebus *vb)
 {
 	u32 reg;
 
-	vb_cleanup_tx_descriptors(vb);
-	vb_cleanup_rx_descriptors(vb);
+	setup_descriptors(vb);
 
 	/* Pass bad packets, runt packets, disable SQE function,
 	 * store-and-forward */
 	vb_setctl(vb, 0x0030, 0x00280048);
 	/* ...disable jabber and the receive watchdog. */
 	vb_setctl(vb, 0x0078, 0x00000013);
-
-	/* Tell the card where the descriptors are in host memory. */
-	vb_setctl(vb, 0x0020, (u32)vb->txd.desc_dma);
-	vb_setctl(vb, 0x0018, (u32)vb->rxd.desc_dma);
 
 	reg = vb_getctl(vb, 0x00fc);
 	vb_setctl(vb, 0x00fc, (reg & ~0x7) | 0x7);
@@ -723,35 +778,6 @@ int voicebus_transmit(struct voicebus *vb, void *vbb)
 	return 0;
 }
 EXPORT_SYMBOL(voicebus_transmit);
-
-/*!
- * \brief Give a frame to the hardware to use for receiving.
- *
- */
-static inline int
-vb_submit_rxb(struct voicebus *vb, void *vbb)
-{
-	struct voicebus_descriptor *d;
-	struct voicebus_descriptor_list *dl = &vb->rxd;
-	unsigned int tail = dl->tail;
-
-	d = vb_descriptor(dl, tail);
-
-	if (unlikely(d->buffer1)) {
-		/* Do not overwrite a buffer that is still in progress. */
-		WARN_ON(1);
-		voicebus_free(vb, vbb);
-		return -EBUSY;
-	}
-
-	dl->pending[tail] = vbb;
-	dl->tail = (++tail) & DRING_MASK;
-	d->buffer1 = dma_map_single(&vb->pdev->dev, vbb,
-				    VOICEBUS_SFRAME_SIZE, DMA_FROM_DEVICE);
-	SET_OWNED(d); /* That's it until the hardware is done with it. */
-	atomic_inc(&dl->count);
-	return 0;
-}
 
 /*!
  * \brief Remove the next completed transmit buffer (txb) from the tx
@@ -832,19 +858,6 @@ __vb_tx_demand_poll(struct voicebus *vb)
 }
 
 /*!
- * \brief Command the hardware to check if it owns the next transmit
- * descriptor.
- */
-static void
-vb_tx_demand_poll(struct voicebus *vb)
-{
-	LOCKS_VOICEBUS;
-	VBLOCK(vb);
-	__vb_tx_demand_poll(vb);
-	VBUNLOCK(vb);
-}
-
-/*!
  * \brief Command the hardware to check if it owns the next receive
  * descriptor.
  */
@@ -852,15 +865,6 @@ static inline void
 __vb_rx_demand_poll(struct voicebus *vb)
 {
 	__vb_setctl(vb, 0x0010, 0x00000000);
-}
-
-static void
-vb_rx_demand_poll(struct voicebus *vb)
-{
-	LOCKS_VOICEBUS;
-	VBLOCK(vb);
-	__vb_rx_demand_poll(vb);
-	VBUNLOCK(vb);
 }
 
 static void
@@ -884,69 +888,10 @@ vb_disable_interrupts(struct voicebus *vb)
 	VBUNLOCK(vb);
 }
 
-/*!
- * \brief Starts the VoiceBus interface.
- *
- * When the VoiceBus interface is started, it is actively transferring
- * frames to and from the backend of the card.  This means the card will
- * generate interrupts.
- *
- * This function should only be called from process context, with interrupts
- * enabled, since it can sleep while running the self checks.
- *
- * \return zero on success. -EBUSY if device is already running.
- */
-int
-voicebus_start(struct voicebus *vb)
+static void start_packet_processing(struct voicebus *vb)
 {
 	LOCKS_VOICEBUS;
 	u32 reg;
-	int i;
-	void *vbb;
-	int ret;
-
-	if (!vb_is_stopped(vb))
-		return -EBUSY;
-
-	ret = vb_reset_interface(vb);
-	if (ret)
-		return ret;
-	ret = vb_initialize_interface(vb);
-	if (ret)
-		return ret;
-
-	/* We must set up a minimum of three buffers to start with, since two
-	 * are immediately read into the TX FIFO, and the descriptor of the
-	 * third is read as soon as the first buffer is done.
-	 */
-
-	/*
-	 * NOTE: handle_transmit is normally only called in the context of the
-	 *  deferred processing thread.  Since the deferred processing thread
-	 *  is known to not be running at this point, it is safe to call the
-	 *  handle transmit as if it were.
-	 */
-	/* Ensure that all the rx slots are ready for a buffer. */
-	for (i = 0; i < DRING_SIZE; ++i) {
-		vbb = voicebus_alloc(vb);
-		if (unlikely(NULL == vbb)) {
-			BUG_ON(1);
-			/* \todo I need to make sure the driver can recover
-			 * from this condition. .... */
-		} else {
-			vb_submit_rxb(vb, vbb);
-		}
-	}
-
-	for (i = 0; i < vb->min_tx_buffer_count; ++i) {
-		vbb = voicebus_alloc(vb);
-
-		if (unlikely(NULL == vbb))
-			BUG_ON(1);
-		else
-			handle_transmit(vb, vbb);
-
-	}
 
 	VBLOCK(vb);
 	clear_bit(STOP, &vb->flags);
@@ -966,6 +911,36 @@ voicebus_start(struct voicebus *vb)
 	__vb_rx_demand_poll(vb);
 	__vb_tx_demand_poll(vb);
 	VBUNLOCK(vb);
+}
+
+/*!
+ * \brief Starts the VoiceBus interface.
+ *
+ * When the VoiceBus interface is started, it is actively transferring
+ * frames to and from the backend of the card.  This means the card will
+ * generate interrupts.
+ *
+ * This function should only be called from process context, with interrupts
+ * enabled, since it can sleep while running the self checks.
+ *
+ * \return zero on success. -EBUSY if device is already running.
+ */
+int
+voicebus_start(struct voicebus *vb)
+{
+	int ret;
+
+	if (!vb_is_stopped(vb))
+		return -EBUSY;
+
+	ret = vb_reset_interface(vb);
+	if (ret)
+		return ret;
+	ret = vb_initialize_interface(vb);
+	if (ret)
+		return ret;
+
+	start_packet_processing(vb);
 
 	BUG_ON(vb_is_stopped(vb));
 
@@ -1053,6 +1028,14 @@ voicebus_release(struct voicebus *vb)
 {
 	/* quiesce the hardware */
 	voicebus_stop(vb);
+
+	/* Make sure the underrun_work isn't running or going to run. */
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 22)
+	flush_scheduled_work();
+#else
+	cancel_work_sync(&vb->underrun_work);
+#endif
+
 #if VOICEBUS_DEFERRED == WORKQUEUE
 	destroy_workqueue(vb->workqueue);
 #elif VOICEBUS_DEFERRED == TASKLET
@@ -1269,8 +1252,6 @@ static void vb_deferred(struct voicebus *vb)
 	unsigned int idle_buffers;
 	int softunderrun;
 
-	int underrun = test_bit(TX_UNDERRUN, &vb->flags);
-
 	buffer_count = 0;
 
 	/* First, temporarily store any non-idle buffers that the hardware has
@@ -1335,24 +1316,6 @@ static void vb_deferred(struct voicebus *vb)
 	for (i = 0; i < buffer_count; ++i)
 		handle_transmit(vb, vb->vbb_stash[i]);
 
-	/* If underrun is set, it means that the hardware signalled that it
-	 * completely ran out of transmit descriptors.  This is what we are
-	 * trying to avoid with all this racy softunderun business, but alas,
-	 * it's still possible to happen if interrupts are locked longer than
-	 * DRING_SIZE milliseconds for some reason. We should have already fixed
-	 * up the descriptor ring in this case, so let's just tell the hardware
-	 * to reread what it believes the next descriptor is. */
-	if (unlikely(underrun)) {
-		if (printk_ratelimit()) {
-			dev_info(&vb->pdev->dev, "Host failed to service "
-				 "card interrupt within %d ms which is a "
-				 "hardunderun.\n", DRING_SIZE);
-		}
-		vb_rx_demand_poll(vb);
-		vb_tx_demand_poll(vb);
-		clear_bit(TX_UNDERRUN, &vb->flags);
-	}
-
 	/* Print any messages about soft latency bumps after we fix the transmit
 	 * descriptor ring. Otherwise it's possible to take so much time
 	 * printing the dmesg output that we lose the lead that we got on the
@@ -1387,6 +1350,35 @@ static void vb_deferred(struct voicebus *vb)
 	}
 }
 
+/**
+ * handle_hardunderrun() - reset the AN983 after experiencing a hardunderrun.
+ * @work: 	The work_struct used to queue this function.
+ *
+ */
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 20)
+static void handle_hardunderrun(void *data)
+{
+	struct voicebus *vb = data;
+#else
+static void handle_hardunderrun(struct work_struct *work)
+{
+	struct voicebus *vb = container_of(work, struct voicebus,
+					   underrun_work);
+#endif
+	if (printk_ratelimit()) {
+		dev_info(&vb->pdev->dev, "Host failed to service "
+			 "card interrupt within %d ms which is a "
+			 "hardunderun.\n", DRING_SIZE);
+	}
+	voicebus_stop(vb);
+
+	if (vb->ops->handle_error)
+		vb->ops->handle_error(vb);
+
+	setup_descriptors(vb);
+	start_packet_processing(vb);
+}
+
 /*!
  * \brief Interrupt handler for VoiceBus interface.
  *
@@ -1414,7 +1406,11 @@ vb_isr(int irq, void *dev_id)
 	if (!int_status)
 		return IRQ_NONE;
 
-	if (likely(int_status & TX_COMPLETE_INTERRUPT)) {
+	if (unlikely((int_status & TX_UNAVAILABLE_INTERRUPT) &&
+	    !test_bit(STOP, &vb->flags))) {
+		schedule_work(&vb->underrun_work);
+		__vb_setctl(vb, SR_CSR5, int_status);
+	} else if (likely(int_status & TX_COMPLETE_INTERRUPT)) {
 		/* ******************************************************** */
 		/* NORMAL INTERRUPT CASE				    */
 		/* ******************************************************** */
@@ -1427,30 +1423,6 @@ vb_isr(int irq, void *dev_id)
 #		endif
 		__vb_setctl(vb, SR_CSR5, TX_COMPLETE_INTERRUPT);
 	} else {
-		/* ******************************************************** */
-		/* ABNORMAL / ERROR CONDITIONS 				    */
-		/* ******************************************************** */
-		if ((int_status & TX_UNAVAILABLE_INTERRUPT)) {
-			/* This can happen if the host fails to service the
-			 * interrupt within the required time interval (1ms
-			 * for each buffer on the queue).  Increasing the
-			 * depth of the tx queue (up to a maximum of
-			 * DRING_SIZE) can make the driver / system more
-			 * tolerant of interrupt latency under periods of
-			 * heavy system load, but also increases the general
-			 * latency that the driver adds to the voice
-			 * conversations.
-			 */
-			set_bit(TX_UNDERRUN, &vb->flags);
-#			if VOICEBUS_DEFERRED == WORKQUEUE
-			queue_work(vb->workqueue, &vb->workitem);
-#			elif VOICEBUS_DEFERRED == TASKLET
-			tasklet_schedule(&vb->tasklet);
-#			else
-			vb_deferred(vb);
-#			endif
-		}
-
 		if (int_status & FATAL_BUS_ERROR_INTERRUPT)
 			dev_err(&vb->pdev->dev, "Fatal Bus Error detected!\n");
 
@@ -1565,6 +1537,12 @@ voicebus_init(struct voicebus *vb, const char *board_name)
 	init_timer(&vb->timer);
 	vb->timer.function = vb_timer;
 	vb->timer.data = (unsigned long)vb;
+#endif
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 20)
+	INIT_WORK(&vb->underrun_work, handle_hardunderrun, vb);
+#else
+	INIT_WORK(&vb->underrun_work, handle_hardunderrun);
 #endif
 
 	/* ----------------------------------------------------------------
