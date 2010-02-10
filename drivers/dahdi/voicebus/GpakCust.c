@@ -542,7 +542,7 @@ vpmadt032_alloc(struct vpmadt032_options *options, const char *board_name)
 
 	if (-1 == vpm->dspid) {
 		kfree(vpm);
-		printk(KERN_NOTICE "Unable to initialize another vpmadt032 modules\n");
+		dev_notice(&vpm->vb->pdev->dev, "Unable to initialize another vpmadt032 modules\n");
 		vpm = NULL;
 	}
 
@@ -567,7 +567,7 @@ vpmadt032_init(struct vpmadt032 *vpm, struct voicebus *vb)
 	might_sleep();
 
 	if (vpm->options.debug & DEBUG_ECHOCAN)
-		printk(KERN_DEBUG "VPMADT032 Testing page access: ");
+		dev_info(&vpm->vb->pdev->dev, "VPMADT032 Testing page access: ");
 
 	for (i = 0; i < 0xf; i++) {
 		int x;
@@ -576,7 +576,7 @@ vpmadt032_init(struct vpmadt032 *vpm, struct voicebus *vb)
 			reg = vpmadt032_getpage(vpm);
 			if (reg != i) {
 				if (vpm->options.debug & DEBUG_ECHOCAN)
-					printk(KERN_DEBUG "Failed: Sent %x != %x VPMADT032 Failed HI page test\n", i, reg);
+					dev_info(&vpm->vb->pdev->dev, "Failed: Sent %x != %x VPMADT032 Failed HI page test\n", i, reg);
 				res = -ENODEV;
 				goto failed_exit;
 			}
@@ -584,7 +584,7 @@ vpmadt032_init(struct vpmadt032 *vpm, struct voicebus *vb)
 	}
 
 	if (vpm->options.debug & DEBUG_ECHOCAN)
-		printk(KERN_DEBUG "Passed\n");
+		dev_info(&vpm->vb->pdev->dev, "Passed\n");
 
 	set_bit(VPM150M_HPIRESET, &vpm->control);
 	msleep(2000);
@@ -594,7 +594,7 @@ vpmadt032_init(struct vpmadt032 *vpm, struct voicebus *vb)
 	/* Set us up to page 0 */
 	vpmadt032_setpage(vpm, 0);
 	if (vpm->options.debug & DEBUG_ECHOCAN)
-		printk(KERN_DEBUG "VPMADT032 now doing address test: ");
+		dev_info(&vpm->vb->pdev->dev, "VPMADT032 now doing address test: ");
 
 	for (i = 0; i < 16; i++) {
 		int x;
@@ -602,7 +602,7 @@ vpmadt032_init(struct vpmadt032 *vpm, struct voicebus *vb)
 			vpmadt032_setreg(vpm, 0x1000, i);
 			vpmadt032_getreg(vpm, 0x1000, &reg);
 			if (reg != i) {
-				printk("VPMADT032 Failed address test\n");
+				printk(KERN_CONT "VPMADT032 Failed address test\n");
 				goto failed_exit;
 			}
 
@@ -610,7 +610,7 @@ vpmadt032_init(struct vpmadt032 *vpm, struct voicebus *vb)
 	}
 
 	if (vpm->options.debug & DEBUG_ECHOCAN)
-		printk("Passed\n");
+		printk(KERN_CONT "Passed\n");
 
 	set_bit(VPM150M_HPIRESET, &vpm->control);
 	while (test_bit(VPM150M_HPIRESET, &vpm->control))
@@ -632,9 +632,9 @@ vpmadt032_init(struct vpmadt032 *vpm, struct voicebus *vb)
 
 	if (!pingstatus) {
 		if (vpm->options.debug & DEBUG_ECHOCAN)
-			printk(KERN_DEBUG "Version of DSP is %x\n", vpm->version);
+			dev_info(&vpm->vb->pdev->dev, "Version of DSP is %x\n", vpm->version);
 	} else {
-		printk(KERN_NOTICE "VPMADT032 Failed! Unable to ping the DSP (%d)!\n", pingstatus);
+		dev_notice(&vpm->vb->pdev->dev, "VPMADT032 Failed! Unable to ping the DSP (%d)!\n", pingstatus);
 		res = -1;
 		goto failed_exit;
 	}
@@ -797,7 +797,7 @@ void gpakWriteDspMemory(
 	struct vpmadt032 *vpm = find_iface(DspId);
 	int i;
 
-	//printk(KERN_DEBUG "Writing %d words to memory\n", NumWords);
+	//dev_info(&vpm->vb->pdev->dev, "Writing %d words to memory\n", NumWords);
 	if (vpm) {
 		for (i = 0; i < NumWords; ++i) {
 			vpmadt032_setreg(vpm, DspAddress + i, pWordValues[i]);
@@ -805,7 +805,7 @@ void gpakWriteDspMemory(
 #if 0
 		for (i = 0; i < NumWords; i++) {
 			if (wctdm_vpmadt032_getreg(wc, DspAddress + i) != pWordValues[i]) {
-				printk(KERN_NOTICE "Error in write.  Address %x is not %x\n", DspAddress + i, pWordValues[i]);
+				dev_notice(&vpm->vb->pdev->dev, "Error in write.  Address %x is not %x\n", DspAddress + i, pWordValues[i]);
 			}
 		}
 #endif
