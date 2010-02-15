@@ -47,6 +47,8 @@ ifeq (yes,$(HAS_KSRC))
   HOTPLUG_FIRMWARE:=$(shell if grep -q '^CONFIG_FW_LOADER=[ym]' $(KCONFIG); then echo "yes"; else echo "no"; fi)
 endif
 
+UDEV_DIR:=/etc/udev/rules.d
+
 MODULE_ALIASES:=wcfxs wctdm8xxp wct2xxp
 
 INST_HEADERS:=kernel.h user.h fasthdlc.h wctdm_user.h dahdi_config.h
@@ -135,12 +137,12 @@ uninstall-include:
 	-rmdir $(DESTDIR)/usr/include/dahdi
 
 install-devices:
-	install -d $(DESTDIR)/etc/udev/rules.d
-	build_tools/genudevrules > $(DESTDIR)/etc/udev/rules.d/dahdi.rules
-	install -m 644 drivers/dahdi/xpp/xpp.rules $(DESTDIR)/etc/udev/rules.d/
+	install -d $(DESTDIR)$(UDEV_DIR)
+	build_tools/genudevrules > $(DESTDIR)$(UDEV_DIR)/dahdi.rules
+	install -m 644 drivers/dahdi/xpp/xpp.rules $(DESTDIR)$(UDEV_DIR)/
 
 uninstall-devices:
-	rm -f $(DESTDIR)/etc/udev/rules.d/dahdi.rules
+	rm -f $(DESTDIR)$(UDEV_DIR)/dahdi.rules
 
 install-modules: modules
 ifndef DESTDIR
