@@ -55,10 +55,6 @@ DAHDI_BUILD_ALL:=m
 
 KMAKE=$(MAKE) -C $(KSRC) SUBDIRS=$(PWD)/drivers/dahdi DAHDI_INCLUDE=$(PWD)/include DAHDI_MODULES_EXTRA="$(DAHDI_MODULES_EXTRA)" HOTPLUG_FIRMWARE=$(HOTPLUG_FIRMWARE)
 
-ifneq (,$(wildcard $(DESTDIR)/etc/udev/rules.d))
-  DYNFS:=yes
-endif
-
 ROOT_PREFIX:=
 
 ASCIIDOC:=asciidoc
@@ -139,40 +135,12 @@ uninstall-include:
 	-rmdir $(DESTDIR)/usr/include/dahdi
 
 install-devices:
-ifndef DYNFS
-	mkdir -p $(DESTDIR)/dev/dahdi
-	rm -f $(DESTDIR)/dev/dahdi/ctl
-	rm -f $(DESTDIR)/dev/dahdi/channel
-	rm -f $(DESTDIR)/dev/dahdi/pseudo
-	rm -f $(DESTDIR)/dev/dahdi/timer
-	rm -f $(DESTDIR)/dev/dahdi/transcode
-	rm -f $(DESTDIR)/dev/dahdi/253
-	rm -f $(DESTDIR)/dev/dahdi/252
-	rm -f $(DESTDIR)/dev/dahdi/251
-	rm -f $(DESTDIR)/dev/dahdi/250
-	mknod $(DESTDIR)/dev/dahdi/ctl c 196 0
-	mknod $(DESTDIR)/dev/dahdi/transcode c 196 250
-	mknod $(DESTDIR)/dev/dahdi/timer c 196 253
-	mknod $(DESTDIR)/dev/dahdi/channel c 196 254
-	mknod $(DESTDIR)/dev/dahdi/pseudo c 196 255
-	N=1; \
-	while [ $$N -lt 250 ]; do \
-		rm -f $(DESTDIR)/dev/dahdi/$$N; \
-		mknod $(DESTDIR)/dev/dahdi/$$N c 196 $$N; \
-		N=$$[$$N+1]; \
-	done
-else # DYNFS
 	install -d $(DESTDIR)/etc/udev/rules.d
 	build_tools/genudevrules > $(DESTDIR)/etc/udev/rules.d/dahdi.rules
 	install -m 644 drivers/dahdi/xpp/xpp.rules $(DESTDIR)/etc/udev/rules.d/
-endif
 
 uninstall-devices:
-ifndef DYNFS
-	-rm -rf $(DESTDIR)/dev/dahdi
-else # DYNFS
 	rm -f $(DESTDIR)/etc/udev/rules.d/dahdi.rules
-endif
 
 install-modules: modules
 ifndef DESTDIR
