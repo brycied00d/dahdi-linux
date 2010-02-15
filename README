@@ -93,11 +93,6 @@ modules. To install to a relative path you can use something like:
 
   make install-modules DESTDIR=$PWD/target
 
-The 'install' target might fail if run as a user to a DESTDIR when
-attempting to generate device files. In that case, try:
-
-  make install DESTDIR=$PWD/target DYNFS=
-
 
 Extra Modules
 ~~~~~~~~~~~~~
@@ -107,6 +102,22 @@ SUBDIRS_EXTRA:
 
   make MODULES_EXTRA="mod1 mod2"
   make MODULES_EXTRA="mod1 mod2" SUBDIRS_EXTRA="subdir1/ subdir1/"
+
+
+Static Device Files
+~~~~~~~~~~~~~~~~~~~
+Userspace programs communicate with the DAHDI modules through special
+device files under /dev/dahdi .  Those are normally created by udev, but
+if you use an embedded-type system and don't wish to use udev, you can
+generate them with the following script, from the source directory:
+
+  ./build_tools/make_static_devs
+
+This will generate the device files under /dev/dahdi . If you need to
+generate them elsewhere (e.g. `tmp/newroot/dev/dahdi`) use the option -d
+to the script:
+
+  ./build_tools/make_static_devs -d tmp/newroot/dev/dahdi
 
 
 Installing the B410P drivers with mISDN
