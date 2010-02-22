@@ -1426,18 +1426,28 @@ DAHDI_IRQ_HANDLER(tor2_intr)
 			if (tor->cardtype == TYPE_E1)
 			{
 				   /* add this second's BPV count to total one */
-				tor->spans[i - 1].bpvcount += t1in(tor,i,1) + (t1in(tor,i,0) << 8);
+				tor->spans[i - 1].count.bpv +=
+					t1in(tor, i, 1) + (t1in(tor, i, 0)<<8);
+
 				if (tor->spans[i - 1].lineconfig & DAHDI_CONFIG_CRC4)
 				{
-					tor->spans[i - 1].crc4count += t1in(tor,i,3) + ((t1in(tor,i,2) & 3) << 8);
-					tor->spans[i - 1].ebitcount += t1in(tor,i,5) + ((t1in(tor,i,4) & 3) << 8);
+					tor->spans[i - 1].count.crc4 +=
+						t1in(tor, i, 3) +
+						((t1in(tor, i, 2) & 3) << 8);
+					tor->spans[i - 1].count.ebit +=
+						t1in(tor, i, 5) +
+						((t1in(tor, i, 4) & 3) << 8);
 				}
-                                tor->spans[i - 1].fascount += (t1in(tor,i,4) >> 2) + ((t1in(tor,i,2) & 0x3F) << 6);
+				tor->spans[i - 1].count.fas +=
+					(t1in(tor, i, 4) >> 2) +
+					((t1in(tor, i, 2) & 0x3F) << 6);
 			}
 			else
 			{
 				   /* add this second's BPV count to total one */
-				tor->spans[i - 1].bpvcount += t1in(tor,i,0x24) + (t1in(tor,i,0x23) << 8);
+				tor->spans[i - 1].count.bpv +=
+					t1in(tor, i, 0x24) +
+					(t1in(tor, i, 0x23) << 8);
 			}
 		   }
 	   }

@@ -1099,6 +1099,7 @@ static inline void t1_check_sigbits(struct t1 *wc)
 static int t1xxp_maint(struct dahdi_span *span, int cmd)
 {
 	struct t1 *wc = span->pvt;
+	int reg = 0;
 
 	if (wc->spantype == TYPE_E1) {
 		switch (cmd) {
@@ -1128,24 +1129,34 @@ static int t1xxp_maint(struct dahdi_span *span, int cmd)
 	} else {
 		switch (cmd) {
 		case DAHDI_MAINT_NONE:
-			t1_info(wc, "XXX Turn off local and remote "
-				"loops T1 XXX\n");
+ 			/* Turn off local loop */
+ 			reg = t1_getreg(wc, LIM0);
+ 			t1_setreg(wc, LIM0, reg & ~LIM0_LL);
+ 
+ 			/* Turn off remote loop & jitter attenuator */
+ 			reg = t1_getreg(wc, LIM1);
+ 			t1_setreg(wc, LIM1, reg & ~(LIM1_RL | LIM1_JATT));
 			break;
 		case DAHDI_MAINT_LOCALLOOP:
-			t1_info(wc, "XXX Turn on local loop and no remote "
-				"loop XXX\n");
+ 			reg = t1_getreg(wc, LIM0);
+ 			t1_setreg(wc, LIM0, reg | LIM0_LL);
 			break;
-		case DAHDI_MAINT_REMOTELOOP:
-			t1_info(wc, "XXX Turn on remote loopup XXX\n");
+ 		case DAHDI_MAINT_NETWORKLINELOOP:
+ 			reg = t1_getreg(wc, LIM1);
+ 			t1_setreg(wc, LIM1, reg | LIM1_RL);
+ 			break;
+ 		case DAHDI_MAINT_NETWORKPAYLOADLOOP:
+ 			reg = t1_getreg(wc, LIM1);
+ 			t1_setreg(wc, LIM1, reg | (LIM1_RL | LIM1_JATT));
 			break;
 		case DAHDI_MAINT_LOOPUP:
-			t1_setreg(wc, 0x21, 0x50);	/* FMR5: Nothing but RBS mode */
+			t1_setreg(wc, 0x21, 0x50);
 			break;
 		case DAHDI_MAINT_LOOPDOWN:
-			t1_setreg(wc, 0x21, 0x60);	/* FMR5: Nothing but RBS mode */
+			t1_setreg(wc, 0x21, 0x60);
 			break;
 		case DAHDI_MAINT_LOOPSTOP:
-			t1_setreg(wc, 0x21, 0x40);	/* FMR5: Nothing but RBS mode */
+			t1_setreg(wc, 0x21, 0x40);
 			break;
 		default:
 			t1_info(wc, "Unknown T1 maint command: %d\n", cmd);

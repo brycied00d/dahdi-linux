@@ -670,21 +670,21 @@ static int dahdi_proc_read(char *page, char **start, off_t off, int count, int *
 		(spans[span]->syncsrc == spans[span]->spanno))
 		len += snprintf(page + len, count - len, "ClockSource ");
 	len += snprintf(page + len, count - len, "\n");
-	if (spans[span]->bpvcount)
+	if (spans[span]->count.bpv)
 		len += snprintf(page + len, count - len, "\tBPV count: %d\n",
-				spans[span]->bpvcount);
-	if (spans[span]->crc4count)
+				spans[span]->count.bpv);
+	if (spans[span]->count.crc4)
 		len += snprintf(page + len, count - len,
 				"\tCRC4 error count: %d\n",
-				spans[span]->crc4count);
-	if (spans[span]->ebitcount)
+				spans[span]->count.crc4);
+	if (spans[span]->count.ebit)
 		len += snprintf(page + len, count - len,
 				"\tE-bit error count: %d\n",
-				spans[span]->ebitcount);
-	if (spans[span]->fascount)
+				spans[span]->count.ebit);
+	if (spans[span]->count.fas)
 		len += snprintf(page + len, count - len,
 				"\tFAS error count: %d\n",
-				spans[span]->fascount);
+				spans[span]->count.fas);
 	if (spans[span]->irqmisses)
 		len += snprintf(page + len, count - len,
 				"\tIRQ misses: %d\n",
@@ -3679,9 +3679,11 @@ cleanup:
 static int dahdi_common_ioctl(struct file *file, unsigned int cmd, unsigned long data, int unit)
 {
 	union {
+		struct dahdi_spaninfo_v1 spaninfo_v1;
 		struct dahdi_spaninfo spaninfo;
 		struct dahdi_params param;
 	} stack;
+
 	struct dahdi_chan *chan;
 	unsigned long flags;
 	int i,j;
@@ -3834,12 +3836,9 @@ static int dahdi_common_ioctl(struct file *file, unsigned int cmd, unsigned long
 		dahdi_copy_string(stack.spaninfo.desc, spans[i]->desc, sizeof(stack.spaninfo.desc));
 		dahdi_copy_string(stack.spaninfo.name, spans[i]->name, sizeof(stack.spaninfo.name));
 		stack.spaninfo.alarms = spans[i]->alarms;		/* get alarm status */
-		stack.spaninfo.bpvcount = spans[i]->bpvcount;	/* get BPV count */
 		stack.spaninfo.rxlevel = spans[i]->rxlevel;	/* get rx level */
 		stack.spaninfo.txlevel = spans[i]->txlevel;	/* get tx level */
-		stack.spaninfo.crc4count = spans[i]->crc4count;	/* get CRC4 error count */
-		stack.spaninfo.ebitcount = spans[i]->ebitcount;	/* get E-bit error count */
-		stack.spaninfo.fascount = spans[i]->fascount;	/* get FAS error count */
+		stack.spaninfo.count = spans[i]->count;	/* get counters */
 		stack.spaninfo.irqmisses = spans[i]->irqmisses;	/* get IRQ miss count */
 		stack.spaninfo.syncsrc = spans[i]->syncsrc;	/* get active sync source */
 		stack.spaninfo.totalchans = spans[i]->channels;
@@ -3863,6 +3862,75 @@ static int dahdi_common_ioctl(struct file *file, unsigned int cmd, unsigned long
 			dahdi_copy_string(stack.spaninfo.spantype, spans[i]->spantype, sizeof(stack.spaninfo.spantype));
 
 		if (copy_to_user(user_data, &stack.spaninfo, size_to_copy))
+			return -EFAULT;
+		break;
+	case DAHDI_SPANSTAT_V1:
+		size_to_copy = sizeof(struct dahdi_spaninfo_v1);
+		if (copy_from_user(&stack.spaninfo_v1,
+				   (struct dahdi_spaninfo_v1 *) data,
+				   size_to_copy))
+			return -EFAULT;
+		i = stack.spaninfo_v1.spanno; /* get specified span number */
+		if ((i < 0) || (i >= maxspans))
+			return -EINVAL;  /* if bad span no */
+		if (i == 0) {
+			/* if to figure it out for this chan */
+			if (!chans[unit])
+				return -EINVAL;
+			i = chans[unit]->span->spanno;
+		}
+		if (!spans[i])
+			return -EINVAL;
+		stack.spaninfo_v1.spanno = i; /* put the span # in here */
+		stack.spaninfo_v1.totalspans = 0;
+		if (maxspans) /* put total number of spans here */
+			stack.spaninfo_v1.totalspans = maxspans - 1;
+		dahdi_copy_string(stack.spaninfo_v1.desc,
+				  spans[i]->desc,
+				  sizeof(stack.spaninfo_v1.desc));
+		dahdi_copy_string(stack.spaninfo_v1.name,
+				  spans[i]->name,
+				  sizeof(stack.spaninfo_v1.name));
+		stack.spaninfo_v1.alarms = spans[i]->alarms;
+		stack.spaninfo_v1.bpvcount = spans[i]->count.bpv;
+		stack.spaninfo_v1.rxlevel = spans[i]->rxlevel;
+		stack.spaninfo_v1.txlevel = spans[i]->txlevel;
+		stack.spaninfo_v1.crc4count = spans[i]->count.crc4;
+		stack.spaninfo_v1.ebitcount = spans[i]->count.ebit;
+		stack.spaninfo_v1.fascount = spans[i]->count.fas;
+		stack.spaninfo_v1.irqmisses = spans[i]->irqmisses;
+		stack.spaninfo_v1.syncsrc = spans[i]->syncsrc;
+		stack.spaninfo_v1.totalchans = spans[i]->channels;
+		stack.spaninfo_v1.numchans = 0;
+		for (j = 0; j < spans[i]->channels; j++) {
+			if (spans[i]->chans[j]->sig)
+				stack.spaninfo_v1.numchans++;
+		}
+		stack.spaninfo_v1.lbo = spans[i]->lbo;
+		stack.spaninfo_v1.lineconfig = spans[i]->lineconfig;
+		stack.spaninfo_v1.irq = spans[i]->irq;
+		stack.spaninfo_v1.linecompat = spans[i]->linecompat;
+		dahdi_copy_string(stack.spaninfo_v1.lboname,
+				  dahdi_lboname(spans[i]->lbo),
+				  sizeof(stack.spaninfo_v1.lboname));
+		if (spans[i]->manufacturer)
+			dahdi_copy_string(stack.spaninfo_v1.manufacturer,
+				spans[i]->manufacturer,
+				sizeof(stack.spaninfo_v1.manufacturer));
+		if (spans[i]->devicetype)
+			dahdi_copy_string(stack.spaninfo_v1.devicetype,
+					  spans[i]->devicetype,
+					  sizeof(stack.spaninfo_v1.devicetype));
+		dahdi_copy_string(stack.spaninfo_v1.location,
+				  spans[i]->location,
+				  sizeof(stack.spaninfo_v1.location));
+		if (spans[i]->spantype)
+			dahdi_copy_string(stack.spaninfo_v1.spantype,
+					  spans[i]->spantype,
+					  sizeof(stack.spaninfo_v1.spantype));
+
+		if (copy_to_user((struct dahdi_spaninfo_v1 *) data,
+				 &stack.spaninfo_v1, size_to_copy))
 			return -EFAULT;
 		break;
 	case DAHDI_CHANDIAG_V1: /* Intentional drop through. */
@@ -4423,7 +4491,8 @@ static int dahdi_ctl_ioctl(struct file *file, unsigned int cmd, unsigned long da
 		switch(maint.command) {
 		case DAHDI_MAINT_NONE:
 		case DAHDI_MAINT_LOCALLOOP:
-		case DAHDI_MAINT_REMOTELOOP:
+		case DAHDI_MAINT_NETWORKLINELOOP:
+		case DAHDI_MAINT_NETWORKPAYLOADLOOP:
 			/* if same, ignore it */
 			if (i == maint.command)
 				break;
@@ -4445,8 +4514,26 @@ static int dahdi_ctl_ioctl(struct file *file, unsigned int cmd, unsigned long da
 				return rv;
 			spin_lock_irqsave(&spans[maint.spanno]->lock, flags);
 			break;
+		case DAHDI_MAINT_FAS_DEFECT:
+		case DAHDI_MAINT_MULTI_DEFECT:
+		case DAHDI_MAINT_CRC_DEFECT:
+		case DAHDI_MAINT_CAS_DEFECT:
+		case DAHDI_MAINT_PRBS_DEFECT:
+		case DAHDI_MAINT_BIPOLAR_DEFECT:
+		case DAHDI_MAINT_PRBS:
+		case DAHDI_RESET_COUNTERS:
+			rv = spans[maint.spanno]->maint(spans[maint.spanno],
+							maint.command);
+			spin_unlock_irqrestore(&spans[maint.spanno]->lock,
+					       flags);
+			if (rv)
+				return rv;
+			spin_lock_irqsave(&spans[maint.spanno]->lock, flags);
+			break;
 		default:
-			module_printk(KERN_NOTICE, "Unknown maintenance event: %d\n", maint.command);
+			module_printk(KERN_NOTICE,
+				      "Unknown maintenance event: %d\n",
+				      maint.command);
 		}
 		dahdi_alarm_notify(spans[maint.spanno]);  /* process alarm-related events */
 		spin_unlock_irqrestore(&spans[maint.spanno]->lock, flags);
