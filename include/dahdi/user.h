@@ -323,9 +323,19 @@ enum {
 #define DAHDI_MAINT_NONE		0	/* Normal Mode */
 #define DAHDI_MAINT_LOCALLOOP		1	/* Local Loopback */
 #define DAHDI_MAINT_REMOTELOOP		2	/* Remote Loopback */
+#define DAHDI_MAINT_NETWORKLINELOOP	2	/* Remote Loopback */
 #define DAHDI_MAINT_LOOPUP		3	/* send loopup code */
 #define DAHDI_MAINT_LOOPDOWN		4	/* send loopdown code */
 #define DAHDI_MAINT_LOOPSTOP		5	/* stop sending loop codes */
+#define DAHDI_MAINT_FAS_DEFECT		6	/* insert a FAS defect */
+#define DAHDI_MAINT_MULTI_DEFECT	7	/* insert a Multiframe defect */
+#define DAHDI_MAINT_CRC_DEFECT		8	/* insert a FAS defect */
+#define DAHDI_MAINT_CAS_DEFECT		9	/* insert a FAS defect */
+#define DAHDI_MAINT_PRBS_DEFECT		10	/* insert a FAS defect */
+#define DAHDI_MAINT_BIPOLAR_DEFECT	11	/* insert a FAS defect */
+#define DAHDI_MAINT_PRBS		12	/* enable the PRBS gen/mon */
+#define DAHDI_MAINT_NETWORKPAYLOADLOOP	13	/* Remote Loopback */
+#define DAHDI_RESET_COUNTERS		14	/* clear the error counters */
 
 /* Flag Value for IOMUX, read avail */
 #define DAHDI_IOMUX_READ	1
@@ -519,10 +529,47 @@ struct dahdi_params {
  */
 #define DAHDI_IOMUX			_IOWR(DAHDI_CODE, 9, int)
 
+struct dahdi_count {
+	__u32 fe;		/*!< Framing error counter */
+	__u32 cv;		/*!< Coding violations counter */
+	__u32 bpv;		/*!< Bipolar Violation counter */
+	__u32 crc4;		/*!< CRC4 error counter */
+	__u32 ebit;		/*!< current E-bit error count */
+	__u32 fas;		/*!< current FAS error count */
+	__u32 be;		/*!< current bit error count */
+	__u32 prbs;		/*!< current PRBS detected pattern */
+	__u32 errsec;	/*!< errored seconds */
+};
+
 /*
  * Get Span Status
  */
 struct dahdi_spaninfo {
+	int	spanno;		/* span number */
+	char	name[20];	/* Name */
+	char	desc[40];	/* Description */
+	int	alarms;		/* alarms status */
+	int	txlevel;	/* what TX level is set to */
+	int	rxlevel;	/* current RX level */
+	struct dahdi_count count;/* Performance and Error counters */
+	int	irqmisses;	/* current IRQ misses */
+	int	syncsrc;	/* span # of current sync source,
+				   or 0 for free run */
+	int	numchans;	/* number of configured channels on this span */
+	int	totalchans;	/* total number of channels on the span */
+	int	totalspans;	/* total number of spans in entire system */
+	int	lbo;		/* line build out */
+	int	lineconfig;	/* framing/coding */
+	char 	lboname[40];	/* line build out in text form */
+	char	location[40];	/* span's device location in system */
+	char	manufacturer[40]; /* manufacturer of span's device */
+	char	devicetype[40];	/* span's device type */
+	int	irq;		/* span's device IRQ */
+	int	linecompat;	/* signaling modes possible on this span */
+	char	spantype[6];	/* type of span in text form */
+} __attribute__((packed));
+
+struct dahdi_spaninfo_v1 {
 	int	spanno;		/* span number */
 	char	name[20];	/* Name */
 	char	desc[40];	/* Description */
@@ -548,14 +595,14 @@ struct dahdi_spaninfo {
 	int	linecompat;	/* signaling modes possible on this span */
 	char	spantype[6];	/* type of span in text form */
 };
-
-#define DAHDI_SPANSTAT			_IOWR(DAHDI_CODE, 10, struct dahdi_spaninfo)
+#define DAHDI_SPANSTAT	   _IOWR(DAHDI_CODE, 10, struct dahdi_spaninfo)
+#define DAHDI_SPANSTAT_V1  _IOWR(DAHDI_CODE, 10, struct dahdi_spaninfo_v1)
 
 /*
  * Set Maintenance Mode
  */
 struct dahdi_maintinfo {
-	int	spanno;		/* span number 1-2 */
+	int	spanno;		/* span number */
 	int	command;	/* command */
 };
 

@@ -759,10 +759,7 @@ struct dahdi_span {
 	int txlevel;			/*!< Tx level */
 	int rxlevel;			/*!< Rx level */
 	int syncsrc;			/*!< current sync src (gets copied here) */
-	unsigned int bpvcount;		/*!< BPV counter */
-	unsigned int crc4count;	        /*!< CRC4 error counter */
-	unsigned int ebitcount;		/*!< current E-bit error count */
-	unsigned int fascount;		/*!< current FAS error count */
+	struct dahdi_count count;	/*!< Performance and Error counters */
 
 	int maintstat;			/*!< Maintenance state */
 	wait_queue_head_t maintq;	/*!< Maintenance queue */

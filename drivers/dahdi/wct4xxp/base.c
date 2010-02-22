@@ -2,6 +2,7 @@
  * TE410P  Quad-T1/E1 PCI Driver version 0.1, 12/16/02
  *
  * Written by Mark Spencer <markster@digium.com>
+		case DAHDI_MAINT_LOOPDOWN:
  * Based on previous works, designs, and archetectures conceived and
  *   written by Jim Dixon <jim@lambdatel.com>.
  * Further modified, optimized, and maintained by 
@@ -412,6 +413,7 @@ static int t4_startup(struct dahdi_span *span);
 static int t4_shutdown(struct dahdi_span *span);
 static int t4_rbsbits(struct dahdi_chan *chan, int bits);
 static int t4_maint(struct dahdi_span *span, int cmd);
+static int t4_reset_counters(struct dahdi_span *span);
 #ifdef SUPPORT_GEN1
 static int t4_reset_dma(struct t4 *wc);
 #endif
@@ -451,6 +453,49 @@ static void t4_check_sigbits(struct t4 *wc, int span);
 
 #define WC_RECOVER 	0
 #define WC_SELF 	1
+
+#define LIM0_T 0x36 		/* Line interface mode 0 register */
+#define LIM0_LL (1 << 1)	/* Local Loop */
+#define LIM1_T 0x37		/* Line interface mode 1 register */
+#define LIM1_RL (1 << 1)	/* Remote Loop */
+
+#define FMR1_T 0x1D		/* Framer Mode Register 1 */
+#define FMR1_ECM (1 << 2)	/* Error Counter 1sec Interrupt Enable */
+#define DEC_T 0x60		/* Diable Error Counter */
+#define IERR_T 0x1B		/* Single Bit Defect Insertion Register */
+enum{IBV, IPE, ICASE, ICRCE, IMFE, IFASE};
+#define ISR3_SEC (1 << 6)	/* Internal one-second interrupt bit mask */
+#define ISR3_ES (1 << 7)	/* Errored Second interrupt bit mask */
+#define ESM 0x47		/* Errored Second mask register */
+
+#define FMR2_T 0x1E		/* Framer Mode Register 2 */
+#define FMR2_PLB (1 << 2)	/* Framer Mode Register 2 */
+
+#define FECL_T 0x50		/* Framing Error Counter Lower Byte */
+#define FECH_T 0x51		/* Framing Error Counter Higher Byte */
+#define CVCL_T 0x52		/* Code Violation Counter Lower Byte */
+#define CVCH_T 0x53		/* Code Violation Counter Higher Byte */
+#define CEC1L_T 0x54		/* CRC Error Counter 1 Lower Byte */
+#define CEC1H_T 0x55		/* CRC Error Counter 1 Higher Byte */
+#define EBCL_T 0x56		/* E-Bit Error Counter Lower Byte */
+#define EBCH_T 0x57		/* E-Bit Error Counter Higher Byte */
+#define BECL_T 0x58		/* Bit Error Counter Lower Byte */
+#define BECH_T 0x59		/* Bit Error Counter Higher Byte */
+#define COEC_T 0x5A		/* COFA Event Counter */
+#define PRBSSTA_T 0xDA		/* PRBS Status Register */
+
+#define LCR1_T 0x3B		/* Loop Code Register 1 */
+#define EPRM (1 << 7)		/* Enable PRBS rx */
+#define XPRBS (1 << 6)		/* Enable PRBS tx */
+#define FLLB (1 << 1)		/* Framed line loop/Invert */
+#define LLBP (1 << 0)		/* Line Loopback Pattern */
+#define TPC0_T 0xA8		/* Test Pattern Control Register */
+#define FRA (1 << 6)		/* Framed/Unframed Selection */
+#define PRBS23 (3 << 4)		/* Pattern selection (23 poly) */
+#define PRM (1 << 2)		/* Non framed mode */
+#define FRS1_T 0x4D		/* Framer Receive Status Reg 1 */
+#define LLBDD (1 << 4)
+#define LLBAD (1 << 3)
 
 #define MAX_T4_CARDS 64
 
@@ -1386,6 +1431,7 @@ static int t4_maint(struct dahdi_span *span, int cmd)
 {
 	struct t4_span *ts = span->pvt;
 	struct t4 *wc = ts->owner;
+	unsigned int reg;
 
 	if (ts->spantype == TYPE_E1) {
 		switch(cmd) {
@@ -1413,29 +1459,106 @@ static int t4_maint(struct dahdi_span *span, int cmd)
 		}
 	} else {
 		switch(cmd) {
-	    case DAHDI_MAINT_NONE:
-			printk(KERN_NOTICE "XXX Turn off local and remote loops T1 XXX\n");
+		case DAHDI_MAINT_NONE:
+			dev_info(&wc->dev->dev, "Turning off all looping\n");
+
+			reg = t4_framer_in(wc, span->offset, LIM0_T);
+			t4_framer_out(wc, span->offset,
+				      LIM0_T, (reg & ~LIM0_LL));
+
+			reg = t4_framer_in(wc, span->offset, LIM1_T);
+			t4_framer_out(wc, span->offset, LIM1_T,
+				      (reg & ~LIM1_RL));
+
+			reg = t4_framer_in(wc, span->offset, LCR1_T);
+			t4_framer_out(wc, span->offset, LCR1_T,
+					(reg & ~(XPRBS | EPRM)));
+
+			span->mainttimer = 0;
 			break;
-	    case DAHDI_MAINT_LOCALLOOP:
-			printk(KERN_NOTICE "XXX Turn on local loop and no remote loop XXX\n");
+		case DAHDI_MAINT_LOCALLOOP:
+			dev_info(&wc->dev->dev,
+				 "Turning on local loopback\n");
+			reg = t4_framer_in(wc, span->offset, LIM0_T);
+			t4_framer_out(wc, span->offset, LIM0_T, (reg|LIM0_LL));
 			break;
-	    case DAHDI_MAINT_REMOTELOOP:
-			printk(KERN_NOTICE "XXX Turn on remote loopup XXX\n");
+		case DAHDI_MAINT_NETWORKLINELOOP:
+			dev_info(&wc->dev->dev,
+				 "Turning on network line loopback\n");
+			reg = t4_framer_in(wc, span->offset, LIM1_T);
+			t4_framer_out(wc, span->offset, LIM1_T, (reg|LIM1_RL));
 			break;
-	    case DAHDI_MAINT_LOOPUP:
-			t4_framer_out(wc, span->offset, 0x21, 0x50);	/* FMR5: Nothing but RBS mode */
+		case DAHDI_MAINT_NETWORKPAYLOADLOOP:
+			dev_info(&wc->dev->dev,
+				 "Turning on network payload loopback\n");
+			reg = t4_framer_in(wc, span->offset, FMR2_T);
+			t4_framer_out(wc, span->offset, FMR2_T, (reg|FMR2_PLB));
 			break;
-	    case DAHDI_MAINT_LOOPDOWN:
-			t4_framer_out(wc, span->offset, 0x21, 0x60);	/* FMR5: Nothing but RBS mode */
+		case DAHDI_MAINT_LOOPUP:
+			dev_info(&wc->dev->dev, "Transmitting loopup code\n");
+			t4_framer_out(wc, span->offset, 0x21, 0x50);
 			break;
-	    case DAHDI_MAINT_LOOPSTOP:
-			t4_framer_out(wc, span->offset, 0x21, 0x40);	/* FMR5: Nothing but RBS mode */
+		case DAHDI_MAINT_LOOPDOWN:
+			dev_info(&wc->dev->dev, "Transmitting loopdown code\n");
+			t4_framer_out(wc, span->offset, 0x21, 0x60);
 			break;
-	    default:
-			printk(KERN_NOTICE "TE%dXXP: Unknown T1 maint command: %d\n", wc->numspans, cmd);
+		case DAHDI_MAINT_LOOPSTOP:
+			dev_info(&wc->dev->dev, "Transmitting loopstop code\n");
+			t4_framer_out(wc, span->offset, 0x21, 0x40);
+			break;
+		case DAHDI_MAINT_FAS_DEFECT:
+			t4_framer_out(wc, span->offset, IERR_T, IFASE);
+			break;
+		case DAHDI_MAINT_MULTI_DEFECT:
+			t4_framer_out(wc, span->offset, IERR_T, IMFE);
+			break;
+		case DAHDI_MAINT_CRC_DEFECT:
+			t4_framer_out(wc, span->offset, IERR_T, ICRCE);
+			break;
+		case DAHDI_MAINT_CAS_DEFECT:
+			t4_framer_out(wc, span->offset, IERR_T, ICASE);
+			break;
+		case DAHDI_MAINT_PRBS_DEFECT:
+			t4_framer_out(wc, span->offset, IERR_T, IPE);
+			break;
+		case DAHDI_MAINT_BIPOLAR_DEFECT:
+			t4_framer_out(wc, span->offset, IERR_T, IBV);
+			break;
+		case DAHDI_MAINT_PRBS:
+			dev_info(&wc->dev->dev, "PRBS not supported\n");
+#if 0
+			printk(KERN_NOTICE "Enabling PRBS!\n");
+			span->mainttimer = 1;
+			/* Enable PRBS monitor */
+			reg = t4_framer_in(wc, span->offset, LCR1_T);
+			reg |= EPRM;
+
+			/* Setup PRBS xmit */
+			t4_framer_out(wc, span->offset, TPC0_T, 0);
+
+			/* Enable PRBS transmit */
+			reg |= XPRBS;
+			reg &= ~LLBP;
+			reg &= ~FLLB;
+			t4_framer_out(wc, span->offset, LCR1_T, reg);
+#endif
+			break;
+		case DAHDI_RESET_COUNTERS:
+			t4_reset_counters(span);
+			break;
+		default:
+			dev_info(&wc->dev->dev, "Unknown T1 maint command:%d\n",
+									cmd);
 			break;
 	   }
     }
+	return 0;
+}
+
+static int t4_reset_counters(struct dahdi_span *span)
+{
+	struct t4_span *ts = span->pvt;
+	memset(&ts->span.count, 0, sizeof(ts->span.count));
 	return 0;
 }
 
@@ -1702,6 +1825,7 @@ static void init_spans(struct t4 *wc)
 	int x,y;
 	int gen2;
 	struct t4_span *ts;
+	unsigned int reg;
 	
 	gen2 = (wc->tspans[0]->spanflags & FLAG_2NDGEN);
 	for (x = 0; x < wc->numspans; x++) {
@@ -1775,6 +1899,19 @@ static void init_spans(struct t4 *wc)
 			mychans->pvt = wc;
 			mychans->chanpos = y + 1;
 		}
+
+		/* Enable 1sec timer interrupt */
+		reg = t4_framer_in(wc, x, FMR1_T);
+		t4_framer_out(wc, x, FMR1_T, (reg | FMR1_ECM));
+		dev_info(&wc->dev->dev, "Enabled 1sec error counter "\
+							"interrupt\n");
+
+		/* Enable Errored Second interrupt */
+		t4_framer_out(wc, x, ESM, 0);
+		dev_info(&wc->dev->dev, "Enabled errored second interrupt\n");
+
+		t4_reset_counters(&ts->span);
+
 	}
 
 	set_span_devicetype(wc);
@@ -2109,9 +2246,9 @@ static void __t4_configure_t1(struct t4 *wc, int unit, int lineconfig, int txlev
 	/* Don't mask framer interrupts if hardware HDLC is in use */
 	__t4_framer_out(wc, unit, FRMR_IMR0, 0xff & ~((wc->tspans[unit]->sigchan) ? HDLC_IMR0_MASK : 0));	/* IMR0: We care about CAS changes, etc */
 	__t4_framer_out(wc, unit, FRMR_IMR1, 0xff & ~((wc->tspans[unit]->sigchan) ? HDLC_IMR1_MASK : 0));	/* IMR1: We care about nothing */
-	__t4_framer_out(wc, unit, 0x16, 0x00);	/* IMR2: We care about all the alarm stuff! */
-	__t4_framer_out(wc, unit, 0x17, 0xf4);	/* IMR3: We care about AIS and friends */
-	__t4_framer_out(wc, unit, 0x18, 0x3f);  /* IMR4: We care about slips on transmit */
+	__t4_framer_out(wc, unit, 0x16, 0x00);	/* IMR2: All the alarm stuff! */
+	__t4_framer_out(wc, unit, 0x17, 0x34);	/* IMR3: AIS and friends */
+	__t4_framer_out(wc, unit, 0x18, 0x3f);  /* IMR4: Slips on transmit */
 
 	printk(KERN_INFO "TE%dXXP: Span %d configured for %s/%s\n", wc->numspans, unit + 1, framing, line);
 }
@@ -2195,7 +2332,7 @@ static void __t4_configure_e1(struct t4 *wc, int unit, int lineconfig)
 	__t4_framer_out(wc, unit, FRMR_IMR0, 0xff & ~((wc->tspans[unit]->sigchan) ? HDLC_IMR0_MASK : 0));	/* IMR0: We care about CRC errors, CAS changes, etc */
 	__t4_framer_out(wc, unit, FRMR_IMR1, 0x3f & ~((wc->tspans[unit]->sigchan) ? HDLC_IMR1_MASK : 0));	/* IMR1: We care about loopup / loopdown */
 	__t4_framer_out(wc, unit, 0x16, 0x00);	/* IMR2: We care about all the alarm stuff! */
-	__t4_framer_out(wc, unit, 0x17, 0xc4 | imr3extra);	/* IMR3: We care about AIS and friends */
+	__t4_framer_out(wc, unit, 0x17, 0x44 | imr3extra); /* IMR3: AIS */
 	__t4_framer_out(wc, unit, 0x18, 0x3f);  /* IMR4: We care about slips on transmit */
 
 	printk(KERN_INFO "TE%dXXP: Span %d configured for %s/%s%s\n", wc->numspans, unit + 1, framing, line, crc4);
@@ -2903,14 +3040,12 @@ static inline void __handle_leds(struct t4 *wc)
 static inline void t4_framer_interrupt(struct t4 *wc, int span)
 {
 	/* Check interrupts for a given span */
-	unsigned char gis, isr0, isr1, isr2, isr3, isr4;
+	unsigned char gis, isr0, isr1, isr2, isr3, isr4, reg;
 	int readsize = -1;
 	struct t4_span *ts = wc->tspans[span];
 	struct dahdi_chan *sigchan;
 	unsigned long flags;
 
-	if (debug & DEBUG_FRAMER)	
-		printk(KERN_DEBUG "framer interrupt span %d:%d!\n", wc->num, span + 1);
 
 	/* 1st gen cards isn't used interrupts */
 	gis = t4_framer_in(wc, span, FRMR_GIS);
@@ -2920,10 +3055,35 @@ static inline void t4_framer_interrupt(struct t4 *wc, int span)
 	isr3 = (gis & FRMR_GIS_ISR3) ? t4_framer_in(wc, span, FRMR_ISR3) : 0;
 	isr4 = (gis & FRMR_GIS_ISR4) ? t4_framer_in(wc, span, FRMR_ISR4) : 0;
 
-	if (debug & DEBUG_FRAMER)
-		printk(KERN_DEBUG "gis: %02x, isr0: %02x, isr1: %02x, isr2: "\
-				"%02x, isr3: %02x, isr4: %02x, intcount= %u\n",
-			     gis, isr0, isr1, isr2, isr3, isr4, wc->intcount);
+ 	if ((debug & DEBUG_FRAMER) && !(isr3 & ISR3_SEC)) {
+ 		dev_info(&wc->dev->dev, "gis: %02x, isr0: %02x, isr1: %02x, "\
+ 			"isr2: %02x, isr3: %08x, isr4: %02x, intcount=%u\n",
+ 			gis, isr0, isr1, isr2, isr3, isr4, wc->intcount);
+ 	}
+ 
+ 	if (isr3 & ISR3_SEC) {
+ 		ts->span.count.fe += t4_framer_in(wc, span, FECL_T);
+ 		ts->span.count.crc4 += t4_framer_in(wc, span, CEC1L_T);
+ 		ts->span.count.cv += t4_framer_in(wc, span, CVCL_T);
+ 		ts->span.count.ebit += t4_framer_in(wc, span, EBCL_T);
+ 		ts->span.count.be += t4_framer_in(wc, span, BECL_T);
+ 		ts->span.count.prbs = t4_framer_in(wc, span, FRS1_T);
+ 	}
+ 
+ 	if (isr3 & ISR3_ES) {
+ 		ts->span.count.errsec += 1;
+ 		dev_info(&wc->dev->dev, "Errored second: span %d\n", span+1);
+ 	}
+ 
+ 	if (isr3 & 0x08) {
+ 		reg = t4_framer_in(wc, span, FRS1_T);
+ 		printk(KERN_INFO "FRS1: %d\n", reg);
+ 		if (reg & LLBDD) {
+ 			dev_info(&wc->dev->dev, "Line loop-back activation "\
+ 					"signal detected with status: %01d "\
+ 					"for span %d\n", reg & LLBAD, span+1);
+ 		}
+ 	}
 
 	if (isr0)
 		t4_check_sigbits(wc, span);
@@ -3050,7 +3210,6 @@ static inline void t4_framer_interrupt(struct t4 *wc, int span)
 	if (isr1 & FRMR_ISR1_ALLS) {
 		if (debug & DEBUG_FRAMER) printk(KERN_DEBUG "ALLS received\n");
 	}
-
 }
 
 #ifdef SUPPORT_GEN1
