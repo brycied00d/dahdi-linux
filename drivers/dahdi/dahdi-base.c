@@ -8404,6 +8404,10 @@ int dahdi_receive(struct dahdi_span *span)
 MODULE_AUTHOR("Mark Spencer <markster@digium.com>");
 MODULE_DESCRIPTION("DAHDI Telephony Interface");
 MODULE_LICENSE("GPL v2");
+/* DAHDI now provides timing. If anybody wants dahdi_dummy it's probably
+ * for that. So make dahdi provide it for now. This alias may be removed
+ * in the future, and users are encoruged to to rely on it. */
+MODULE_ALIAS("dahdi_dummy");
 MODULE_VERSION(DAHDI_VERSION);
 
 module_param(debug, int, 0644);
