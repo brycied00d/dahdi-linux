@@ -617,8 +617,8 @@ vb_reset_interface(struct voicebus *vb)
 	} while ((reg & 0x00000001) && time_before(jiffies, timeout));
 
 	if (reg & 0x00000001) {
-		dev_warn(&vb->pdev->dev, "Hardware did not come out of reset "
-			 "within 100ms!");
+		dev_warn(&vb->pdev->dev, "Did not come out of reset "
+			 "within 100ms\n");
 		return -EIO;
 	}
 
@@ -1577,14 +1577,6 @@ voicebus_init(struct voicebus *vb, const char *board_name)
 	vb->idle_vbb = dma_alloc_coherent(&vb->pdev->dev, VOICEBUS_SFRAME_SIZE,
 					  &vb->idle_vbb_dma_addr, GFP_KERNEL);
 
-	retval = vb_initialize_tx_descriptors(vb);
-	if (retval)
-		goto cleanup;
-
-	retval = vb_initialize_rx_descriptors(vb);
-	if (retval)
-		goto cleanup;
-
 	/* ----------------------------------------------------------------
 	   Configure the hardware interface.
 	   ---------------------------------------------------------------- */
@@ -1596,6 +1588,20 @@ voicebus_init(struct voicebus *vb, const char *board_name)
 
 	pci_set_master(vb->pdev);
 	vb_enable_io_access(vb);
+
+	if (vb_reset_interface(vb)) {
+		retval = -EIO;
+		dev_warn(&vb->pdev->dev, "Failed reset.\n");
+		goto cleanup;
+	}
+
+	retval = vb_initialize_tx_descriptors(vb);
+	if (retval)
+		goto cleanup;
+
+	retval = vb_initialize_rx_descriptors(vb);
+	if (retval)
+		goto cleanup;
 
 #if VOICEBUS_DEFERRED != TIMER
 	retval = request_irq(vb->pdev->irq, vb_isr, DAHDI_IRQ_SHARED,
@@ -1632,7 +1638,8 @@ cleanup:
 	if (vb->pdev)
 		pci_disable_device(vb->pdev);
 
-	WARN_ON(0 == retval);
+	if (0 == retval)
+		retval = -EIO;
 	return retval;
 }
 EXPORT_SYMBOL(voicebus_init);
