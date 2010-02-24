@@ -1846,7 +1846,6 @@ static int __devinit te12xp_init_one(struct pci_dev *pdev, const struct pci_devi
 	wc->vb.debug = &debug;
 	res = voicebus_init(&wc->vb, wc->name);
 	if (res) {
-		WARN_ON(1);
 		free_wc(wc);
 		ifaces[index] = NULL;
 		return res;
