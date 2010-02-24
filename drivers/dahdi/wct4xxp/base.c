@@ -2,7 +2,6 @@
  * TE410P  Quad-T1/E1 PCI Driver version 0.1, 12/16/02
  *
  * Written by Mark Spencer <markster@digium.com>
-		case DAHDI_MAINT_LOOPDOWN:
  * Based on previous works, designs, and archetectures conceived and
  *   written by Jim Dixon <jim@lambdatel.com>.
  * Further modified, optimized, and maintained by 
