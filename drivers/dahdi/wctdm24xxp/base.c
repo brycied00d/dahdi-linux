@@ -865,7 +865,8 @@ static inline void wctdm_transmitprep(struct wctdm *wc, unsigned char *writechun
 				if (y < wc->desc->ports)
 					writechunk[y] = wc->chans[y]->writechunk[x];
 			}
-			cmd_dequeue(wc, writechunk, y, x);
+			if (x < 3)
+				cmd_dequeue(wc, writechunk, y, x);
 		}
 		if (!x)
 			wc->blinktimer++;
@@ -1102,7 +1103,8 @@ static inline void wctdm_receiveprep(struct wctdm *wc, unsigned char *readchunk)
 		for (y=0;y < wc->cards;y++) {
 			if (likely(wc->initialized) && (y < wc->desc->ports))
 				wc->chans[y]->readchunk[x] = readchunk[y];
-			cmd_decipher(wc, readchunk, y);
+			if (x < 3)
+				cmd_decipher(wc, readchunk, y);
 		}
 		if (wc->vpm100) {
 			for (y=NUM_CARDS;y < NUM_CARDS + NUM_EC; y++)
