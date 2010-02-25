@@ -845,6 +845,58 @@ static inline void cmd_checkisr(struct wctdm *wc, int card)
 	}
 }
 
+/**
+ * insert_tdm_data() - Move TDM data from channels to sframe.
+ *
+ */
+static void insert_tdm_data(const struct wctdm *wc, u8 *sframe)
+{
+	int i;
+	register u8 *chanchunk;
+
+	for (i = 0; i < wc->cards; i += 4) {
+		chanchunk = &wc->chans[0 + i]->writechunk[0];
+		sframe[0 + i + (EFRAME_SIZE + EFRAME_GAP)*0] = chanchunk[0];
+		sframe[0 + i + (EFRAME_SIZE + EFRAME_GAP)*1] = chanchunk[1];
+		sframe[0 + i + (EFRAME_SIZE + EFRAME_GAP)*2] = chanchunk[2];
+		sframe[0 + i + (EFRAME_SIZE + EFRAME_GAP)*3] = chanchunk[3];
+		sframe[0 + i + (EFRAME_SIZE + EFRAME_GAP)*4] = chanchunk[4];
+		sframe[0 + i + (EFRAME_SIZE + EFRAME_GAP)*5] = chanchunk[5];
+		sframe[0 + i + (EFRAME_SIZE + EFRAME_GAP)*6] = chanchunk[6];
+		sframe[0 + i + (EFRAME_SIZE + EFRAME_GAP)*7] = chanchunk[7];
+
+		chanchunk = &wc->chans[1 + i]->writechunk[0];
+		sframe[1 + i + (EFRAME_SIZE + EFRAME_GAP)*0] = chanchunk[0];
+		sframe[1 + i + (EFRAME_SIZE + EFRAME_GAP)*1] = chanchunk[1];
+		sframe[1 + i + (EFRAME_SIZE + EFRAME_GAP)*2] = chanchunk[2];
+		sframe[1 + i + (EFRAME_SIZE + EFRAME_GAP)*3] = chanchunk[3];
+		sframe[1 + i + (EFRAME_SIZE + EFRAME_GAP)*4] = chanchunk[4];
+		sframe[1 + i + (EFRAME_SIZE + EFRAME_GAP)*5] = chanchunk[5];
+		sframe[1 + i + (EFRAME_SIZE + EFRAME_GAP)*6] = chanchunk[6];
+		sframe[1 + i + (EFRAME_SIZE + EFRAME_GAP)*7] = chanchunk[7];
+
+		chanchunk = &wc->chans[2 + i]->writechunk[0];
+		sframe[2 + i + (EFRAME_SIZE + EFRAME_GAP)*0] = chanchunk[0];
+		sframe[2 + i + (EFRAME_SIZE + EFRAME_GAP)*1] = chanchunk[1];
+		sframe[2 + i + (EFRAME_SIZE + EFRAME_GAP)*2] = chanchunk[2];
+		sframe[2 + i + (EFRAME_SIZE + EFRAME_GAP)*3] = chanchunk[3];
+		sframe[2 + i + (EFRAME_SIZE + EFRAME_GAP)*4] = chanchunk[4];
+		sframe[2 + i + (EFRAME_SIZE + EFRAME_GAP)*5] = chanchunk[5];
+		sframe[2 + i + (EFRAME_SIZE + EFRAME_GAP)*6] = chanchunk[6];
+		sframe[2 + i + (EFRAME_SIZE + EFRAME_GAP)*7] = chanchunk[7];
+
+		chanchunk = &wc->chans[3 + i]->writechunk[0];
+		sframe[3 + i + (EFRAME_SIZE + EFRAME_GAP)*0] = chanchunk[0];
+		sframe[3 + i + (EFRAME_SIZE + EFRAME_GAP)*1] = chanchunk[1];
+		sframe[3 + i + (EFRAME_SIZE + EFRAME_GAP)*2] = chanchunk[2];
+		sframe[3 + i + (EFRAME_SIZE + EFRAME_GAP)*3] = chanchunk[3];
+		sframe[3 + i + (EFRAME_SIZE + EFRAME_GAP)*4] = chanchunk[4];
+		sframe[3 + i + (EFRAME_SIZE + EFRAME_GAP)*5] = chanchunk[5];
+		sframe[3 + i + (EFRAME_SIZE + EFRAME_GAP)*6] = chanchunk[6];
+		sframe[3 + i + (EFRAME_SIZE + EFRAME_GAP)*7] = chanchunk[7];
+	}
+}
+
 static inline void wctdm_transmitprep(struct wctdm *wc, unsigned char *writechunk)
 {
 	int x,y;
@@ -852,6 +904,7 @@ static inline void wctdm_transmitprep(struct wctdm *wc, unsigned char *writechun
 	/* Calculate Transmission */
 	if (likely(wc->initialized)) {
 		dahdi_transmit(&wc->span);
+		insert_tdm_data(wc, writechunk);
 	}
 
 	for (x=0;x<DAHDI_CHUNKSIZE;x++) {
@@ -861,10 +914,6 @@ static inline void wctdm_transmitprep(struct wctdm *wc, unsigned char *writechun
 				cmd_checkisr(wc, y);
 			}
 
-			if (likely(wc->initialized)) {
-				if (y < wc->desc->ports)
-					writechunk[y] = wc->chans[y]->writechunk[x];
-			}
 			if (x < 3)
 				cmd_dequeue(wc, writechunk, y, x);
 		}
@@ -1101,8 +1150,6 @@ static inline void wctdm_receiveprep(struct wctdm *wc, unsigned char *readchunk)
 			}
 		}
 		for (y=0;y < wc->cards;y++) {
-			if (likely(wc->initialized) && (y < wc->desc->ports))
-				wc->chans[y]->readchunk[x] = readchunk[y];
 			if (x < 3)
 				cmd_decipher(wc, readchunk, y);
 		}
