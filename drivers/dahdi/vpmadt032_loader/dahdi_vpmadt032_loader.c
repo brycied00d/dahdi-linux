@@ -75,19 +75,23 @@ static void init_private_context(struct private_context *ctx)
 	init_completion(&ctx->done);
 }
 
-static void handle_receive(struct voicebus *vb, void *vbb)
+static void handle_receive(struct voicebus *vb, struct list_head *buffers)
 {
 	struct private_context *ctx = pci_get_drvdata(vb->pdev);
-	__vpmadt032_receive(ctx->pvt, vbb);
-	if (__vpmadt032_done(ctx->pvt))
-		complete(&ctx->done);
+	struct vbb *vbb;
+	list_for_each_entry(vbb, buffers, entry) {
+		__vpmadt032_receive(ctx->pvt, vbb->data);
+		if (__vpmadt032_done(ctx->pvt))
+			complete(&ctx->done);
+	}
 }
 
-static void handle_transmit(struct voicebus *vb, void *vbb)
+static void handle_transmit(struct voicebus *vb, struct list_head *buffers)
 {
+	struct vbb *vbb;
 	struct private_context *ctx = pci_get_drvdata(vb->pdev);
-	__vpmadt032_transmit(ctx->pvt, vbb);
-	voicebus_transmit(ctx->vb, vbb);
+	list_for_each_entry(vbb, buffers, entry)
+		__vpmadt032_transmit(ctx->pvt, vbb->data);
 }
 
 static const struct voicebus_operations loader_operations = {

@@ -1742,20 +1742,25 @@ static inline void t1_receiveprep(struct t1 *wc, unsigned char* readchunk)
 	}
 }
 
-static void t1_handle_transmit(struct voicebus *vb, void *vbb)
+static void t1_handle_transmit(struct voicebus *vb, struct list_head *buffers)
 {
 	struct t1 *wc = container_of(vb, struct t1, vb);
-	memset(vbb, 0, SFRAME_SIZE);
-	atomic_inc(&wc->txints);
-	t1_transmitprep(wc, vbb);
-	voicebus_transmit(&wc->vb, vbb);
-	handle_leds(wc);
+	struct vbb *vbb;
+
+	list_for_each_entry(vbb, buffers, entry) {
+		memset(vbb, 0, SFRAME_SIZE);
+		atomic_inc(&wc->txints);
+		t1_transmitprep(wc, vbb->data);
+		handle_leds(wc);
+	}
 }
 
-static void t1_handle_receive(struct voicebus *vb, void* vbb)
+static void t1_handle_receive(struct voicebus *vb, struct list_head *buffers)
 {
 	struct t1 *wc = container_of(vb, struct t1, vb);
-	t1_receiveprep(wc, vbb);
+	struct vbb *vbb;
+	list_for_each_entry(vbb, buffers, entry)
+		t1_receiveprep(wc, vbb->data);
 }
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 20)

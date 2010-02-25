@@ -473,6 +473,16 @@ static int config_vpmadt032(struct vpmadt032 *vpm, struct wctdm *wc)
 	return 0;
 }
 
+/**
+ * is_good_frame() - Whether the SFRAME received was one sent.
+ *
+ */
+static inline bool is_good_frame(const u8 *sframe)
+{
+        const u8 a = sframe[0*(EFRAME_SIZE+EFRAME_GAP) + (EFRAME_SIZE+1)];
+        const u8 b = sframe[1*(EFRAME_SIZE+EFRAME_GAP) + (EFRAME_SIZE+1)];
+        return a != b;
+}
 
 static inline void cmd_dequeue_vpmadt032(struct wctdm *wc, u8 *writechunk, int whichframe)
 {
@@ -1017,12 +1027,68 @@ static inline void cmd_retransmit(struct wctdm *wc)
 #endif
 }
 
+/**
+ * extract_tdm_data() - Move TDM data from sframe to channels.
+ *
+ */
+static void extract_tdm_data(struct wctdm *wc, const u8 *sframe)
+{
+	int i;
+	register u8 *chanchunk;
+
+	for (i = 0; i < wc->cards; i += 4) {
+		chanchunk = &wc->chans[0 + i]->readchunk[0];
+		chanchunk[0] = sframe[0 + i + (EFRAME_SIZE + EFRAME_GAP)*0];
+		chanchunk[1] = sframe[0 + i + (EFRAME_SIZE + EFRAME_GAP)*1];
+		chanchunk[2] = sframe[0 + i + (EFRAME_SIZE + EFRAME_GAP)*2];
+		chanchunk[3] = sframe[0 + i + (EFRAME_SIZE + EFRAME_GAP)*3];
+		chanchunk[4] = sframe[0 + i + (EFRAME_SIZE + EFRAME_GAP)*4];
+		chanchunk[5] = sframe[0 + i + (EFRAME_SIZE + EFRAME_GAP)*5];
+		chanchunk[6] = sframe[0 + i + (EFRAME_SIZE + EFRAME_GAP)*6];
+		chanchunk[7] = sframe[0 + i + (EFRAME_SIZE + EFRAME_GAP)*7];
+
+		chanchunk = &wc->chans[1 + i]->readchunk[0];
+		chanchunk[0] = sframe[1 + i + (EFRAME_SIZE + EFRAME_GAP)*0];
+		chanchunk[1] = sframe[1 + i + (EFRAME_SIZE + EFRAME_GAP)*1];
+		chanchunk[2] = sframe[1 + i + (EFRAME_SIZE + EFRAME_GAP)*2];
+		chanchunk[3] = sframe[1 + i + (EFRAME_SIZE + EFRAME_GAP)*3];
+		chanchunk[4] = sframe[1 + i + (EFRAME_SIZE + EFRAME_GAP)*4];
+		chanchunk[5] = sframe[1 + i + (EFRAME_SIZE + EFRAME_GAP)*5];
+		chanchunk[6] = sframe[1 + i + (EFRAME_SIZE + EFRAME_GAP)*6];
+		chanchunk[7] = sframe[1 + i + (EFRAME_SIZE + EFRAME_GAP)*7];
+
+		chanchunk = &wc->chans[2 + i]->readchunk[0];
+		chanchunk[0] = sframe[2 + i + (EFRAME_SIZE + EFRAME_GAP)*0];
+		chanchunk[1] = sframe[2 + i + (EFRAME_SIZE + EFRAME_GAP)*1];
+		chanchunk[2] = sframe[2 + i + (EFRAME_SIZE + EFRAME_GAP)*2];
+		chanchunk[3] = sframe[2 + i + (EFRAME_SIZE + EFRAME_GAP)*3];
+		chanchunk[4] = sframe[2 + i + (EFRAME_SIZE + EFRAME_GAP)*4];
+		chanchunk[5] = sframe[2 + i + (EFRAME_SIZE + EFRAME_GAP)*5];
+		chanchunk[6] = sframe[2 + i + (EFRAME_SIZE + EFRAME_GAP)*6];
+		chanchunk[7] = sframe[2 + i + (EFRAME_SIZE + EFRAME_GAP)*7];
+
+		chanchunk = &wc->chans[3 + i]->readchunk[0];
+		chanchunk[0] = sframe[3 + i + (EFRAME_SIZE + EFRAME_GAP)*0];
+		chanchunk[1] = sframe[3 + i + (EFRAME_SIZE + EFRAME_GAP)*1];
+		chanchunk[2] = sframe[3 + i + (EFRAME_SIZE + EFRAME_GAP)*2];
+		chanchunk[3] = sframe[3 + i + (EFRAME_SIZE + EFRAME_GAP)*3];
+		chanchunk[4] = sframe[3 + i + (EFRAME_SIZE + EFRAME_GAP)*4];
+		chanchunk[5] = sframe[3 + i + (EFRAME_SIZE + EFRAME_GAP)*5];
+		chanchunk[6] = sframe[3 + i + (EFRAME_SIZE + EFRAME_GAP)*6];
+		chanchunk[7] = sframe[3 + i + (EFRAME_SIZE + EFRAME_GAP)*7];
+	}
+}
+
 static inline void wctdm_receiveprep(struct wctdm *wc, unsigned char *readchunk)
 {
 	int x,y;
 	unsigned char expected;
 
-	BUG_ON(NULL == readchunk);
+	if (unlikely(!is_good_frame(readchunk)))
+		return;
+
+	if (likely(wc->initialized))
+		extract_tdm_data(wc, readchunk);
 
 	for (x=0;x<DAHDI_CHUNKSIZE;x++) {
 		if (x < DAHDI_CHUNKSIZE - 1) {
@@ -1814,20 +1880,25 @@ static inline void wctdm_isr_misc(struct wctdm *wc)
 	}
 }
 
-static void handle_receive(struct voicebus *vb, void* vbb)
+static void handle_receive(struct voicebus *vb, struct list_head *buffers)
 {
 	struct wctdm *wc = container_of(vb, struct wctdm, vb);
-	wctdm_receiveprep(wc, vbb);
+	struct vbb *vbb;
+	list_for_each_entry(vbb, buffers, entry)
+		wctdm_receiveprep(wc, vbb->data);
 }
 
-static void handle_transmit(struct voicebus *vb, void* vbb)
+static void handle_transmit(struct voicebus *vb, struct list_head *buffers)
 {
 	struct wctdm *wc = container_of(vb, struct wctdm, vb);
-	memset(vbb, 0, SFRAME_SIZE);
-	wctdm_transmitprep(wc, vbb);
-	wctdm_isr_misc(wc);
-	wc->intcount++;
-	voicebus_transmit(&wc->vb, vbb);
+	struct vbb *vbb;
+
+	list_for_each_entry(vbb, buffers, entry) {
+		memset(vbb->data, 0, sizeof(vbb->data));
+		wctdm_transmitprep(wc, vbb->data);
+		wctdm_isr_misc(wc);
+		wc->intcount++;
+	}
 }
 
 static int wctdm_voicedaa_insane(struct wctdm *wc, int card)
