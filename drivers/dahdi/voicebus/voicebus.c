@@ -1569,12 +1569,16 @@ int vpmadtreg_loadfirmware(struct voicebus *vb)
 	spin_unlock(&loader_list_lock);
 
 	if (!loader_present) {
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 30)
+		ret = request_module("dahdi_vpmadt032_loader");
+#else
 		/* If we use the blocking 'request_module' here and we are
 		 * loading the client boards with async_schedule we will hang
 		 * here. The module loader will wait for our asynchronous tasks
 		 * to finish, but we can't because we're waiting for the load
 		 * the finish. */
 		ret = request_module_nowait("dahdi_vpmadt032_loader");
+#endif
 		if (ret)
 			return ret;
 		stop = jiffies + HZ;
