@@ -513,9 +513,9 @@ static int ztd_close(struct dahdi_chan *chan)
 	z = chan->span->pvt;
 	if (z) {
 		z->usecount--;
-	  if (z->dead && !z->usecount)
-		  dynamic_destroy(z);
-  }
+	if (z->dead && !z->usecount)
+		dynamic_destroy(z);
+	}
 	return 0;
 }
 
