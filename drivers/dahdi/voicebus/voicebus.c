@@ -1656,6 +1656,7 @@ int vpmadtreg_loadfirmware(struct voicebus *vb)
 	struct vpmadt_loader *loader;
 	int ret = 0;
 	int loader_present = 0;
+	unsigned long stop;
 	might_sleep();
 
 	/* First check to see if a loader is already loaded into memory. */
@@ -1664,9 +1665,23 @@ int vpmadtreg_loadfirmware(struct voicebus *vb)
 	spin_unlock(&loader_list_lock);
 
 	if (!loader_present) {
-		ret = request_module("dahdi_vpmadt032_loader");
+		/* If we use the blocking 'request_module' here and we are
+		 * loading the client boards with async_schedule we will hang
+		 * here. The module loader will wait for our asynchronous tasks
+		 * to finish, but we can't because we're waiting for the load
+		 * the finish. */
+		ret = request_module_nowait("dahdi_vpmadt032_loader");
 		if (ret)
 			return ret;
+		stop = jiffies + HZ;
+		while (time_after(stop, jiffies)) {
+			spin_lock(&loader_list_lock);
+			loader_present = !(list_empty(&binary_loader_list));
+			spin_unlock(&loader_list_lock);
+			if (loader_present)
+				break;
+			msleep(10);
+		}
 	}
 
 	spin_lock(&loader_list_lock);
