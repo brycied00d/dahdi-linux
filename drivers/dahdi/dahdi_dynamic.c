@@ -31,7 +31,6 @@
 #include <linux/kmod.h>
 #include <linux/sched.h>
 #include <linux/interrupt.h>
-#include <linux/vmalloc.h>
 #include <linux/moduleparam.h>
 
 #include <dahdi/kernel.h>
@@ -70,15 +69,18 @@
 
 #define ZTD_FLAG_YELLOW_ALARM		(1 << 0)
 #define ZTD_FLAG_SIGBITS_PRESENT	(1 << 1)
-#define ZTD_FLAG_LOOPBACK			(1 << 2)
+#define ZTD_FLAG_LOOPBACK		(1 << 2)
 
-#define ERR_NSAMP					(1 << 16)
-#define ERR_NCHAN					(1 << 17)
-#define ERR_LEN						(1 << 18)
+#define ERR_NSAMP			(1 << 16)
+#define ERR_NCHAN			(1 << 17)
+#define ERR_LEN				(1 << 18)
 
 EXPORT_SYMBOL(dahdi_dynamic_register);
 EXPORT_SYMBOL(dahdi_dynamic_unregister);
 EXPORT_SYMBOL(dahdi_dynamic_receive);
+
+static int ztdynamic_init(void);
+static void ztdynamic_cleanup(void);
 
 #ifdef ENABLE_TASKLETS
 static int taskletrun;
@@ -91,8 +93,7 @@ static struct tasklet_struct ztd_tlet;
 static void ztd_tasklet(unsigned long data);
 #endif
 
-
-static struct dahdi_dynamic {
+struct dahdi_dynamic {
 	char addr[40];
 	char dname[20];
 	int err;
@@ -103,40 +104,34 @@ static struct dahdi_dynamic {
 	unsigned short rxcnt;
 	struct dahdi_span span;
 	struct dahdi_chan *chans[DAHDI_DYNAMIC_MAX_CHANS];
-	struct dahdi_dynamic *next;
 	struct dahdi_dynamic_driver *driver;
 	void *pvt;
 	int timing;
 	int master;
 	unsigned char *msgbuf;
-} *dspans;
 
-static struct dahdi_dynamic_driver *drivers =  NULL;
+	struct list_head list;
+};
+
+static DEFINE_SPINLOCK(dspan_lock);
+static LIST_HEAD(dspan_list);
+
+static DEFINE_SPINLOCK(driver_lock);
+static LIST_HEAD(driver_list);
 
 static int debug = 0;
 
 static int hasmaster = 0;
-#ifdef DEFINE_SPINLOCK
-static DEFINE_SPINLOCK(dlock); 
-#else
-static spinlock_t dlock = SPIN_LOCK_UNLOCKED;
-#endif
-
-#ifdef DEFINE_RWLOCK
-static DEFINE_RWLOCK(drvlock);
-#else
-static rwlock_t drvlock = RW_LOCK_UNLOCKED;
-#endif
 
 static void checkmaster(void)
 {
-	unsigned long flags;
 	int newhasmaster=0;
 	int best = 9999999;
 	struct dahdi_dynamic *z, *master=NULL;
-	spin_lock_irqsave(&dlock, flags);
-	z = dspans;
-	while(z) {
+
+	rcu_read_lock();
+
+	list_for_each_entry_rcu(z, &dspan_list, list) {
 		if (z->timing) {
 			z->master = 0;
 			if (!(z->span.alarms & DAHDI_ALARM_RED) &&
@@ -148,13 +143,15 @@ static void checkmaster(void)
 				newhasmaster = 1;
 			}
 		}
-		z = z->next;
 	}
+
 	hasmaster = newhasmaster;
 	/* Mark the new master if there is one */
 	if (master)
 		master->master = 1;
-	spin_unlock_irqrestore(&dlock, flags);
+
+	rcu_read_unlock();
+
 	if (master)
 		printk(KERN_INFO "TDMoX: New master: %s\n", master->span.name);
 	else
@@ -223,15 +220,13 @@ static void ztd_sendmessage(struct dahdi_dynamic *z)
 
 static void __ztdynamic_run(void)
 {
-	unsigned long flags;
 	struct dahdi_dynamic *z;
 	struct dahdi_dynamic_driver *drv;
 	int y;
-	spin_lock_irqsave(&dlock, flags);
-	z = dspans;
-	while(z) {
+
+	rcu_read_lock();
+	list_for_each_entry_rcu(z, &dspan_list, list) {
 		if (!z->dead) {
-			/* Ignore dead spans */
 			for (y=0;y<z->span.channels;y++) {
 				/* Echo cancel double buffered data */
 				dahdi_ec_chunk(z->span.chans[y], z->span.chans[y]->readchunk, z->span.chans[y]->writechunk);
@@ -239,30 +234,23 @@ static void __ztdynamic_run(void)
 			dahdi_receive(&z->span);
 			dahdi_transmit(&z->span);
 			/* Handle all transmissions now */
-			spin_unlock_irqrestore(&dlock, flags);
 			ztd_sendmessage(z);
-			spin_lock_irqsave(&dlock, flags);
 		}
-		z = z->next;
 	}
-	spin_unlock_irqrestore(&dlock, flags);
 
-	read_lock(&drvlock);
-	drv = drivers;
-	while(drv) {
+	list_for_each_entry_rcu(drv, &driver_list, list) {
 		/* Flush any traffic still pending in the driver */
 		if (drv->flush) {
 			drv->flush();
 		}
-		drv = drv->next;
 	}
-	read_unlock(&drvlock);
+	rcu_read_unlock();
 }
 
 #ifdef ENABLE_TASKLETS
 static void ztdynamic_run(void)
 {
-	if (!taskletpending) {
+	if (likely(!taskletpending)) {
 		taskletpending = 1;
 		taskletsched++;
 		tasklet_hi_schedule(&ztd_tlet);
@@ -278,18 +266,17 @@ void dahdi_dynamic_receive(struct dahdi_span *span, unsigned char *msg, int msgl
 {
 	struct dahdi_dynamic *ztd = span->pvt;
 	int newerr=0;
-	unsigned long flags;
 	int sflags;
 	int xlen;
 	int x, bits, sig;
 	int nchans, master;
 	int newalarm;
 	unsigned short rxpos, rxcnt;
-	
-	
-	spin_lock_irqsave(&dlock, flags);
-	if (msglen < 6) {
-		spin_unlock_irqrestore(&dlock, flags);
+
+	rcu_read_lock();
+
+	if (unlikely(msglen < 6)) {
+		rcu_read_unlock();
 		newerr = ERR_LEN;
 		if (newerr != ztd->err) {
 			printk(KERN_NOTICE "Span %s: Insufficient samples for header (only %d)\n", span->name, msglen);
@@ -299,8 +286,8 @@ void dahdi_dynamic_receive(struct dahdi_span *span, unsigned char *msg, int msgl
 	}
 	
 	/* First, check the chunksize */
-	if (*msg != DAHDI_CHUNKSIZE) {
-		spin_unlock_irqrestore(&dlock, flags);
+	if (unlikely(*msg != DAHDI_CHUNKSIZE)) {
+		rcu_read_unlock();
 		newerr = ERR_NSAMP | msg[0];
 		if (newerr != 	ztd->err) {
 			printk(KERN_NOTICE "Span %s: Expected %d samples, but receiving %d\n", span->name, DAHDI_CHUNKSIZE, msg[0]);
@@ -311,14 +298,14 @@ void dahdi_dynamic_receive(struct dahdi_span *span, unsigned char *msg, int msgl
 	msg++;
 	sflags = *msg;
 	msg++;
-	
+
 	rxpos = ntohs(*((unsigned short *)msg));
 	msg++;
 	msg++;
-	
+
 	nchans = ntohs(*((unsigned short *)msg));
-	if (nchans != span->channels) {
-		spin_unlock_irqrestore(&dlock, flags);
+	if (unlikely(nchans != span->channels)) {
+		rcu_read_unlock();
 		newerr = ERR_NCHAN | nchans;
 		if (newerr != ztd->err) {
 			printk(KERN_NOTICE "Span %s: Expected %d channels, but receiving %d\n", span->name, span->channels, nchans);
@@ -328,7 +315,7 @@ void dahdi_dynamic_receive(struct dahdi_span *span, unsigned char *msg, int msgl
 	}
 	msg++;
 	msg++;
-	
+
 	/* Okay now we've accepted the header, lets check our message
 	   length... */
 
@@ -341,9 +328,9 @@ void dahdi_dynamic_receive(struct dahdi_span *span, unsigned char *msg, int msgl
 		/* Account for sigbits -- one short per 4 channels*/
 		xlen += ((nchans + 3) / 4) * 2;
 	}
-	
-	if (xlen != msglen) {
-		spin_unlock_irqrestore(&dlock, flags);
+
+	if (unlikely(xlen != msglen)) {
+		rcu_read_unlock();
 		newerr = ERR_LEN | xlen;
 		if (newerr != ztd->err) {
 			printk(KERN_NOTICE "Span %s: Expected message size %d, but was %d instead\n", span->name, xlen, msglen);
@@ -351,9 +338,9 @@ void dahdi_dynamic_receive(struct dahdi_span *span, unsigned char *msg, int msgl
 		ztd->err = newerr;
 		return;
 	}
-	
+
 	bits = 0;
-	
+
 	/* Record sigbits if present */
 	if (sflags & ZTD_FLAG_SIGBITS_PRESENT) {
 		for (x=0;x<nchans;x++) {
@@ -385,8 +372,11 @@ void dahdi_dynamic_receive(struct dahdi_span *span, unsigned char *msg, int msgl
 	rxcnt = ztd->rxcnt;
 	ztd->rxcnt = rxpos+1;
 
-	spin_unlock_irqrestore(&dlock, flags);
-	
+	/* Keep track of last received packet */
+	ztd->rxjif = jiffies;
+
+	rcu_read_unlock();
+
 	/* Check for Yellow alarm */
 	newalarm = span->alarms & ~(DAHDI_ALARM_YELLOW | DAHDI_ALARM_RED);
 	if (sflags & ZTD_FLAG_YELLOW_ALARM)
@@ -397,18 +387,14 @@ void dahdi_dynamic_receive(struct dahdi_span *span, unsigned char *msg, int msgl
 		dahdi_alarm_notify(span);
 		checkmaster();
 	}
-	
-	/* Keep track of last received packet */
-	ztd->rxjif = jiffies;
 
 	/* note if we had a missing packet */
-	if (rxpos != rxcnt)
+	if (unlikely(rxpos != rxcnt))
 		printk(KERN_NOTICE "Span %s: Expected seq no %d, but received %d instead\n", span->name, rxcnt, rxpos);
 
 	/* If this is our master span, then run everything */
 	if (master)
 		ztdynamic_run();
-	
 }
 
 static void dynamic_destroy(struct dahdi_dynamic *z)
@@ -440,64 +426,61 @@ static void dynamic_destroy(struct dahdi_dynamic *z)
 
 static struct dahdi_dynamic *find_dynamic(struct dahdi_dynamic_span *zds)
 {
-	struct dahdi_dynamic *z;
-	z = dspans;
-	while(z) {
+	struct dahdi_dynamic *z = NULL, *found = NULL;
+
+	rcu_read_lock();
+	list_for_each_entry_rcu(z, &dspan_list, list) {
 		if (!strcmp(z->dname, zds->driver) &&
-		    !strcmp(z->addr, zds->addr))
+				!strcmp(z->addr, zds->addr)) {
+			found = z;
 			break;
-		z = z->next;
+		}
 	}
-	return z;
+	rcu_read_unlock();
+
+	return found;
 }
 
 static struct dahdi_dynamic_driver *find_driver(char *name)
 {
-	struct dahdi_dynamic_driver *ztd;
-	ztd = drivers;
-	while(ztd) {
+	struct dahdi_dynamic_driver *ztd, *found = NULL;
+
+	rcu_read_lock();
+	list_for_each_entry_rcu(ztd, &driver_list, list) {
 		/* here's our driver */
-		if (!strcmp(name, ztd->name))
+		if (!strcmp(name, ztd->name)) {
+			found = ztd;
 			break;
-		ztd = ztd->next;
+		}
 	}
-	return ztd;
+	rcu_read_unlock();
+
+	return found;
 }
 
 static int destroy_dynamic(struct dahdi_dynamic_span *zds)
 {
 	unsigned long flags;
-	struct dahdi_dynamic *z, *cur, *prev=NULL;
-	spin_lock_irqsave(&dlock, flags);
+	struct dahdi_dynamic *z;
+
 	z = find_dynamic(zds);
-	if (!z) {
-		spin_unlock_irqrestore(&dlock, flags);
+	if (unlikely(!z)) {
 		return -EINVAL;
 	}
-	/* Don't destroy span until it is in use */
+
 	if (z->usecount) {
-		spin_unlock_irqrestore(&dlock, flags);
 		printk(KERN_NOTICE "Attempt to destroy dynamic span while it is in use\n");
 		return -EBUSY;
 	}
-	/* Unlink it */
-	cur = dspans;
-	while(cur) {
-		if (cur == z) {
-			if (prev)
-				prev->next = z->next;
-			else
-				dspans = z->next;
-			break;
-		}
-		prev = cur;
-		cur = cur->next;
-	}
-	spin_unlock_irqrestore(&dlock, flags);
+
+	spin_lock_irqsave(&dspan_lock, flags);
+	list_del_rcu(&z->list);
+	spin_unlock_irqrestore(&dspan_lock, flags);
+	synchronize_rcu();
 
 	/* Destroy it */
 	dynamic_destroy(z);
-	
+
 	return 0;
 }
 
@@ -511,8 +494,8 @@ static int ztd_open(struct dahdi_chan *chan)
 {
 	struct dahdi_dynamic *z;
 	z = chan->span->pvt;
-	if (z) {
-		if (z->dead)
+	if (likely(z)) {
+		if (unlikely(z->dead))
 			return -ENODEV;
 		z->usecount++;
 	}
@@ -528,10 +511,11 @@ static int ztd_close(struct dahdi_chan *chan)
 {
 	struct dahdi_dynamic *z;
 	z = chan->span->pvt;
-	if (z) 
+	if (z) {
 		z->usecount--;
-	if (z->dead && !z->usecount)
-		dynamic_destroy(z);
+	  if (z->dead && !z->usecount)
+		  dynamic_destroy(z);
+  }
 	return 0;
 }
 
@@ -552,21 +536,13 @@ static int create_dynamic(struct dahdi_dynamic_span *zds)
 		return -EINVAL;
 	}
 
-	spin_lock_irqsave(&dlock, flags);
 	z = find_dynamic(zds);
-	spin_unlock_irqrestore(&dlock, flags);
 	if (z)
 		return -EEXIST;
 
-	/* XXX There is a silly race here.  We check it doesn't exist, but
-	       someone could create it between now and then and we'd end up
-	       with two of them.  We don't want to hold the spinlock
-	       for *too* long though, especially not if there is a possibility
-	       of kmalloc.  XXX */
-
-
 	/* Allocate memory */
-	if (!(z = kmalloc(sizeof(*z), GFP_KERNEL))) {
+	z = (struct dahdi_dynamic *) kmalloc(sizeof(struct dahdi_dynamic), GFP_KERNEL);
+	if (!z) {
 		return -ENOMEM;
 	}
 
@@ -621,24 +597,20 @@ static int create_dynamic(struct dahdi_dynamic_span *zds)
 		z->chans[x]->pvt = z;
 	}
 	
-	spin_lock_irqsave(&dlock, flags);
 	ztd = find_driver(zds->driver);
 	if (!ztd) {
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,5,70)
 		char fn[80];
 #endif
 
-		spin_unlock_irqrestore(&dlock, flags);
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,5,70)
 		request_module("dahdi_dynamic_%s", zds->driver);
 #else
 		sprintf(fn, "dahdi_dynamic_%s", zds->driver);
 		request_module(fn);
 #endif
-		spin_lock_irqsave(&dlock, flags);
 		ztd = find_driver(zds->driver);
 	}
-	spin_unlock_irqrestore(&dlock, flags);
 
 
 	/* Another race -- should let the module get unloaded while we
@@ -667,11 +639,9 @@ static int create_dynamic(struct dahdi_dynamic_span *zds)
 		return -EINVAL;
 	}
 
-	/* Okay, created and registered. add it to the list */
-	spin_lock_irqsave(&dlock, flags);
-	z->next = dspans;
-	dspans = z;
-	spin_unlock_irqrestore(&dlock, flags);
+	spin_lock_irqsave(&dspan_lock, flags);
+	list_add_rcu(&z->list, &dspan_list);
+	spin_unlock_irqrestore(&dspan_lock, flags);
 
 	checkmaster();
 
@@ -732,70 +702,52 @@ int dahdi_dynamic_register(struct dahdi_dynamic_driver *dri)
 {
 	unsigned long flags;
 	int res = 0;
-	write_lock_irqsave(&drvlock, flags);
-	if (find_driver(dri->name))
+
+	if (find_driver(dri->name)) {
 		res = -1;
-	else {
-		dri->next = drivers;
-		drivers = dri;
+	} else {
+		spin_lock_irqsave(&driver_lock, flags);
+		list_add_rcu(&dri->list, &driver_list);
+		spin_unlock_irqrestore(&driver_lock, flags);
 	}
-	write_unlock_irqrestore(&drvlock, flags);
 	return res;
 }
 
 void dahdi_dynamic_unregister(struct dahdi_dynamic_driver *dri)
 {
-	struct dahdi_dynamic_driver *cur, *prev=NULL;
-	struct dahdi_dynamic *z, *zp, *zn;
+	struct dahdi_dynamic *z;
 	unsigned long flags;
-	write_lock_irqsave(&drvlock, flags);
-	cur = drivers;
-	while(cur) {
-		if (cur == dri) {
-			if (prev)
-				prev->next = cur->next;
-			else
-				drivers = cur->next;
-			break;
-		}
-		prev = cur;
-		cur = cur->next;
-	}
-	write_unlock_irqrestore(&drvlock, flags);
-	spin_lock_irqsave(&dlock, flags);
-	z = dspans;
-	zp = NULL;
-	while(z) {
-		zn = z->next;
+
+	spin_lock_irqsave(&driver_lock, flags);
+	list_del_rcu(&dri->list);
+	spin_unlock_irqrestore(&driver_lock, flags);
+	synchronize_rcu();
+
+	list_for_each_entry(z, &dspan_list, list) {
 		if (z->driver == dri) {
-			/* Unlink */
-			if (zp)
-				zp->next = z->next;
-			else
-				dspans = z->next;
+			spin_lock_irqsave(&dspan_lock, flags);
+			list_del_rcu(&z->list);
+			spin_unlock_irqrestore(&dspan_lock, flags);
+			synchronize_rcu();
+
 			if (!z->usecount)
 				dynamic_destroy(z);
 			else
 				z->dead = 1;
-		} else {
-			zp = z;
 		}
-		z = zn;
 	}
-	spin_unlock_irqrestore(&dlock, flags);
 }
 
 static struct timer_list alarmcheck;
 
 static void check_for_red_alarm(unsigned long ignored)
 {
-	unsigned long flags;
 	int newalarm;
 	int alarmchanged = 0;
 	struct dahdi_dynamic *z;
-	spin_lock_irqsave(&dlock, flags);
-	z = dspans;
-	while(z) {
+
+	rcu_read_lock();
+	list_for_each_entry_rcu(z, &dspan_list, list) {
 		newalarm = z->span.alarms & ~DAHDI_ALARM_RED;
 		/* If nothing received for a second, consider that RED ALARM */
 		if ((jiffies - z->rxjif) > 1 * HZ) {
@@ -806,20 +758,20 @@ static void check_for_red_alarm(unsigned long ignored)
 				alarmchanged++;
 			}
 		}
-		z = z->next;
 	}
-	spin_unlock_irqrestore(&dlock, flags);
+	rcu_read_unlock();
+
 	if (alarmchanged)
 		checkmaster();
 
 	/* Do the next one */
 	mod_timer(&alarmcheck, jiffies + 1 * HZ);
-	
 }
 
 static int ztdynamic_init(void)
 {
 	dahdi_set_dynamic_ioctl(ztdynamic_ioctl);
+
 	/* Start process to check for RED ALARM */
 	init_timer(&alarmcheck);
 	alarmcheck.expires = 0;

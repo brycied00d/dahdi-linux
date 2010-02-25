@@ -225,6 +225,19 @@ config DAHDI_DYNAMIC_ETH
 
 	  If unsure, say Y.
 
+config DAHDI_DYNAMIC_ETHMF
+	tristate "Ethernet (TDMoE) Multi-Frame Span Support"
+	depends on DAHDI && DAHDI_DYNAMIC
+	default DAHDI
+	---help---
+	  This module provides support for spans over Ethernet,
+	  using the TDMoE-Multi-Frame protocol.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called dahdi_dynamic_ethmf.
+
+	  If unsure, say Y.
+
 config DAHDI_DYNAMIC_LOC
 	tristate "Local (loopback) Span Support"
 	depends on DAHDI && DAHDI_DYNAMIC

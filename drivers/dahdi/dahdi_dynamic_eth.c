@@ -98,10 +98,12 @@ static int ztdeth_rcv(struct sk_buff *skb, struct net_device *dev, struct packet
 #endif	
 	if (span) {
 		skb_pull(skb, sizeof(struct ztdeth_header));
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,18)
-		skb_linearize(skb);
+#ifdef NEW_SKB_LINEARIZE
+		if (skb_is_nonlinear(skb))
+			skb_linearize(skb);
 #else
-		skb_linearize(skb, GFP_KERNEL);
+		if (skb_is_nonlinear(skb))
+			skb_linearize(skb, GFP_KERNEL);
 #endif
 		dahdi_dynamic_receive(span, (unsigned char *)skb->data, skb->len);
 	}
