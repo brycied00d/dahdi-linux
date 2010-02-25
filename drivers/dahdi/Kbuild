@@ -3,6 +3,7 @@ obj-$(DAHDI_BUILD_ALL)$(CONFIG_DAHDI)			+= dahdi.o
 obj-$(DAHDI_BUILD_ALL)$(CONFIG_DAHDI_DYNAMIC)		+= dahdi_dynamic.o
 obj-$(DAHDI_BUILD_ALL)$(CONFIG_DAHDI_DYNAMIC_LOC)	+= dahdi_dynamic_loc.o
 obj-$(DAHDI_BUILD_ALL)$(CONFIG_DAHDI_DYNAMIC_ETH)	+= dahdi_dynamic_eth.o
+obj-$(DAHDI_BUILD_ALL)$(CONFIG_DAHDI_DYNAMIC_ETHMF)	+= dahdi_dynamic_ethmf.o
 obj-$(DAHDI_BUILD_ALL)$(CONFIG_DAHDI_TRANSCODE)		+= dahdi_transcode.o
 
 obj-$(DAHDI_BUILD_ALL)$(CONFIG_DAHDI_WCT4XXP)		+= wct4xxp/
@@ -61,6 +62,14 @@ endif
 # as part of an ALSA backport. TODO: Any better way to detect that?
 ifeq (1,$(shell fgrep -q ' hrtimer_set_expires' include/linux/hrtimer.h 2>/dev/null && echo 1))
 EXTRA_CFLAGS+=-DHAVE_HRTIMER_ACCESSORS=1
+endif
+
+# In 2.6.18 skb_linearize changed; however, some distros backported the change
+ifneq (,$(wildcard $(srctree)/include/linux/skbuff.h))
+ifeq ($(shell grep "skb_linearize.*(.*, .* gfp)" $(srctree)/include/linux/skbuff.h),)
+CFLAGS_dahdi_dynamic_eth.o := -DNEW_SKB_LINEARIZE
+CFLAGS_dahdi_dynamic_ethmf.o := -DNEW_SKB_LINEARIZE
+endif
 endif
 
 dahdi-objs := dahdi-base.o

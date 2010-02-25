@@ -960,7 +960,7 @@ struct dahdi_dynamic_driver {
 	/*! Flush any pending messages */
 	int (*flush)(void);
 
-	struct dahdi_dynamic_driver *next;
+	struct list_head list;
 };
 
 /*! \brief Receive a dynamic span message */
