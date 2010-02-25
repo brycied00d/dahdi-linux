@@ -116,7 +116,7 @@ static int vpmadt032_load_firmware(struct voicebus *vb)
 	pci_set_drvdata(vb->pdev, ctx);
 	old = vb->ops;
 	vb->ops = &loader_operations;
-	if (wait_for_completion_timeout(&ctx->done, HZ*2))
+	if (!wait_for_completion_timeout(&ctx->done, HZ*20))
 		ret = -EIO;
 	vb->ops = old;
 	pci_set_drvdata(vb->pdev, old_drvdata);
