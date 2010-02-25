@@ -224,7 +224,7 @@ static inline int ethmf_trx_spans_ready(unsigned int addr_hash, struct ztdeth *(
 /**
  * Ethernet receiving side processing function.
  */
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,14)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 14)
 static int ztdethmf_rcv(struct sk_buff *skb, struct net_device *dev,
 		struct packet_type *pt, struct net_device *orig_dev)
 #else
@@ -240,7 +240,7 @@ static int ztdethmf_rcv(struct sk_buff *skb, struct net_device *dev,
 	unsigned int samples, channels, rbslen, flags;
 	unsigned int skip = 0;
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,22)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 22)
 	zh = (struct ztdeth_header *) skb_network_header(skb);
 #else
 	zh = (struct ztdeth_header *) skb->nh.raw;
@@ -267,7 +267,7 @@ static int ztdethmf_rcv(struct sk_buff *skb, struct net_device *dev,
 
 		rcu_read_lock();
 		do {
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,9)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 9)
 			find_ethmf(eth_hdr(skb)->h_source,
 				htons(span_index), &z, &span);
 #else
@@ -414,7 +414,8 @@ static int ztdethmf_transmit(void *pvt, unsigned char *msg, int msglen)
 		}
 	}
 
-	if ((spans_ready = ethmf_trx_spans_ready(z->addr_hash, &ready_spans))) {
+	spans_ready = ethmf_trx_spans_ready(z->addr_hash, &ready_spans);
+	if (spans_ready) {
 		int pad[ETHMF_MAX_SPANS], rbs[ETHMF_MAX_SPANS];
 
 		dev = z->dev;
@@ -437,7 +438,7 @@ static int ztdethmf_transmit(void *pvt, unsigned char *msg, int msglen)
 			else if (chan == 31)
 				rbs[index] = 16;
 			else
-				// Shouldn't this be index, not spans_ready?
+				/* Shouldn't this be index, not spans_ready? */
 				rbs[spans_ready] = ((chan + 3) / 4) * 2;
 		}
 
@@ -492,13 +493,13 @@ static int ztdethmf_transmit(void *pvt, unsigned char *msg, int msglen)
 
 		/* Setup protocol type */
 		skb->protocol = __constant_htons(ETH_P_ZTDETH);
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,22)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 22)
 		skb_set_network_header(skb, 0);
 #else
 		skb->nh.raw = skb->data;
 #endif
 		skb->dev = dev;
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,24)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 24)
 		dev_hard_header(skb, dev, ETH_P_ZTDETH, addr, dev->dev_addr, skb->len);
 #else
 		if (dev->hard_header)
@@ -531,8 +532,7 @@ static int ztdethmf_flush(void)
 	return 0;
 }
 
-static struct packet_type ztdethmf_ptype =
-{
+static struct packet_type ztdethmf_ptype = {
 	.type = __constant_htons(ETH_P_ZTDETH),	/* Protocol */
 	.dev  = NULL,				/* Device (NULL = wildcard) */
 	.func = ztdethmf_rcv,			/* Receiver */
@@ -601,18 +601,19 @@ static void *ztdethmf_create(struct dahdi_span *span, char *addr)
 			*src_ptr = ' ';
 		++src_ptr;
 	}
-	if (8 != (num_matched = sscanf(src,
+	num_matched = sscanf(src,
 			"%16s %hhx:%hhx:%hhx:%hhx:%hhx:%hhx %hu",
 			z->ethdev, &z->addr[0], &z->addr[1],
 			&z->addr[2], &z->addr[3], &z->addr[4],
-			&z->addr[5], &z->subaddr))) {
+			&z->addr[5], &z->subaddr);
+	if (8 != num_matched) {
 		printk(KERN_ERR "Only matched %d entries in '%s'\n", num_matched, src);
 		printk(KERN_ERR "Invalid TDMoE Multiframe address: %s\n", addr);
 		kfree(z);
 		return NULL;
 	}
 	z->dev = dev_get_by_name(
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,24)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 24)
 		&init_net,
 #endif
 		z->ethdev);
@@ -626,8 +627,8 @@ static void *ztdethmf_create(struct dahdi_span *span, char *addr)
 	z->addr_hash = crc32_le(0, z->addr, ETH_ALEN);
 	z->real_channels = span->channels;
 
-	src[0] ='\0';
-	for (x=0; x<5; x++)
+	src[0] = '\0';
+	for (x = 0; x < 5; x++)
 		sprintf(src + strlen(src), "%02x:", z->dev->dev_addr[x]);
 	sprintf(src + strlen(src), "%02x", z->dev->dev_addr[5]);
 
@@ -769,7 +770,7 @@ static int ztdethmf_proc_read(char *page, char **start, off_t off, int count,
 	len -= off;
 	if (len > count)
 		len = count;
-	return (len);
+	return len;
 }
 #endif
 
