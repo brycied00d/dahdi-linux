@@ -52,6 +52,16 @@ Tx Gain - W/Pre-Emphasis: -23.99 to 0.00 db
 #include <asm/semaphore.h>
 #endif
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 30)
+/* Define this if you would like to load the modules in parallel.  While this
+ * can speed up loads when multiple cards handled by this driver are installed,
+ * it also makes it impossible to abort module loads with ctrl-c */
+#undef USE_ASYNC_INIT
+#include <linux/async.h>
+#else
+#undef USE_ASYNC_INIT
+#endif
+
 #include <dahdi/kernel.h>
 #include <dahdi/wctdm_user.h>
 
@@ -3743,7 +3753,18 @@ static const struct voicebus_operations voicebus_operations = {
 	.handle_transmit = handle_transmit,
 };
 
-static int __devinit wctdm_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
+#ifdef USE_ASYNC_INIT
+struct async_data {
+	struct pci_dev *pdev;
+	const struct pci_device_id *ent;
+};
+static int __devinit
+__wctdm_init_one(struct pci_dev *pdev, const struct pci_device_id *ent,
+		 async_cookie_t cookie)
+#else
+static int __devinit
+__wctdm_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
+#endif
 {
 	struct wctdm *wc;
 	int i;
@@ -3836,6 +3857,10 @@ static int __devinit wctdm_init_one(struct pci_dev *pdev, const struct pci_devic
 	/* Final initialization */
 	wctdm_post_initialize(wc);
 	
+#ifdef USE_ASYNC_INIT
+	async_synchronize_cookie(cookie);
+#endif
+
 	/* We should be ready for DAHDI to come in now. */
 	if (dahdi_register(&wc->span, 0)) {
 		dev_info(&wc->vb.pdev->dev,
@@ -3853,6 +3878,41 @@ static int __devinit wctdm_init_one(struct pci_dev *pdev, const struct pci_devic
 	voicebus_unlock_latency(&wc->vb);
 	return 0;
 }
+
+#ifdef USE_ASYNC_INIT
+static __devinit void
+wctdm_init_one_async(void *data, async_cookie_t cookie)
+{
+	struct async_data *dat = data;
+	__wctdm_init_one(dat->pdev, dat->ent, cookie);
+	kfree(dat);
+}
+
+static int __devinit
+wctdm_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
+{
+	struct async_data *dat;
+
+	dat = kmalloc(sizeof(*dat), GFP_KERNEL);
+	/* If we can't allocate the memory for the async_data, odds are we won't
+	 * be able to initialize the device either, but let's try synchronously
+	 * anyway... */
+	if (!dat)
+		return __wctdm_init_one(pdev, ent, 0);
+
+	dat->pdev = pdev;
+	dat->ent = ent;
+	async_schedule(wctdm_init_one_async, dat);
+	return 0;
+}
+#else
+static int __devinit
+wctdm_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
+{
+	return __wctdm_init_one(pdev, ent);
+}
+#endif
+
 
 static void wctdm_release(struct wctdm *wc)
 {
@@ -3965,6 +4025,10 @@ static int __init wctdm_init(void)
 	res = dahdi_pci_module(&wctdm_driver);
 	if (res)
 		return -ENODEV;
+
+#ifdef USE_ASYNC_INIT
+	async_synchronize_full();
+#endif
 	return 0;
 }
 
