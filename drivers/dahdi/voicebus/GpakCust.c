@@ -751,7 +751,8 @@ void gpakReadDspMemory(
 
 	vpmadt032_io_wait(vpm);
 	if ( NumWords < VPM150M_MAX_COMMANDS ) {
-		struct vpmadt032_cmd *cmds[VPM150M_MAX_COMMANDS] = {NULL};
+		struct vpmadt032_cmd *cmds[VPM150M_MAX_COMMANDS];
+		memset(cmds, 0, sizeof(cmds));
 		vpmadt032_setpage(vpm, DspAddress >> 16);
 		DspAddress &= 0xffff;
 		for (i=0; i < NumWords; ++i) {

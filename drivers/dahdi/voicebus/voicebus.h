@@ -29,6 +29,8 @@
 #ifndef __VOICEBUS_H__
 #define __VOICEBUS_H__
 
+#include <linux/interrupt.h>
+
 #define VOICEBUS_DEFAULT_LATENCY	3
 #define VOICEBUS_DEFAULT_MAXLATENCY	25
 #define VOICEBUS_MAXLATENCY_BUMP	6
@@ -42,22 +44,21 @@
 /* Define CONFIG_VOICEBUS_SYSFS to create some attributes under the pci device.
  * This is disabled by default because it hasn't been tested on the full range
  * of supported kernels. */
-#undef CONFIG_VOICEBUS_SYSFS
+#define CONFIG_VOICEBUS_SYSFS
 
-#define INTERRUPT 0	/* Run the deferred processing in the ISR. */
-#define TASKLET   1	/* Run in a tasklet. */
-#define TIMER	  2	/* Run in a system timer. */
-#define WORKQUEUE 3	/* Run in a workqueue. */
-
-#ifndef VOICEBUS_DEFERRED
-#define VOICEBUS_DEFERRED INTERRUPT
-#endif
+/* Do not generate interrupts on this interface, but instead just poll it */
+#undef CONFIG_VOICEBUS_TIMER
 
 struct voicebus;
 
+struct vbb {
+	u8 data[VOICEBUS_SFRAME_SIZE];
+	struct list_head entry;
+};
+
 struct voicebus_operations {
-	void (*handle_receive)(struct voicebus *vb, void *vbb);
-	void (*handle_transmit)(struct voicebus *vb, void *vbb);
+	void (*handle_receive)(struct voicebus *vb, struct list_head *buffers);
+	void (*handle_transmit)(struct voicebus *vb, struct list_head *buffers);
 	void (*handle_error)(struct voicebus *vb);
 };
 
@@ -77,41 +78,39 @@ struct voicebus_descriptor_list {
 /**
  * struct voicebus - Represents physical interface to voicebus card.
  *
+ * @tx_complete: only used in the tasklet to temporarily hold complete tx
+ *		 buffers.
  */
 struct voicebus {
 	struct pci_dev		*pdev;
 	spinlock_t		lock;
 	struct voicebus_descriptor_list rxd;
 	struct voicebus_descriptor_list txd;
-	void			*idle_vbb;
+	u8			*idle_vbb;
 	dma_addr_t		idle_vbb_dma_addr;
 	const int		*debug;
 	u32			iobase;
-#if VOICEBUS_DEFERRED == WORKQUEUE
-	struct workqueue_struct *workqueue;
-	struct work_struct	workitem;
-#elif VOICEBUS_DEFERRED == TASKLET
 	struct tasklet_struct 	tasklet;
-#elif VOICEBUS_DEFERRED == TIMER
+
+#if defined(CONFIG_VOICEBUS_TIMER)
 	struct timer_list	timer;
 #endif
+
 	struct work_struct	underrun_work;
 	const struct voicebus_operations *ops;
 	struct completion	stopped_completion;
 	unsigned long		flags;
 	unsigned int		min_tx_buffer_count;
 	unsigned int		max_latency;
-	void			*vbb_stash[DRING_SIZE];
-	unsigned int		count;
+	struct list_head	tx_complete;
 };
 
 int voicebus_init(struct voicebus *vb, const char *board_name);
 void voicebus_release(struct voicebus *vb);
 int voicebus_start(struct voicebus *vb);
 int voicebus_stop(struct voicebus *vb);
-void *voicebus_alloc(struct voicebus* vb);
-void voicebus_free(struct voicebus *vb, void *vbb);
-int voicebus_transmit(struct voicebus *vb, void *vbb);
+void voicebus_free(struct voicebus *vb, struct vbb *vbb);
+int voicebus_transmit(struct voicebus *vb, struct vbb *vbb);
 int voicebus_set_minlatency(struct voicebus *vb, unsigned int milliseconds);
 int voicebus_current_latency(struct voicebus *vb);
 void voicebus_lock_latency(struct voicebus *vb);
