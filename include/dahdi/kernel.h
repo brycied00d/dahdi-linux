@@ -1181,6 +1181,7 @@ static inline short dahdi_txtone_nextsample(struct dahdi_chan *ss)
 	(signal_pending((p)) && sigismember(&(p)->pending.signal, SIGKILL))
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 18)
+#define synchronize_rcu() synchronize_kernel()
 static inline void list_replace(struct list_head *old, struct list_head *new)
 {
         new->next = old->next;
