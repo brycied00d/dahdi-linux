@@ -240,6 +240,25 @@ static void free_change_order(struct change_order *order)
 	kfree(order);
 }
 
+static int vpmadt032_control(struct vpmadt032 *vpm, unsigned short int channel,
+			     GpakAlgCtrl_t control_code,
+			     GPAK_AlgControlStat_t *pstatus)
+{
+	gpakAlgControlStat_t stat;
+	int retry = 4;
+	while (retry--) {
+		stat = gpakAlgControl(vpm->dspid, channel,
+				      control_code, pstatus);
+
+		if (AcDspCommFailure == stat)
+			msleep(5);
+		else
+			break;
+	}
+
+	return stat;
+}
+
 static int vpmadt032_enable_ec(struct vpmadt032 *vpm, int channel,
 			       enum adt_companding companding)
 {
@@ -250,18 +269,18 @@ static int vpmadt032_enable_ec(struct vpmadt032 *vpm, int channel,
 	control = (ADT_COMP_ALAW == companding) ? EnableALawSwCompanding :
 						  EnableMuLawSwCompanding;
  
-	if (vpm->options.debug & DEBUG_ECHOCAN) {
+	if (vpm->options.debug & DEBUG_VPMADT032_ECHOCAN) {
 		const char *law;
 		law = (control == EnableMuLawSwCompanding) ? "MuLaw" : "ALaw";
 		vpm_info(vpm, "Enabling ecan on channel: %d (%s)\n",
 			 channel, law);
 	}
-	res = gpakAlgControl(vpm->dspid, channel, control, &pstatus);
+	res = vpmadt032_control(vpm, channel, control, &pstatus);
 	if (res) {
 		vpm_info(vpm, "Unable to set SW Companding on "
 			 "channel %d (reason %d)\n", channel, res);
 	}
-	res = gpakAlgControl(vpm->dspid, channel, EnableEcanA, &pstatus);
+	res = vpmadt032_control(vpm, channel, EnableEcanA, &pstatus);
 	return res;
 }
 
@@ -270,16 +289,16 @@ static int vpmadt032_disable_ec(struct vpmadt032 *vpm, int channel)
 	int res;
 	GPAK_AlgControlStat_t pstatus;
 
-	if (vpm->options.debug & DEBUG_ECHOCAN)
+	if (vpm->options.debug & DEBUG_VPMADT032_ECHOCAN)
 		vpm_info(vpm, "Disabling ecan on channel: %d\n", channel);
 
-	res = gpakAlgControl(vpm->dspid, channel, BypassSwCompanding, &pstatus);
+	res = vpmadt032_control(vpm, channel, BypassSwCompanding, &pstatus);
 	if (res) {
 		vpm_info(vpm, "Unable to disable sw companding on "
 			 "echo cancellation channel %d (reason %d)\n",
 			 channel, res);
 	}
-	res = gpakAlgControl(vpm->dspid, channel, BypassEcanA, &pstatus);
+	res = vpmadt032_control(vpm, channel, BypassEcanA, &pstatus);
 	return res;
 }
 
@@ -331,7 +350,7 @@ static void update_channel_config(struct vpmadt032 *vpm, unsigned int channel,
 	GPAK_TearDownChanStat_t tstatus;
 	GpakChannelConfig_t chanconfig;
 
-	if (vpm->options.debug & DEBUG_ECHOCAN) {
+	if (vpm->options.debug & DEBUG_VPMADT032_ECHOCAN) {
 		vpm_info(vpm, "Reconfiguring chan %d for nlp %d, "
 			 "nlp_thresh %d, and max_supp %d\n", channel + 1,
 			 desired->nlp_type, desired->nlp_threshold,
@@ -350,14 +369,14 @@ static void update_channel_config(struct vpmadt032 *vpm, unsigned int channel,
 		return;
 
 	if (!desired->tap_length) {
-		res = gpakAlgControl(vpm->dspid, channel,
+		res = vpmadt032_control(vpm, channel,
 				     BypassSwCompanding, &pstatus);
 		if (res) {
 			vpm_info(vpm, "Unable to disable sw companding on "
 				 "echo cancellation channel %d (reason %d)\n",
 				 channel, res);
 		}
-		gpakAlgControl(vpm->dspid, channel, BypassEcanA, &pstatus);
+		vpmadt032_control(vpm, channel, BypassEcanA, &pstatus);
 	}
 
 	return;
@@ -428,7 +447,9 @@ static void vpmadt032_check_and_schedule_update(struct vpmadt032 *vpm,
 	queue_work(vpm->wq, &vpm->work);
 }
 int vpmadt032_echocan_create(struct vpmadt032 *vpm, int channo,
-	struct dahdi_echocanparams *ecp, struct dahdi_echocanparam *p)
+			     enum adt_companding companding,
+			     struct dahdi_echocanparams *ecp,
+			     struct dahdi_echocanparam *p)
 {
 	unsigned int ret;
 	struct change_order *order = alloc_change_order();
@@ -442,7 +463,7 @@ int vpmadt032_echocan_create(struct vpmadt032 *vpm, int channo,
 		return ret;
 	}
 
-	if (vpm->options.debug & DEBUG_ECHOCAN) {
+	if (vpm->options.debug & DEBUG_VPMADT032_ECHOCAN) {
 		vpm_info(vpm, "Channel is %d length %d\n",
 			 channo, ecp->tap_length);
 	}
@@ -451,7 +472,7 @@ int vpmadt032_echocan_create(struct vpmadt032 *vpm, int channo,
 	 * module. Instead, it uses tap_length to enable or disable the echo
 	 * cancellation. */
 	order->params.tap_length = (ecp->tap_length) ? 1 : 0;
-	order->params.companding = vpm->companding;
+	order->params.companding = companding;
 	order->channel = channo;
 
 	vpmadt032_check_and_schedule_update(vpm, order);
@@ -474,7 +495,7 @@ void vpmadt032_echocan_free(struct vpmadt032 *vpm, int channo,
 	order->params.nlp_max_suppress = vpm->options.vpmnlpmaxsupp;
 	order->channel = channo;
 
-	if (vpm->options.debug & DEBUG_ECHOCAN)
+	if (vpm->options.debug & DEBUG_VPMADT032_ECHOCAN)
 		vpm_info(vpm, "Channel is %d length 0\n", channo);
 
 	vpmadt032_check_and_schedule_update(vpm, order);
@@ -566,7 +587,7 @@ vpmadt032_init(struct vpmadt032 *vpm, struct voicebus *vb)
 
 	might_sleep();
 
-	if (vpm->options.debug & DEBUG_ECHOCAN)
+	if (vpm->options.debug & DEBUG_VPMADT032_ECHOCAN)
 		dev_info(&vpm->vb->pdev->dev, "VPMADT032 Testing page access: ");
 
 	for (i = 0; i < 0xf; i++) {
@@ -575,7 +596,7 @@ vpmadt032_init(struct vpmadt032 *vpm, struct voicebus *vb)
 			vpmadt032_setpage(vpm, i);
 			reg = vpmadt032_getpage(vpm);
 			if (reg != i) {
-				if (vpm->options.debug & DEBUG_ECHOCAN)
+				if (vpm->options.debug & DEBUG_VPMADT032_ECHOCAN)
 					dev_info(&vpm->vb->pdev->dev, "Failed: Sent %x != %x VPMADT032 Failed HI page test\n", i, reg);
 				res = -ENODEV;
 				goto failed_exit;
@@ -583,7 +604,7 @@ vpmadt032_init(struct vpmadt032 *vpm, struct voicebus *vb)
 		}
 	}
 
-	if (vpm->options.debug & DEBUG_ECHOCAN)
+	if (vpm->options.debug & DEBUG_VPMADT032_ECHOCAN)
 		dev_info(&vpm->vb->pdev->dev, "Passed\n");
 
 	set_bit(VPM150M_HPIRESET, &vpm->control);
@@ -593,7 +614,7 @@ vpmadt032_init(struct vpmadt032 *vpm, struct voicebus *vb)
 
 	/* Set us up to page 0 */
 	vpmadt032_setpage(vpm, 0);
-	if (vpm->options.debug & DEBUG_ECHOCAN)
+	if (vpm->options.debug & DEBUG_VPMADT032_ECHOCAN)
 		dev_info(&vpm->vb->pdev->dev, "VPMADT032 now doing address test: ");
 
 	for (i = 0; i < 16; i++) {
@@ -609,7 +630,7 @@ vpmadt032_init(struct vpmadt032 *vpm, struct voicebus *vb)
 		}
 	}
 
-	if (vpm->options.debug & DEBUG_ECHOCAN)
+	if (vpm->options.debug & DEBUG_VPMADT032_ECHOCAN)
 		printk(KERN_CONT "Passed\n");
 
 	set_bit(VPM150M_HPIRESET, &vpm->control);
@@ -631,8 +652,8 @@ vpmadt032_init(struct vpmadt032 *vpm, struct voicebus *vb)
 	pingstatus = gpakPingDsp(vpm->dspid, &vpm->version);
 
 	if (!pingstatus) {
-		if (vpm->options.debug & DEBUG_ECHOCAN)
-			dev_info(&vpm->vb->pdev->dev, "Version of DSP is %x\n", vpm->version);
+		dev_info(&vpm->vb->pdev->dev,
+			 "Version of DSP is %x\n", vpm->version);
 	} else {
 		dev_notice(&vpm->vb->pdev->dev, "VPMADT032 Failed! Unable to ping the DSP (%d)!\n", pingstatus);
 		res = -1;
