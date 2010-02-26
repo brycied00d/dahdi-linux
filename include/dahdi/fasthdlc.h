@@ -35,6 +35,7 @@
 enum fasthdlc_mode {
 	FASTHDLC_MODE_64 = 0,
 	FASTHDLC_MODE_56,
+	FASTHDLC_MODE_16,
 };
 
 struct fasthdlc_state {
@@ -43,6 +44,7 @@ struct fasthdlc_state {
 	int bits;		/* Number of bits in our data queue */
 	int ones;		/* Number of ones */
 	enum fasthdlc_mode mode;
+	unsigned int minbits;
 };
 
 #ifdef FAST_HDLC_NEED_TABLES
@@ -358,6 +360,18 @@ static inline void fasthdlc_init(struct fasthdlc_state *h, enum fasthdlc_mode mo
 	h->data = 0;
 	h->ones = 0;
 
+	switch (mode) {
+	case FASTHDLC_MODE_64:
+		h->minbits = 8;
+		break;
+	case FASTHDLC_MODE_56:
+		h->minbits = 7;
+		break;
+	case FASTHDLC_MODE_16:
+		h->minbits = 2;
+		break;
+	}
+
 }
 
 static inline int fasthdlc_tx_load_nocheck(struct fasthdlc_state *h, unsigned char c)
@@ -398,6 +412,9 @@ static inline int fasthdlc_tx_need_data(struct fasthdlc_state *h)
 	if (h->mode == FASTHDLC_MODE_56) {
 		if (h->bits < 7)
 			return 1;
+	} else if (h->mode == FASTHDLC_MODE_16) {
+		if (h->bits < 2)
+			return 1;
 	} else {
 		if (h->bits < 8)
 			return 1;
@@ -409,7 +426,13 @@ static inline int fasthdlc_tx_need_data(struct fasthdlc_state *h)
 static inline int fasthdlc_tx_run_nocheck(struct fasthdlc_state *h)
 {
 	unsigned char b;
-	if (h->mode == FASTHDLC_MODE_56) {
+	if (h->mode == FASTHDLC_MODE_16) {
+		b = h->data >> 30;
+		h->bits -= 2;
+		h->data <<= 2;
+
+		return (b & 3) << 6;
+	} else if (h->mode == FASTHDLC_MODE_56) {
 		b = h->data >> 25;
 		h->bits -= 7;
 		h->data <<= 7;
@@ -427,14 +450,17 @@ static inline int fasthdlc_tx_run_nocheck(struct fasthdlc_state *h)
 
 static inline int fasthdlc_tx_run(struct fasthdlc_state *h)
 {
-	if (h->bits < 8)
+	if (h->bits < h->minbits)
 		return -1;
 	return fasthdlc_tx_run_nocheck(h);
 }
 
 static inline int fasthdlc_rx_load_nocheck(struct fasthdlc_state *h, unsigned char b)
 {
-	if (h->mode == FASTHDLC_MODE_56) {
+	if (h->mode == FASTHDLC_MODE_16) {
+		h->data |= (b >> 6) << (30-h->bits);
+		h->bits += 2;
+	} else if (h->mode == FASTHDLC_MODE_56) {
 		h->data |= (b >> 1) << (25-h->bits);
 		h->bits += 7;
 	} else {
