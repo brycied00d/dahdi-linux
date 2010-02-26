@@ -79,9 +79,12 @@
 #define		CSR7_AIE		0x00008000 /* abnormal enable */
 #define 	CSR7_NIE		0x00010000 /* normal enable */
 
-#define DEFAULT_INTERRUPTS	(CSR7_TCIE | CSR7_TPSIE | CSR7_TDUIE |  \
-				 CSR7_RUIE | CSR7_RSIE | CSR7_FBEIE | \
-				 CSR7_AIE | CSR7_NIE)
+#define DEFAULT_COMMON_INTERRUPTS (CSR7_TCIE|CSR7_TPSIE|CSR7_RUIE|CSR7_RSIE|\
+				   CSR7_FBEIE|CSR7_AIE|CSR7_NIE)
+
+#define DEFAULT_NORMAL_INTERRUPTS (DEFAULT_COMMON_INTERRUPTS|CSR7_TDUIE)
+
+#define DEFAULT_NO_IDLE_INTERRUPTS (DEFAULT_COMMON_INTERRUPTS|CSR7_RCIE)
 
 #define CSR9				0x0048
 #define 	CSR9_MDC		0x00010000
@@ -142,12 +145,6 @@ handle_receive(struct voicebus *vb, struct list_head *buffers)
 #define VBLOCK_FROM_DEFERRED(_vb_) 	spin_lock(&((_vb_)->lock))
 #define VBUNLOCK_FROM_DEFERRED(_vb_)	spin_lock(&((_vb_)->lock))
 #endif
-
-/* Bit definitions for struct voicebus.flags */
-#define IN_DEFERRED_PROCESSING		1
-#define STOP				2
-#define STOPPED				3
-#define LATENCY_LOCKED			4
 
 static inline struct voicebus_descriptor *
 vb_descriptor(const struct voicebus_descriptor_list *dl,
@@ -246,12 +243,12 @@ vb_initialize_tx_descriptors(struct voicebus *vb)
 		return -ENOMEM;
 
 	memset(dl->desc, 0, (sizeof(*d) + dl->padding) * DRING_SIZE);
+
 	for (i = 0; i < DRING_SIZE; ++i) {
 		d = vb_descriptor(dl, i);
 		d->des1 = des1;
-		d->buffer1 = vb->idle_vbb_dma_addr;
-		dl->pending[i] = vb->idle_vbb;
-		SET_OWNED(d);
+		dl->pending[i] = NULL;
+		d->buffer1 = 0;
 	}
 	d->des1 |= cpu_to_le32(END_OF_RING);
 	atomic_set(&dl->count, 0);
@@ -306,35 +303,6 @@ voicebus_current_latency(struct voicebus *vb)
 }
 EXPORT_SYMBOL(voicebus_current_latency);
 
-/**
- * voicebus_lock_latency() - Do not increase the latency during underruns.
- *
- */
-void voicebus_lock_latency(struct voicebus *vb)
-{
-	set_bit(LATENCY_LOCKED, &vb->flags);
-}
-EXPORT_SYMBOL(voicebus_lock_latency);
-
-/**
- * voicebus_unlock_latency() - Bump up the latency during underruns.
- *
- */
-void voicebus_unlock_latency(struct voicebus *vb)
-{
-	clear_bit(LATENCY_LOCKED, &vb->flags);
-}
-EXPORT_SYMBOL(voicebus_unlock_latency);
-
-/**
- * voicebus_is_latency_locked() - Return 1 if latency is currently locked.
- *
- */
-int voicebus_is_latency_locked(const struct voicebus *vb)
-{
-	return test_bit(LATENCY_LOCKED, &vb->flags);
-}
-EXPORT_SYMBOL(voicebus_is_latency_locked);
 
 /*!
  * \brief Read one of the hardware control registers without acquiring locks.
@@ -408,15 +376,21 @@ vb_cleanup_tx_descriptors(struct voicebus *vb)
 					 VOICEBUS_SFRAME_SIZE, DMA_TO_DEVICE);
 			voicebus_free(vb, dl->pending[i]);
 		}
-		d->des1 |= 0x80000000;
-		d->buffer1 = vb->idle_vbb_dma_addr;
-		dl->pending[i] = vb->idle_vbb;
-		SET_OWNED(d);
+		if (!test_bit(VOICEBUS_NORMAL_MODE, &vb->flags)) {
+			d->buffer1 = 0;
+			dl->pending[i] = NULL;
+			d->des0 &= ~OWN_BIT;
+		} else {
+			d->des1 |= 0x80000000;
+			d->buffer1 = vb->idle_vbb_dma_addr;
+			dl->pending[i] = vb->idle_vbb;
+			SET_OWNED(d);
+		}
 	}
 
 	/* Send out two idle buffers to start because sometimes the first buffer
 	 * doesn't make it back to us. */
-	dl->head = dl->tail = 2;
+	dl->head = dl->tail = 0;
 	spin_unlock_irqrestore(&vb->lock, flags);
 	atomic_set(&dl->count, 0);
 }
@@ -670,22 +644,25 @@ static void setup_descriptors(struct voicebus *vb)
 
 	INIT_LIST_HEAD(&buffers);
 
-	for (i = 0; i < vb->min_tx_buffer_count; ++i) {
-		vbb = kmem_cache_alloc(buffer_cache, GFP_KERNEL);
-		if (unlikely(NULL == vbb))
-			BUG_ON(1);
-		else
-			list_add_tail(&vbb->entry, &buffers);
+	if (test_bit(VOICEBUS_NORMAL_MODE, &vb->flags)) {
+		for (i = 0; i < vb->min_tx_buffer_count; ++i) {
+			vbb = kmem_cache_alloc(buffer_cache, GFP_KERNEL);
+			if (unlikely(NULL == vbb))
+				BUG_ON(1);
+			else
+				list_add_tail(&vbb->entry, &buffers);
+		}
+		
+		tasklet_disable(&vb->tasklet);
+		handle_transmit(vb, &buffers);
+		tasklet_enable(&vb->tasklet);
+
+		spin_lock_irqsave(&vb->lock, flags);
+		list_for_each_entry(vbb, &buffers, entry)
+			voicebus_transmit(vb, vbb);
+		spin_unlock_irqrestore(&vb->lock, flags);
 	}
 
-	tasklet_disable(&vb->tasklet);
-	handle_transmit(vb, &buffers);
-	tasklet_enable(&vb->tasklet);
-
-	spin_lock_irqsave(&vb->lock, flags);
-	list_for_each_entry(vbb, &buffers, entry)
-		voicebus_transmit(vb, vbb);
-	spin_unlock_irqrestore(&vb->lock, flags);
 }
 
 static void
@@ -767,14 +744,14 @@ show_buffer(struct voicebus *vb, struct vbb *vbb)
  * voicebus_transmit - Queue a buffer on the hardware descriptor ring.
  *
  */
-int voicebus_transmit(struct voicebus *vb, struct vbb *vbb)
+static int __voicebus_transmit(struct voicebus *vb, struct vbb *vbb)
 {
 	struct voicebus_descriptor *d;
 	struct voicebus_descriptor_list *dl = &vb->txd;
 
 	d = vb_descriptor(dl, dl->tail);
 
-	if (unlikely(d->buffer1 != vb->idle_vbb_dma_addr)) {
+	if (unlikely((d->buffer1 != vb->idle_vbb_dma_addr) && d->buffer1)) {
 		if (printk_ratelimit())
 			dev_warn(&vb->pdev->dev, "Dropping tx buffer buffer\n");
 		voicebus_free(vb, vbb);
@@ -790,6 +767,24 @@ int voicebus_transmit(struct voicebus *vb, struct vbb *vbb)
 	dl->tail = (++(dl->tail)) & DRING_MASK;
 	SET_OWNED(d); /* That's it until the hardware is done with it. */
 	atomic_inc(&dl->count);
+	return 0;
+}
+
+/*!
+ * \brief Instruct the hardware to check for a new tx descriptor.
+ */
+static inline void
+__vb_tx_demand_poll(struct voicebus *vb)
+{
+	u32 status = __vb_getctl(vb, 0x0028);
+	if ((status & 0x00700000) == 0x00600000)
+		__vb_setctl(vb, 0x0008, 0x00000000);
+}
+
+int voicebus_transmit(struct voicebus *vb, struct vbb *vbb)
+{
+	__voicebus_transmit(vb, vbb);
+	__vb_tx_demand_poll(vb);
 	return 0;
 }
 EXPORT_SYMBOL(voicebus_transmit);
@@ -817,24 +812,29 @@ vb_get_completed_txb(struct voicebus *vb)
 
 	d = vb_descriptor(dl, head);
 
-	if (OWNED(d) || (d->buffer1 == vb->idle_vbb_dma_addr))
+	if (OWNED(d) || !d->buffer1 || (d->buffer1 == vb->idle_vbb_dma_addr))
 		return NULL;
 
 	dma_unmap_single(&vb->pdev->dev, d->buffer1,
 			 sizeof(vbb->data), DMA_TO_DEVICE);
 
 	vbb = dl->pending[head];
-	dl->pending[head] = vb->idle_vbb;
+	if (test_bit(VOICEBUS_NORMAL_MODE, &vb->flags)) {
+		d->buffer1 = vb->idle_vbb_dma_addr;
+		dl->pending[head] = vb->idle_vbb;
+		SET_OWNED(d);
+	} else {
+		d->buffer1 = 0;
+		dl->pending[head] = NULL;
+	}
 	dl->head = (++head) & DRING_MASK;
-	d->buffer1 = vb->idle_vbb_dma_addr;
-	SET_OWNED(d);
 	atomic_dec(&dl->count);
 	vb_net_capture_vbb(vb, vbb, 1, d->des0, d->container);
 	return vbb;
 }
 
 static void *
-vb_get_completed_rxb(struct voicebus *vb)
+vb_get_completed_rxb(struct voicebus *vb, u32 *des0)
 {
 	struct voicebus_descriptor *d;
 	struct voicebus_descriptor_list *dl = &vb->rxd;
@@ -855,6 +855,7 @@ vb_get_completed_rxb(struct voicebus *vb)
 #	ifdef VOICEBUS_NET_DEBUG
 	vb_net_capture_vbb(vb, vbb, 0, d->des0, d->container);
 #	endif
+	*des0 = le32_to_cpu(d->des0);
 	return vbb;
 }
 
@@ -867,15 +868,8 @@ voicebus_free(struct voicebus *vb, struct vbb *vbb)
 {
 	kmem_cache_free(buffer_cache, vbb);
 }
+EXPORT_SYMBOL(voicebus_free);
 
-/*!
- * \brief Instruct the hardware to check for a new tx descriptor.
- */
-static inline void
-__vb_tx_demand_poll(struct voicebus *vb)
-{
-	__vb_setctl(vb, 0x0008, 0x00000000);
-}
 
 /*!
  * \brief Command the hardware to check if it owns the next receive
@@ -884,13 +878,17 @@ __vb_tx_demand_poll(struct voicebus *vb)
 static inline void
 __vb_rx_demand_poll(struct voicebus *vb)
 {
-	__vb_setctl(vb, 0x0010, 0x00000000);
+	if (((__vb_getctl(vb, 0x0028) >> 17) & 0x7) == 0x4)
+		__vb_setctl(vb, 0x0010, 0x00000000);
 }
 
 static void
 __vb_enable_interrupts(struct voicebus *vb)
 {
-	__vb_setctl(vb, IER_CSR7, DEFAULT_INTERRUPTS);
+	if (test_bit(VOICEBUS_NORMAL_MODE, &vb->flags))
+		__vb_setctl(vb, IER_CSR7, DEFAULT_NORMAL_INTERRUPTS);
+	else
+		__vb_setctl(vb, IER_CSR7, DEFAULT_NO_IDLE_INTERRUPTS);
 }
 
 static void
@@ -914,8 +912,8 @@ static void start_packet_processing(struct voicebus *vb)
 	u32 reg;
 
 	VBLOCK(vb);
-	clear_bit(STOP, &vb->flags);
-	clear_bit(STOPPED, &vb->flags);
+	clear_bit(VOICEBUS_STOP, &vb->flags);
+	clear_bit(VOICEBUS_STOPPED, &vb->flags);
 #if defined(CONFIG_VOICEBUS_TIMER)
 	vb->timer.expires = jiffies + HZ/1000;
 	add_timer(&vb->timer);
@@ -1004,7 +1002,7 @@ voicebus_stop(struct voicebus *vb)
 	if (vb_is_stopped(vb))
 		return 0;
 
-	set_bit(STOP, &vb->flags);
+	set_bit(VOICEBUS_STOP, &vb->flags);
 	vb_stop_txrx_processors(vb);
 
 	if (!vb_is_stopped(vb)) {
@@ -1024,7 +1022,7 @@ voicebus_stop(struct voicebus *vb)
 		}
 	}
 
-	set_bit(STOPPED, &vb->flags);
+	set_bit(VOICEBUS_STOPPED, &vb->flags);
 
 #if defined(CONFIG_VOICEBUS_TIMER)
 	del_timer_sync(&vb->timer);
@@ -1091,7 +1089,7 @@ vb_increase_latency(struct voicebus *vb, unsigned int increase,
 	if (0 == increase)
 		return;
 
-	if (test_bit(LATENCY_LOCKED, &vb->flags))
+	if (test_bit(VOICEBUS_LATENCY_LOCKED, &vb->flags))
 		return;
 
 	if (unlikely(increase > VOICEBUS_MAXLATENCY_BUMP))
@@ -1160,6 +1158,7 @@ static void vb_deferred(struct voicebus *vb)
 	int behind = 0;
 	const int DEFAULT_COUNT = 5;
 	int count = DEFAULT_COUNT;
+	u32 des0 = 0;
 
 	/* First, temporarily store any non-idle buffers that the hardware has
 	 * indicated it's finished transmitting.  Non idle buffers are those
@@ -1252,7 +1251,7 @@ static void vb_deferred(struct voicebus *vb)
 	 * hardware, resulting in a hard underrun condition. */
 	if (unlikely(softunderrun)) {
 #if !defined(CONFIG_VOICEBUS_SYSFS)
-		if (!test_bit(LATENCY_LOCKED, &vb->flags) &&
+		if (!test_bit(VOICEBUS_LATENCY_LOCKED, &vb->flags) &&
 		    printk_ratelimit()) {
 			if (vb->max_latency != vb->min_tx_buffer_count) {
 				dev_info(&vb->pdev->dev, "Missed interrupt. "
@@ -1272,13 +1271,20 @@ static void vb_deferred(struct voicebus *vb)
 	/* If there may still be buffers in the descriptor rings, reschedule
 	 * ourself to run again.  We essentially yield here to allow any other
 	 * cards a chance to run. */
-	if (unlikely(!count && !test_bit(STOP, &vb->flags)))
+	if (unlikely(!count && !test_bit(VOICEBUS_STOP, &vb->flags)))
 		tasklet_hi_schedule(&vb->tasklet);
 
 	/* And finally, pass up any receive buffers. */
 	count = DEFAULT_COUNT;
-	while (--count && (vbb = vb_get_completed_rxb(vb)))
-		list_add_tail(&vbb->entry, &buffers);
+	while (--count && (vbb = vb_get_completed_rxb(vb, &des0))) {
+		if (((des0 >> 16) & 0x7fff) != VOICEBUS_SFRAME_SIZE) {
+			dev_dbg(&vb->pdev->dev,
+				"ERROR: Dropping packet of wrong size. (%d)\n",
+				(des0>>16)&0x7fff);
+		} else {
+			list_add_tail(&vbb->entry, &buffers);
+		}
+	}
 
 	handle_receive(vb, &buffers);
 	list_for_each_entry(vbb, &buffers, entry)
@@ -1311,7 +1317,8 @@ static void handle_hardunderrun(struct work_struct *work)
 	struct voicebus *vb = container_of(work, struct voicebus,
 					   underrun_work);
 #endif
-	if (test_bit(STOP, &vb->flags) || test_bit(STOPPED, &vb->flags))
+	if (test_bit(VOICEBUS_STOP, &vb->flags) ||
+	    test_bit(VOICEBUS_STOPPED, &vb->flags))
 		return;
 
 	if (printk_ratelimit()) {
@@ -1358,28 +1365,29 @@ vb_isr(int irq, void *dev_id)
 
 	if (unlikely((int_status &
 	    (TX_UNAVAILABLE_INTERRUPT|RX_UNAVAILABLE_INTERRUPT)) &&
-	    !test_bit(STOP, &vb->flags))) {
+	    !test_bit(VOICEBUS_STOP, &vb->flags))) {
 		schedule_work(&vb->underrun_work);
 		__vb_setctl(vb, SR_CSR5, int_status);
-	} else if (likely(int_status & TX_COMPLETE_INTERRUPT)) {
+	} else if (likely(int_status &
+		   (TX_COMPLETE_INTERRUPT|RX_COMPLETE_INTERRUPT))) {
 		/* ******************************************************** */
 		/* NORMAL INTERRUPT CASE				    */
 		/* ******************************************************** */
 		tasklet_hi_schedule(&vb->tasklet);
-		__vb_setctl(vb, SR_CSR5, TX_COMPLETE_INTERRUPT);
+		__vb_setctl(vb, SR_CSR5, TX_COMPLETE_INTERRUPT|RX_COMPLETE_INTERRUPT);
 	} else {
 		if (int_status & FATAL_BUS_ERROR_INTERRUPT)
 			dev_err(&vb->pdev->dev, "Fatal Bus Error detected!\n");
 
 		if (int_status & TX_STOPPED_INTERRUPT) {
-			BUG_ON(!test_bit(STOP, &vb->flags));
+			BUG_ON(!test_bit(VOICEBUS_STOP, &vb->flags));
 			if (__vb_is_stopped(vb)) {
 				__vb_disable_interrupts(vb);
 				complete(&vb->stopped_completion);
 			}
 		}
 		if (int_status & RX_STOPPED_INTERRUPT) {
-			BUG_ON(!test_bit(STOP, &vb->flags));
+			BUG_ON(!test_bit(VOICEBUS_STOP, &vb->flags));
 			if (__vb_is_stopped(vb)) {
 				__vb_disable_interrupts(vb);
 				complete(&vb->stopped_completion);
@@ -1407,7 +1415,7 @@ vb_timer(unsigned long data)
 #else
 	vb_isr(0, vb);
 #endif
-	if (!test_bit(STOPPED, &vb->flags)) {
+	if (!test_bit(VOICEBUS_STOPPED, &vb->flags)) {
 		vb->timer.expires = start + HZ/1000;
 		add_timer(&vb->timer);
 	}
@@ -1427,7 +1435,7 @@ static void vb_tasklet(unsigned long data)
  * \todo Complete this description.
  */
 int
-voicebus_init(struct voicebus *vb, const char *board_name)
+__voicebus_init(struct voicebus *vb, const char *board_name, int normal_mode)
 {
 	int retval = 0;
 
@@ -1444,8 +1452,13 @@ voicebus_init(struct voicebus *vb, const char *board_name)
 
 	spin_lock_init(&vb->lock);
 	init_completion(&vb->stopped_completion);
-	set_bit(STOP, &vb->flags);
-	clear_bit(IN_DEFERRED_PROCESSING, &vb->flags);
+	set_bit(VOICEBUS_STOP, &vb->flags);
+
+	if (normal_mode)
+		set_bit(VOICEBUS_NORMAL_MODE, &vb->flags);
+	else
+		clear_bit(VOICEBUS_NORMAL_MODE, &vb->flags);
+
 	vb->min_tx_buffer_count = VOICEBUS_DEFAULT_LATENCY;
 
 	INIT_LIST_HEAD(&vb->tx_complete);
@@ -1558,7 +1571,7 @@ cleanup:
 		retval = -EIO;
 	return retval;
 }
-EXPORT_SYMBOL(voicebus_init);
+EXPORT_SYMBOL(__voicebus_init);
 
 static spinlock_t loader_list_lock;
 static LIST_HEAD(binary_loader_list);
@@ -1670,7 +1683,7 @@ static int __init voicebus_module_init(void)
 					 NULL);
 #endif
 #else
-#ifdef DEBUG
+#if (defined(DEBUG) && defined(CONFIG_SLAB_DEBUG))
 	buffer_cache = kmem_cache_create(THIS_MODULE->name,
 					 sizeof(struct vbb), 0,
 					 SLAB_HWCACHE_ALIGN | SLAB_STORE_USER |
