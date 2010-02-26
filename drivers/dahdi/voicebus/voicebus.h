@@ -31,6 +31,12 @@
 
 #include <linux/interrupt.h>
 
+
+#ifdef VOICEBUS_NET_DEBUG
+#include <linux/netdevice.h>
+#include <linux/etherdevice.h>
+#endif
+
 #define VOICEBUS_DEFAULT_LATENCY	3
 #define VOICEBUS_DEFAULT_MAXLATENCY	25
 #define VOICEBUS_MAXLATENCY_BUMP	6
@@ -48,6 +54,9 @@
 
 /* Do not generate interrupts on this interface, but instead just poll it */
 #undef CONFIG_VOICEBUS_TIMER
+
+/* Define this in order to create a debugging network interface. */
+#undef VOICEBUS_NET_DEBUG
 
 struct voicebus;
 
@@ -103,6 +112,17 @@ struct voicebus {
 	unsigned int		min_tx_buffer_count;
 	unsigned int		max_latency;
 	struct list_head	tx_complete;
+
+#ifdef VOICEBUS_NET_DEBUG
+	struct sk_buff_head captured_packets;
+	struct net_device *netdev;
+	struct net_device_stats net_stats;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 24)
+	struct napi_struct napi;
+#endif
+	atomic_t tx_seqnum;
+	atomic_t rx_seqnum;
+#endif
 };
 
 int voicebus_init(struct voicebus *vb, const char *board_name);
@@ -116,5 +136,5 @@ int voicebus_current_latency(struct voicebus *vb);
 void voicebus_lock_latency(struct voicebus *vb);
 void voicebus_unlock_latency(struct voicebus *vb);
 int voicebus_is_latency_locked(const struct voicebus *vb);
- 
+
 #endif /* __VOICEBUS_H__ */

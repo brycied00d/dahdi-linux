@@ -39,6 +39,7 @@
 
 #include <dahdi/kernel.h>
 #include "voicebus.h"
+#include "voicebus_net.h"
 #include "vpmadtreg.h"
 #include "GpakCust.h"
 
@@ -828,6 +829,7 @@ vb_get_completed_txb(struct voicebus *vb)
 	d->buffer1 = vb->idle_vbb_dma_addr;
 	SET_OWNED(d);
 	atomic_dec(&dl->count);
+	vb_net_capture_vbb(vb, vbb, 1, d->des0, d->container);
 	return vbb;
 }
 
@@ -850,6 +852,9 @@ vb_get_completed_rxb(struct voicebus *vb)
 	dl->head = (++head) & DRING_MASK;
 	d->buffer1 = 0;
 	atomic_dec(&dl->count);
+#	ifdef VOICEBUS_NET_DEBUG
+	vb_net_capture_vbb(vb, vbb, 0, d->des0, d->container);
+#	endif
 	return vbb;
 }
 
@@ -1041,6 +1046,10 @@ EXPORT_SYMBOL(voicebus_stop);
 void
 voicebus_release(struct voicebus *vb)
 {
+#ifdef VOICEBUS_NET_DEBUG
+	vb_net_unregister(vb);
+#endif
+
 	/* quiesce the hardware */
 	voicebus_stop(vb);
 
@@ -1521,6 +1530,9 @@ voicebus_init(struct voicebus *vb, const char *board_name)
 	}
 #endif
 
+#ifdef VOICEBUS_NET_DEBUG
+	vb_net_register(vb, board_name);
+#endif
 	return retval;
 cleanup:
 
