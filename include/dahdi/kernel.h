@@ -1209,15 +1209,6 @@ wait_for_completion_timeout(struct completion *x, unsigned long timeout)
 #endif /* 2.6.25 */
 #endif /* 2.6.31 */
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 19)
-/* Also don't define this for later RHEL >= 5.2 . hex_asc is from the
- * same linux-2.6-net-infrastructure-updates-to-mac80211-iwl4965.patch
- * as is the bool typedef. */
-#if LINUX_VERSION_CODE != KERNEL_VERSION(2, 6, 18)  || !defined(hex_asc)
-typedef int			bool;
-#endif
-#endif
-
 #ifndef DMA_BIT_MASK
 #define DMA_BIT_MASK(n)	(((n) == 64) ? ~0ULL : ((1ULL<<(n))-1))
 #endif
