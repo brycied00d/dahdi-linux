@@ -105,15 +105,20 @@ static int vpmadt032_load_firmware(struct voicebus *vb)
 	struct private_context *ctx;
 	const struct voicebus_operations *old;
 	void *old_drvdata;
+	int id;
 	might_sleep();
 	ctx = kzalloc(sizeof(struct private_context), GFP_KERNEL);
 	if (!ctx)
 		return -ENOMEM;
 	init_private_context(ctx);
 	ctx->vb = vb;
-	ret = __vpmadt032_start_load(
-			0, vb->pdev->vendor << 16 | vb->pdev->device,
-			&ctx->pvt);
+
+	if (0x8007 == vb->pdev->device || 0x8008 == vb->pdev->device)
+		id = vb->pdev->vendor << 16 | 0x2400;
+	else
+		id = vb->pdev->vendor << 16 | vb->pdev->device;
+
+	ret = __vpmadt032_start_load(0, id, &ctx->pvt);
 	if (ret)
 		goto error_exit;
 	old_drvdata = pci_get_drvdata(vb->pdev);

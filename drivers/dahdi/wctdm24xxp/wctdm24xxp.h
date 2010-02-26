@@ -62,10 +62,11 @@
 #define MOD_TYPE_NONE		0
 #define MOD_TYPE_FXS		1
 #define MOD_TYPE_FXO		2
-#define MOD_TYPE_FXSINIT	3	
+#define MOD_TYPE_FXSINIT	3
 #define MOD_TYPE_VPM		4
 #define MOD_TYPE_QRV		5
 #define MOD_TYPE_VPM150M	6
+#define MOD_TYPE_BRI		7
 
 #define MINPEGTIME	10 * 8		/* 30 ms peak to peak gets us no more than 100 Hz */
 #define PEGTIME		50 * 8		/* 50ms peak to peak gets us rings of 10 Hz or more */
@@ -88,24 +89,23 @@
 #define CMD_BYTE(card,bit,altcs) (((((card) & 0x3) * 3 + (bit)) * 7) \
 			+ ((card) >> 2) + (altcs) + ((altcs) ? -21 : 0))
 #endif
-#define NUM_CARDS 24
-#define NUM_EC	  4
-#define NUM_SLOTS 6
-#define MAX_TDM_CHAN 31
+#define NUM_MODULES		24
+#define NUM_EC			4
+#define NUM_SLOTS		6
+#define MAX_TDM_CHAN		31
+#define MAX_SPANS		9
 
-#define NUM_CAL_REGS 12
+#define NUM_CAL_REGS		12
 
-#define USER_COMMANDS 8
-#define ISR_COMMANDS  2
-#define	QRV_DEBOUNCETIME 20
+#define USER_COMMANDS		8
+#define ISR_COMMANDS		2
+#define QRV_DEBOUNCETIME	20
 
-#define MAX_COMMANDS (USER_COMMANDS + ISR_COMMANDS)
+#define MAX_COMMANDS		(USER_COMMANDS + ISR_COMMANDS)
 
-
-#define VPM150M_HPI_CONTROL 0x00
-#define VPM150M_HPI_ADDRESS 0x02
-#define VPM150M_HPI_DATA 0x03
-
+#define VPM150M_HPI_CONTROL	0x00
+#define VPM150M_HPI_ADDRESS	0x02
+#define VPM150M_HPI_DATA	0x03
 
 #define VPM_SUPPORT
 
@@ -139,22 +139,57 @@ enum battery_state {
 	BATTERY_LOST,
 };
 
+/**
+ * struct wctdm_span -
+ * @span:		dahdi_span to register.
+ * @timing_priority:	What the priority of this span is relative to the other
+ * 			spans.
+ * @spanno:		Which span on the card this is.
+ *
+ * NOTE:  spanno would normally be taken care of by dahdi_span.offset, but
+ * appears to have meaning in xhfc.c, and that needs to be audited before
+ * changing. !!!TODO!!!
+ *
+ */
+struct wctdm_span {
+	struct dahdi_span span;
+	int timing_priority;
+	int spanno;
+};
+
+struct wctdm_chan {
+	struct dahdi_chan chan;
+	struct dahdi_echocan_state ec;
+	int timeslot;
+};
+
 struct wctdm {
 	const struct wctdm_desc *desc;
 	char board_name[80];
-	struct dahdi_span span;
+	int usecount;
+	int pos;				/* card number in system */
+
+	spinlock_t frame_list_lock;
+	struct list_head frame_list;
+
 	unsigned int intcount;
 	unsigned char txident;
 	unsigned char rxident;
-	int pos;
-	int flags[NUM_CARDS];
-	unsigned char ctlreg;
-	int cards;
-	int cardflag;		/* Bit-map of present cards */
- 	int altcs[NUM_CARDS + NUM_EC];
-	char qrvhook[NUM_CARDS];
-	unsigned short qrvdebtime[NUM_CARDS];
-	int radmode[NUM_CARDS];
+
+	int flags[NUM_MODULES];			/* bitmap of board-specific + module-specific flags */
+	unsigned char ctlreg;			/* FIXME: something to do with VPM? */
+
+	int mods_per_board;			/* maximum number of modules for this board */
+	int digi_mods;				/* number of digital modules present */
+	int avchannels;				/* active "voice" (voice, B and D) channels */
+	int modmap;				/* Bit-map of present cards (1=present) */
+
+	int altcs[NUM_MODULES + NUM_EC];
+
+/* FIXME: why are all of these QRV-only members part of the main card structure? */
+	char qrvhook[NUM_MODULES];
+	unsigned short qrvdebtime[NUM_MODULES];
+	int radmode[NUM_MODULES];
 #define	RADMODE_INVERTCOR 1
 #define	RADMODE_IGNORECOR 2
 #define	RADMODE_EXTTONE 4
@@ -162,12 +197,13 @@ struct wctdm {
 #define	RADMODE_IGNORECT 16
 #define	RADMODE_PREEMP	32
 #define	RADMODE_DEEMP 64
-	unsigned short debouncetime[NUM_CARDS];
-	signed short rxgain[NUM_CARDS];
-	signed short txgain[NUM_CARDS];
-	spinlock_t reglock;
-	wait_queue_head_t regq;
-	/* FXO Stuff */
+	unsigned short debouncetime[NUM_MODULES];
+	signed short rxgain[NUM_MODULES];
+	signed short txgain[NUM_MODULES];
+
+	spinlock_t reglock;			/* held when accessing anything affecting the module array */
+	wait_queue_head_t regq;			/* for schluffen() */
+
 	union {
 		struct fxo {
 			int wasringing;
@@ -211,13 +247,13 @@ struct wctdm {
 			int reversepolarity;	/* polarity reversal */
 			struct calregs calregs;
 		} fxs;
-	} mods[NUM_CARDS];
-	struct cmdq cmdq[NUM_CARDS + NUM_EC];
-	/* Receive hook state and debouncing */
-	int modtype[NUM_CARDS + NUM_EC];
-	/* Set hook */
-	int sethook[NUM_CARDS + NUM_EC];
- 	int dacssrc[NUM_CARDS];
+		struct b400m *bri;
+	} mods[NUM_MODULES];
+
+	struct cmdq cmdq[NUM_MODULES + NUM_EC];
+	int modtype[NUM_MODULES + NUM_EC];		/* type of module (FXO/FXS/QRV/VPM/etc.) in this position */
+	int sethook[NUM_MODULES + NUM_EC];		/* pending hook state command for each module */
+	int dacssrc[NUM_MODULES];
 
 	int vpm100;
 
@@ -225,17 +261,30 @@ struct wctdm {
 #ifdef FANCY_ECHOCAN
 	int echocanpos;
 	int blinktimer;
-#endif	
+#endif
 	struct voicebus vb;
-	struct dahdi_chan *chans[NUM_CARDS];
-	struct dahdi_echocan_state *ec[NUM_CARDS];
-	int initialized;
+	struct wctdm_span *aspan;			/* pointer to the spans[] holding the analog span */
+	struct wctdm_span *spans[MAX_SPANS];
+	struct wctdm_chan *chans[NUM_MODULES];
+
+	/* Only care about digital spans here */
+	/* int span_timing_prio[MAX_SPANS - 1]; */
+	struct semaphore syncsem;
+	int oldsync;
+
+	int initialized;				/* =1 when the entire card is ready to go */
+	unsigned long checkflag;			/* Internal state flags and task bits */
 };
 
+/* Atomic flag bits for checkflag field */
+#define WCTDM_CHECK_TIMING	0
 
 int schluffen(wait_queue_head_t *q);
+void wait_just_a_bit(int foo);
+int wctdm_getreg(struct wctdm *wc, int card, int addr);
+int wctdm_setreg(struct wctdm *wc, int card, int addr, int val);
 
-extern spinlock_t ifacelock;
+extern struct semaphore ifacelock;
 extern struct wctdm *ifaces[WC_MAX_IFACES];
 
 #endif

@@ -132,12 +132,17 @@ struct voicebus {
 #endif
 };
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 20)
+extern kmem_cache_t *voicebus_vbb_cache;
+#else
+extern struct kmem_cache *voicebus_vbb_cache;
+#endif
+
 int __voicebus_init(struct voicebus *vb, const char *board_name,
 		    int normal_mode);
 void voicebus_release(struct voicebus *vb);
 int voicebus_start(struct voicebus *vb);
 int voicebus_stop(struct voicebus *vb);
-void voicebus_free(struct voicebus *vb, struct vbb *vbb);
 int voicebus_transmit(struct voicebus *vb, struct vbb *vbb);
 int voicebus_set_minlatency(struct voicebus *vb, unsigned int milliseconds);
 int voicebus_current_latency(struct voicebus *vb);
