@@ -193,7 +193,7 @@ static void cmd_dequeue(struct t1 *wc, unsigned char *writechunk, int eframe, in
 
 }
 
-static inline void cmd_decipher(struct t1 *wc, unsigned char *readchunk)
+static inline void cmd_decipher(struct t1 *wc, const u8 *readchunk)
 {
 	struct command *cmd = NULL;
 	unsigned long flags;
@@ -221,7 +221,7 @@ static inline void cmd_decipher(struct t1 *wc, unsigned char *readchunk)
 	spin_unlock_irqrestore(&wc->cmd_list_lock, flags);
 }
 
-inline void cmd_decipher_vpmadt032(struct t1 *wc, unsigned char *readchunk)
+inline void cmd_decipher_vpmadt032(struct t1 *wc, const u8 *readchunk)
 {
 	unsigned long flags;
 	struct vpmadt032 *vpm = wc->vpmadt032;
@@ -1660,7 +1660,7 @@ static void t1_do_counters(struct t1 *wc)
 	}
 }
 
-static inline void t1_transmitprep(struct t1 *wc, unsigned char* writechunk)
+static inline void t1_transmitprep(struct t1 *wc, u8 *writechunk)
 {
 	int x;
 	int y;
@@ -1697,7 +1697,7 @@ static inline void t1_transmitprep(struct t1 *wc, unsigned char* writechunk)
 	}
 }
 
-static inline void t1_receiveprep(struct t1 *wc, unsigned char* readchunk)
+static inline void t1_receiveprep(struct t1 *wc, const u8* readchunk)
 {
 	int x,chan;
 	unsigned char expected;
