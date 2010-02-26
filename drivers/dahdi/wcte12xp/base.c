@@ -344,7 +344,7 @@ static int config_vpmadt032(struct vpmadt032 *vpm, struct t1 *wc)
 			configportstatus);
 		return -1;
 	} else {
-		if (vpm->options.debug & DEBUG_ECHOCAN)
+		if (vpm->options.debug & DEBUG_VPMADT032_ECHOCAN)
 			t1_info(wc, "Configured McBSP ports successfully\n");
 	}
 
@@ -353,14 +353,11 @@ static int config_vpmadt032(struct vpmadt032 *vpm, struct t1 *wc)
 		return -1;
 	}
 
-	vpm->companding = (TYPE_T1 == wc->spantype) ?
-				ADT_COMP_ULAW : ADT_COMP_ALAW;
 	for (channel = 0; channel < ARRAY_SIZE(vpm->curecstate); ++channel) {
 		vpm->curecstate[channel].tap_length = 0;
 		vpm->curecstate[channel].nlp_type = vpm->options.vpmnlptype;
 		vpm->curecstate[channel].nlp_threshold = vpm->options.vpmnlpthresh;
 		vpm->curecstate[channel].nlp_max_suppress = vpm->options.vpmnlpmaxsupp;
-		vpm->curecstate[channel].companding = vpm->companding;
 
 		vpm->setchanconfig_from_state(vpm, channel, &chanconfig);
 		if ((res = gpakConfigureChannel(vpm->dspid, channel, tdmToTdm, &chanconfig, &cstatus))) {
@@ -1198,6 +1195,8 @@ static int echocan_create(struct dahdi_chan *chan, struct dahdi_echocanparams *e
 			  struct dahdi_echocanparam *p, struct dahdi_echocan_state **ec)
 {
 	struct t1 *wc = chan->pvt;
+	enum adt_companding comp;
+
 	if (!wc->vpmadt032) {
 		return -ENODEV;
 	}
@@ -1206,8 +1205,11 @@ static int echocan_create(struct dahdi_chan *chan, struct dahdi_echocanparams *e
 	(*ec)->ops = &vpm150m_ec_ops;
 	(*ec)->features = vpm150m_ec_features;
 
+	comp = (DAHDI_LAW_ALAW == chan->span->deflaw) ?
+			ADT_COMP_ALAW : ADT_COMP_ULAW;
+
 	return vpmadt032_echocan_create(wc->vpmadt032, chan->chanpos - 1,
-		ecp, p);
+					comp, ecp, p);
 }
 
 static void echocan_free(struct dahdi_chan *chan, struct dahdi_echocan_state *ec)

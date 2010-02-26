@@ -43,7 +43,7 @@
 #include "gpakenum.h"
 #include "adt_lec.h"
 
-#define DEBUG_ECHOCAN (1 << 1)
+#define DEBUG_VPMADT032_ECHOCAN (1 << 4)
 
 /* Host and DSP system dependent related definitions. */
 #define MAX_DSP_CORES		128	/* maximum number of DSP cores */
@@ -114,7 +114,6 @@ struct vpmadt032 {
 	unsigned long control;
 	unsigned char curpage;
 	unsigned short version;
-	enum adt_companding companding;
 	struct adt_lec_params curecstate[MAX_CHANNELS];
 	spinlock_t change_list_lock;
 	struct list_head change_list;
@@ -143,7 +142,9 @@ struct vpmadt032 *vpmadt032_alloc(struct vpmadt032_options *options,
 					const char *board_name);
 void vpmadt032_free(struct vpmadt032 *vpm);
 int vpmadt032_echocan_create(struct vpmadt032 *vpm, int channo,
-	struct dahdi_echocanparams *ecp, struct dahdi_echocanparam *p);
+			     enum adt_companding companding,
+			     struct dahdi_echocanparams *ecp,
+			     struct dahdi_echocanparam *p);
 void vpmadt032_echocan_free(struct vpmadt032 *vpm, int channo,
 	struct dahdi_echocan_state *ec);
 

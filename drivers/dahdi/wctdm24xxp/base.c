@@ -326,8 +326,10 @@ setchanconfig_from_state(struct vpmadt032 *vpm, int channel,
 	chanconfig->MuteToneB = Disabled;
 	chanconfig->FaxCngDetB = Disabled;
 
-	chanconfig->SoftwareCompand = (ADT_COMP_ALAW == vpm->companding) ?
-						cmpPCMA : cmpPCMU;
+	/* The software companding will be overridden on a channel by channel
+	 * basis when the channel is enabled. */
+	chanconfig->SoftwareCompand = cmpPCMU;
+
 	chanconfig->FrameRate = rate2ms;
 	p = &chanconfig->EcanParametersA;
 
@@ -430,9 +432,6 @@ static int config_vpmadt032(struct vpmadt032 *vpm, struct wctdm *wc)
 		dev_notice(&wc->vb.pdev->dev, "Error pinging DSP (%d)\n", res);
 		return -1;
 	}
-
-	vpm->companding = (wc->span.deflaw == DAHDI_LAW_MULAW) ?
-				ADT_COMP_ULAW : ADT_COMP_ALAW;
 
 	for (i = 0; i < vpm->options.channels; ++i) {
 		vpm->curecstate[i].tap_length = 0;
@@ -1830,8 +1829,13 @@ static int echocan_create(struct dahdi_chan *chan, struct dahdi_echocanparams *e
 		wctdm_vpm_out(wc, unit, channel, 0x3e);
 		return 0;
 	} else if (wc->vpmadt032) {
+		enum adt_companding comp;
+
+		comp = (DAHDI_LAW_ALAW == chan->span->deflaw) ?
+					ADT_COMP_ALAW : ADT_COMP_ULAW;
+
 		return vpmadt032_echocan_create(wc->vpmadt032,
-			chan->chanpos-1, ecp, p);
+						chan->chanpos-1, comp, ecp, p);
 	} else {
 		return -ENODEV;
 	}
