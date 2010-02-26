@@ -1246,13 +1246,11 @@ static inline void wctdm_receiveprep(struct wctdm *wc, const u8 *readchunk)
 static int wait_access(struct wctdm *wc, int card)
 {
     unsigned char data=0;
-    long origjiffies;
     int count = 0;
 
     #define MAX 10 /* attempts */
 
 
-    origjiffies = jiffies;
     /* Wait for indirect access */
     while (count++ < MAX)
 	 {
@@ -2263,9 +2261,7 @@ static int wctdm_proslic_manual_calibrate(struct wctdm *wc, int card)
 
 /*******************************The following is the manual gain mismatch calibration****************************/
 /*******************************This is also available as a function *******************************************/
-	// Delay 10ms
-	origjiffies=jiffies; 
-	while ((jiffies-origjiffies) < 1);
+	msleep(10);
 	wctdm_proslic_setreg_indirect(wc, card, 88,0);
 	wctdm_proslic_setreg_indirect(wc,card,89,0);
 	wctdm_proslic_setreg_indirect(wc,card,90,0);
@@ -2279,8 +2275,7 @@ static int wctdm_proslic_manual_calibrate(struct wctdm *wc, int card)
 	for ( i=0x1f; i>0; i--)
 	{
 		wctdm_setreg(wc, card, 98,i);
-		origjiffies=jiffies; 
-		while ((jiffies-origjiffies) < 4);
+		msleep(40);
 		if ((wctdm_getreg(wc, card, 88)) == 0)
 			break;
 	} // for
@@ -2288,8 +2283,7 @@ static int wctdm_proslic_manual_calibrate(struct wctdm *wc, int card)
 	for ( i=0x1f; i>0; i--)
 	{
 		wctdm_setreg(wc, card, 99,i);
-		origjiffies=jiffies; 
-		while ((jiffies-origjiffies) < 4);
+		msleep(40);
 		if ((wctdm_getreg(wc, card, 89)) == 0)
 			break;
 	}//for
@@ -2297,8 +2291,7 @@ static int wctdm_proslic_manual_calibrate(struct wctdm *wc, int card)
 /*******************************The preceding is the manual gain mismatch calibration****************************/
 /**********************************The following is the longitudinal Balance Cal***********************************/
 	wctdm_setreg(wc,card,64,1);
-	while ((jiffies-origjiffies) < 10) /*  Sleep 100? */
-		;
+	msleep(100);
 
 	wctdm_setreg(wc, card, 64, 0);
 	wctdm_setreg(wc, card, 23, 0x4);  // enable interrupt for the balance Cal
@@ -2329,7 +2322,7 @@ static int wctdm_proslic_calibrate(struct wctdm *wc, int card)
 	/* Wait for it to finish */
 	origjiffies = jiffies;
 	while (wctdm_getreg(wc, card, 96)) {
-		if ((jiffies - origjiffies) > 2 * HZ) {
+		if (time_after(jiffies, (origjiffies + (2*HZ)))) {
 			dev_notice(&wc->vb.pdev->dev, "Timeout waiting for calibration of module %d\n", card);
 			return -1;
 		}
