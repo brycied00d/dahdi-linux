@@ -50,7 +50,7 @@
 /* Define CONFIG_VOICEBUS_SYSFS to create some attributes under the pci device.
  * This is disabled by default because it hasn't been tested on the full range
  * of supported kernels. */
-#define CONFIG_VOICEBUS_SYSFS
+#undef CONFIG_VOICEBUS_SYSFS
 
 /* Do not generate interrupts on this interface, but instead just poll it */
 #undef CONFIG_VOICEBUS_TIMER
