@@ -701,6 +701,18 @@ enum {
 	DAHDI_FLAGBIT_HDLC56	= 20,	/*!< Sets the given channel (if in HDLC mode) to use 56K HDLC instead of 64K  */
 };
 
+struct dahdi_count {
+	__u32 fe;		/*!< Framing error counter */
+	__u32 cv;		/*!< Coding violations counter */
+	__u32 bpv;		/*!< Bipolar Violation counter */
+	__u32 crc4;		/*!< CRC4 error counter */
+	__u32 ebit;		/*!< current E-bit error count */
+	__u32 fas;		/*!< current FAS error count */
+	__u32 be;		/*!< current bit error count */
+	__u32 prbs;		/*!< current PRBS detected pattern */
+	__u32 errsec;		/*!< errored seconds */
+};
+
 /* map flagbits to flag masks */
 #define	DAHDI_FLAG(x)	(1 << (DAHDI_FLAGBIT_ ## x))
 
