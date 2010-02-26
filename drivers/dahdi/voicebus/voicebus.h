@@ -84,6 +84,13 @@ struct voicebus_descriptor_list {
 	unsigned int	padding;
 };
 
+/* Bit definitions for struct voicebus.flags */
+#define VOICEBUS_STOP				1
+#define VOICEBUS_STOPPED			2
+#define VOICEBUS_LATENCY_LOCKED			3
+#define VOICEBUS_NORMAL_MODE			4
+#define VOICEBUS_USERMODE			5
+
 /**
  * struct voicebus - Represents physical interface to voicebus card.
  *
@@ -125,7 +132,8 @@ struct voicebus {
 #endif
 };
 
-int voicebus_init(struct voicebus *vb, const char *board_name);
+int __voicebus_init(struct voicebus *vb, const char *board_name,
+		    int normal_mode);
 void voicebus_release(struct voicebus *vb);
 int voicebus_start(struct voicebus *vb);
 int voicebus_stop(struct voicebus *vb);
@@ -133,8 +141,47 @@ void voicebus_free(struct voicebus *vb, struct vbb *vbb);
 int voicebus_transmit(struct voicebus *vb, struct vbb *vbb);
 int voicebus_set_minlatency(struct voicebus *vb, unsigned int milliseconds);
 int voicebus_current_latency(struct voicebus *vb);
-void voicebus_lock_latency(struct voicebus *vb);
-void voicebus_unlock_latency(struct voicebus *vb);
-int voicebus_is_latency_locked(const struct voicebus *vb);
 
+static inline int voicebus_init(struct voicebus *vb, const char *board_name)
+{
+	return __voicebus_init(vb, board_name, 1);
+}
+
+static inline int
+voicebus_no_idle_init(struct voicebus *vb, const char *board_name)
+{
+	return __voicebus_init(vb, board_name, 0);
+}
+
+/**
+ * voicebus_lock_latency() - Do not increase the latency during underruns.
+ *
+ */
+static inline void voicebus_lock_latency(struct voicebus *vb)
+{
+	set_bit(VOICEBUS_LATENCY_LOCKED, &vb->flags);
+}
+
+/**
+ * voicebus_unlock_latency() - Bump up the latency during underruns.
+ *
+ */
+static inline void voicebus_unlock_latency(struct voicebus *vb)
+{
+	clear_bit(VOICEBUS_LATENCY_LOCKED, &vb->flags);
+}
+
+/**
+ * voicebus_is_latency_locked() - Return 1 if latency is currently locked.
+ *
+ */
+static inline int voicebus_is_latency_locked(const struct voicebus *vb)
+{
+	return test_bit(VOICEBUS_LATENCY_LOCKED, &vb->flags);
+}
+
+static inline void voicebus_set_normal_mode(struct voicebus *vb)
+{
+	set_bit(VOICEBUS_NORMAL_MODE, &vb->flags);
+}
 #endif /* __VOICEBUS_H__ */
