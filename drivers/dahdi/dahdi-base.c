@@ -3838,7 +3838,17 @@ static int dahdi_common_ioctl(struct file *file, unsigned int cmd, unsigned long
 		stack.spaninfo.alarms = spans[i]->alarms;		/* get alarm status */
 		stack.spaninfo.rxlevel = spans[i]->rxlevel;	/* get rx level */
 		stack.spaninfo.txlevel = spans[i]->txlevel;	/* get tx level */
-		stack.spaninfo.count = spans[i]->count;	/* get counters */
+
+		stack.spaninfo.bpvcount = spans[i]->count.bpv;
+		stack.spaninfo.crc4count = spans[i]->count.crc4;
+		stack.spaninfo.ebitcount = spans[i]->count.ebit;
+		stack.spaninfo.fascount = spans[i]->count.fas;
+		stack.spaninfo.fecount = spans[i]->count.fe;
+		stack.spaninfo.cvcount = spans[i]->count.cv;
+		stack.spaninfo.becount = spans[i]->count.be;
+		stack.spaninfo.prbs = spans[i]->count.prbs;
+		stack.spaninfo.errsec = spans[i]->count.errsec;
+
 		stack.spaninfo.irqmisses = spans[i]->irqmisses;	/* get IRQ miss count */
 		stack.spaninfo.syncsrc = spans[i]->syncsrc;	/* get active sync source */
 		stack.spaninfo.totalchans = spans[i]->channels;

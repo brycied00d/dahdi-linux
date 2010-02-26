@@ -532,18 +532,6 @@ struct dahdi_params {
  */
 #define DAHDI_IOMUX			_IOWR(DAHDI_CODE, 9, int)
 
-struct dahdi_count {
-	__u32 fe;		/*!< Framing error counter */
-	__u32 cv;		/*!< Coding violations counter */
-	__u32 bpv;		/*!< Bipolar Violation counter */
-	__u32 crc4;		/*!< CRC4 error counter */
-	__u32 ebit;		/*!< current E-bit error count */
-	__u32 fas;		/*!< current FAS error count */
-	__u32 be;		/*!< current bit error count */
-	__u32 prbs;		/*!< current PRBS detected pattern */
-	__u32 errsec;	/*!< errored seconds */
-};
-
 /*
  * Get Span Status
  */
@@ -554,7 +542,17 @@ struct dahdi_spaninfo {
 	int	alarms;		/* alarms status */
 	int	txlevel;	/* what TX level is set to */
 	int	rxlevel;	/* current RX level */
-	struct dahdi_count count;/* Performance and Error counters */
+
+	int	bpvcount;	/* current BPV count */
+	int	crc4count;	/* current CRC4 error count */
+	int	ebitcount;	/* current E-bit error count */
+	int	fascount;	/* current FAS error count */
+	__u32	fecount;	/* Framing error counter */
+	__u32	cvcount;	/* Coding violations counter */
+	__u32	becount;	/* current bit error count */
+	__u32	prbs;		/* current PRBS detected pattern */
+	__u32	errsec;		/* errored seconds */
+
 	int	irqmisses;	/* current IRQ misses */
 	int	syncsrc;	/* span # of current sync source,
 				   or 0 for free run */
