@@ -3,6 +3,7 @@
 
 #include <linux/list.h>
 #include <linux/spinlock.h>
+#include <dahdi/kernel.h>
 #include "xdefs.h"
 
 #define	XFRAME_QUEUE_MARGIN	10
