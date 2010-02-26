@@ -59,6 +59,8 @@ Tx Gain - W/Pre-Emphasis: -23.99 to 0.00 db
 #endif
 #include <linux/crc32.h>
 
+#include <stdbool.h>
+
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 30)
 /* Define this if you would like to load the modules in parallel.  While this
  * can speed up loads when multiple cards handled by this driver are installed,
