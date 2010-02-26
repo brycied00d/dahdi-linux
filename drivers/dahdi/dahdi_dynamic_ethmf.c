@@ -129,7 +129,11 @@ struct ztdeth {
 /**
  * Lock for adding and removing items in ethmf_list
  */
+#ifdef DEFINE_SPINLOCK
 static DEFINE_SPINLOCK(ethmf_lock);
+#else
+static spinlock_t ethmf_lock = SPIN_LOCK_UNLOCKED;
+#endif
 
 /**
  * The active list of all running spans
@@ -396,6 +400,10 @@ static int ztdethmf_transmit(void *pvt, unsigned char *msg, int msglen)
 	struct net_device *dev;
 	unsigned char addr[ETH_ALEN];
 	int spans_ready = 0, index = 0;
+#if LINUX_VERSION < KERNEL_VERSION(2, 6, 18)
+	static spinlock_t lock = SPIN_LOCK_UNLOCKED;
+	unsigned long flags;
+#endif
 
 	if (atomic_read(&shutdown))
 		return 0;
@@ -407,12 +415,24 @@ static int ztdethmf_transmit(void *pvt, unsigned char *msg, int msglen)
 		return 0;
 	}
 
+#if LINUX_VERSION < KERNEL_VERSION(2, 6, 18)
+	if (!atomic_read(&z->ready)) {
+		spin_lock_irqsave(&lock, flags);
+		atomic_inc(&z->ready);
+		if (1 == atomic_read(&z->ready)) {
+			memcpy(z->msgbuf, msg, msglen);
+			z->msgbuf_len = msglen;
+		}
+		spin_unlock_irqrestore(&lock, flags);
+	}
+#else
 	if (!atomic_read(&z->ready)) {
 		if (atomic_inc_return(&z->ready) == 1) {
 			memcpy(z->msgbuf, msg, msglen);
 			z->msgbuf_len = msglen;
 		}
 	}
+#endif
 
 	spans_ready = ethmf_trx_spans_ready(z->addr_hash, &ready_spans);
 	if (spans_ready) {
