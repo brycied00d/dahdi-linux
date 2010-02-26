@@ -4075,7 +4075,8 @@ static int dahdi_ctl_ioctl(struct file *file, unsigned int cmd, unsigned long da
 		if (copy_from_user(&lc, user_data, sizeof(lc)))
 			return -EFAULT;
 		VALID_SPAN(lc.span);
-		if ((lc.lineconfig & 0x07f0 & spans[lc.span]->linecompat) != (lc.lineconfig & 0x07f0))
+		if ((lc.lineconfig & 0x1ff0 & spans[lc.span]->linecompat) !=
+		    (lc.lineconfig & 0x1ff0))
 			return -EINVAL;
 		if (spans[lc.span]->spanconfig) {
 			spans[lc.span]->lineconfig = lc.lineconfig;
