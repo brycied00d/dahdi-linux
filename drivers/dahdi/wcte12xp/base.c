@@ -576,7 +576,7 @@ static int t1_getreg(struct t1 *wc, int addr)
 	cmd->flags = __CMD_RD;
 	submit_cmd(wc, cmd);
 	ret = wait_for_completion_timeout(&cmd->complete, HZ/5);
-	if (unlikely(ret)) {
+	if (unlikely(!ret)) {
 		if (printk_ratelimit()) {
 			dev_warn(&wc->vb.pdev->dev,
 				 "Timeout in %s\n", __func__);
@@ -616,7 +616,7 @@ static inline int t1_getpins(struct t1 *wc, int inisr)
 	cmd->flags = __CMD_PINS;
 	submit_cmd(wc, cmd);
 	ret = wait_for_completion_timeout(&cmd->complete, HZ/5);
-	if (unlikely(ret)) {
+	if (unlikely(!ret)) {
 		if (printk_ratelimit()) {
 			dev_warn(&wc->vb.pdev->dev,
 				 "Timeout in %s\n", __func__);
@@ -1750,7 +1750,7 @@ static void t1_handle_transmit(struct voicebus *vb, struct list_head *buffers)
 	struct vbb *vbb;
 
 	list_for_each_entry(vbb, buffers, entry) {
-		memset(vbb, 0, SFRAME_SIZE);
+		memset(vbb->data, 0, sizeof(vbb->data));
 		atomic_inc(&wc->txints);
 		t1_transmitprep(wc, vbb->data);
 		handle_leds(wc);
