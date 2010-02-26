@@ -400,7 +400,7 @@ static int ztdethmf_transmit(void *pvt, unsigned char *msg, int msglen)
 	struct net_device *dev;
 	unsigned char addr[ETH_ALEN];
 	int spans_ready = 0, index = 0;
-#if LINUX_VERSION < KERNEL_VERSION(2, 6, 18)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 10)
 	static spinlock_t lock = SPIN_LOCK_UNLOCKED;
 	unsigned long flags;
 #endif
@@ -415,7 +415,7 @@ static int ztdethmf_transmit(void *pvt, unsigned char *msg, int msglen)
 		return 0;
 	}
 
-#if LINUX_VERSION < KERNEL_VERSION(2, 6, 18)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 10)
 	if (!atomic_read(&z->ready)) {
 		spin_lock_irqsave(&lock, flags);
 		atomic_inc(&z->ready);

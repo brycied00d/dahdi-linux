@@ -1181,7 +1181,6 @@ static inline short dahdi_txtone_nextsample(struct dahdi_chan *ss)
 	(signal_pending((p)) && sigismember(&(p)->pending.signal, SIGKILL))
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 18)
-#define synchronize_rcu() synchronize_kernel()
 static inline void list_replace(struct list_head *old, struct list_head *new)
 {
         new->next = old->next;
@@ -1191,6 +1190,8 @@ static inline void list_replace(struct list_head *old, struct list_head *new)
 }
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 14)
 #define kzalloc(a, b) kcalloc(1, a, b)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 12)
+#define synchronize_rcu() synchronize_kernel()
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 11)
 static inline unsigned long
 wait_for_completion_timeout(struct completion *x, unsigned long timeout)
@@ -1205,6 +1206,7 @@ wait_for_completion_timeout(struct completion *x, unsigned long timeout)
 	return timeout;
 }
 #endif /* 2.6.11 */
+#endif /* 2.6.12 */
 #endif /* 2.6.14 */
 #endif /* 2.6.18 */
 #endif /* 2.6.25 */
