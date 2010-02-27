@@ -119,6 +119,13 @@
  */
 #define CONFIG_DAHDI_CORE_TIMER
 
+/*
+ * Define CONFIG_DAHDI_NO_ECHOCAN_DISABLE to prevent the 2100Hz tone detector
+ * from disabling any installed software echocan.
+ *
+ */
+/* #define CONFIG_DAHDI_NO_ECHOCAN_DISABLE */
+
 /* 
  * Uncomment if you happen have an early TDM400P Rev H which 
  * sometimes forgets its PCI ID to have wcfxs match essentially all
