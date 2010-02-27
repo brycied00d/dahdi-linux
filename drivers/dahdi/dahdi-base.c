@@ -6181,6 +6181,7 @@ static inline void __dahdi_process_getaudio_chunk(struct dahdi_chan *ss, unsigne
 	for (x=0;x<DAHDI_CHUNKSIZE;x++)
 		getlin[x] = DAHDI_XLAW(txb[x], ms);
 
+#ifndef CONFIG_DAHDI_NO_ECHOCAN_DISABLE
 	if (ms->ec_state && (ms->ec_state->status.mode == ECHO_MODE_ACTIVE) && !ms->ec_state->features.CED_tx_detect) {
 		for (x = 0; x < DAHDI_CHUNKSIZE; x++) {
 			if (echo_can_disable_detector_update(&ms->ec_state->txecdis, getlin[x])) {
@@ -6190,6 +6191,7 @@ static inline void __dahdi_process_getaudio_chunk(struct dahdi_chan *ss, unsigne
 			}
 		}
 	}
+#endif
 
 	if ((!ms->confmute && !ms->dialing) || (ms->flags & DAHDI_FLAG_PSEUDO)) {
 		/* Handle conferencing on non-clear channel and non-HDLC channels */
@@ -7213,6 +7215,7 @@ static inline void __dahdi_process_putaudio_chunk(struct dahdi_chan *ss, unsigne
 		putlin[x] = DAHDI_XLAW(rxb[x], ms);
 	}
 
+#ifndef CONFIG_DAHDI_NO_ECHOCAN_DISABLE
 	if (ms->ec_state && (ms->ec_state->status.mode == ECHO_MODE_ACTIVE) && !ms->ec_state->features.CED_rx_detect) {
 		for (x = 0; x < DAHDI_CHUNKSIZE; x++) {
 			if (echo_can_disable_detector_update(&ms->ec_state->rxecdis, putlin[x])) {
@@ -7222,6 +7225,7 @@ static inline void __dahdi_process_putaudio_chunk(struct dahdi_chan *ss, unsigne
 			}
 		}
 	}
+#endif
 
 	/* if doing rx tone decoding */
 	if (ms->rxp1 && ms->rxp2 && ms->rxp3)
