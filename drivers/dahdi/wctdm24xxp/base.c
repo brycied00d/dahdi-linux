@@ -37,8 +37,6 @@ Tx Gain - No Pre-Emphasis: -35.99 to 12.00 db
 Tx Gain - W/Pre-Emphasis: -23.99 to 0.00 db
 */
 
-#define DEBUG
-
 #include <linux/version.h>
 #include <linux/kernel.h>
 #include <linux/errno.h>
@@ -4466,7 +4464,6 @@ static int hx8_reload_application(struct wctdm *wc, const struct ha80000_firmwar
 		return ret;
 
 	for (cur_page = 0; cur_page < HYBRID_PAGE_COUNT; ++cur_page) {
-		/* dev_dbg(&wc->vb.pdev->dev, "PAGE: %d\n", cur_page); */
 		ret = hx8_write_buffer(wc, data, HYBRID_PAGE_SIZE);
 		if (ret)
 			return ret;
@@ -4540,7 +4537,7 @@ static int hx8_check_firmware(struct wctdm *wc)
 
 	dev_dbg(dev, "FPGA VERSION: %02x.%02x\n", major, minor);
 
-	ret = request_firmware(&fw, "dahdi-fw-ha80000.bin", dev);
+	ret = request_firmware(&fw, "dahdi-fw-hx8.bin", dev);
 	if (ret) {
 		dev_warn(dev, "Failed to load firmware from userspace, skipping "
 			 "check. (%d)\n", ret);
@@ -4594,6 +4591,7 @@ static int hx8_check_firmware(struct wctdm *wc)
 
 cleanup:
 	release_firmware(fw);
+	dev_info(dev, "Hx8 firmware version: %d.%02d\n", major, minor);
 	return ret;
 }
 

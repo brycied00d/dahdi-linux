@@ -3,7 +3,7 @@
 # 
 # Makefile for firmware downloading/installation
 #
-# Copyright (C) 2007-2009, Digium, Inc.
+# Copyright (C) 2007-2010, Digium, Inc.
 #
 # Joshua Colp <jcolp@digium.com>
 #
@@ -26,10 +26,11 @@ OCT6114_064_VERSION:=1.05.01
 OCT6114_128_VERSION:=1.05.01
 TC400M_VERSION:=MR6.12
 VPMADT032_VERSION:=1.20.0
+HX8_VERSION:=2.06
 
 FIRMWARE_URL:=http://downloads.digium.com/pub/telephony/firmware/releases
 
-ALL_FIRMWARE=FIRMWARE-OCT6114-064 FIRMWARE-OCT6114-128 FIRMWARE-TC400M
+ALL_FIRMWARE=FIRMWARE-OCT6114-064 FIRMWARE-OCT6114-128 FIRMWARE-TC400M FIRMWARE-HX8
 
 # Firmware files should use the naming convention: dahdi-fw-<base name>-<sub name>-<version> or dahdi-fw-<base name>-<version>
 # First example: dahdi-fw-oct6114-064-1.05.01
@@ -41,6 +42,7 @@ ALL_FIRMWARE=FIRMWARE-OCT6114-064 FIRMWARE-OCT6114-128 FIRMWARE-TC400M
 FIRMWARE:=$(ALL_FIRMWARE:FIRMWARE-OCT6114-064=dahdi-fw-oct6114-064-$(OCT6114_064_VERSION).tar.gz)
 FIRMWARE:=$(FIRMWARE:FIRMWARE-OCT6114-128=dahdi-fw-oct6114-128-$(OCT6114_128_VERSION).tar.gz)
 FIRMWARE:=$(FIRMWARE:FIRMWARE-TC400M=dahdi-fw-tc400m-$(TC400M_VERSION).tar.gz)
+FIRMWARE:=$(FIRMWARE:FIRMWARE-HX8=dahdi-fw-hx8-$(HX8_VERSION).tar.gz)
 
 FWLOADERS:=dahdi-fwload-vpmadt032-$(VPMADT032_VERSION).tar.gz
 
@@ -48,6 +50,7 @@ FWLOADERS:=dahdi-fwload-vpmadt032-$(VPMADT032_VERSION).tar.gz
 OBJECT_FILES:=$(ALL_FIRMWARE:FIRMWARE-OCT6114-064=dahdi-fw-oct6114-064.o)
 OBJECT_FILES:=$(OBJECT_FILES:FIRMWARE-OCT6114-128=dahdi-fw-oct6114-128.o)
 OBJECT_FILES:=$(OBJECT_FILES:FIRMWARE-TC400M=dahdi-fw-tc400m.o)
+OBJECT_FILES:=$(OBJECT_FILES:FIRMWARE-HX8=dahdi-fw-hx8.o)
 
 # Force usage of wget, for now
 DOWNLOAD=wget
@@ -128,6 +131,17 @@ ifeq ($(shell if ( [ -f $(DESTDIR)/usr/lib/hotplug/firmware/.dahdi-fw-tc400m-$(T
 	@touch $(DESTDIR)/lib/firmware/.dahdi-fw-tc400m-$(TC400M_VERSION)
 else
 	@echo "Firmware dahdi-fw-tc400m.bin is already installed with required version $(TC400M_VERSION)"
+endif
+ifeq ($(shell if ( [ -f $(DESTDIR)/usr/lib/hotplug/firmware/.dahdi-fw-hx8-$(HX8_VERSION) ] ) && ( [ -f $(DESTDIR)/lib/firmware/.dahdi-fw-hx8-$(HX8_VERSION) ] ); then echo "no"; else echo "yes"; fi),yes)
+	@echo "Installing dahdi-fw-hx8.bin to hotplug firmware directories"
+	@install -m 644 dahdi-fw-hx8.bin $(DESTDIR)/usr/lib/hotplug/firmware
+	@rm -rf $(DESTDIR)/usr/lib/hotplug/firmware/.dahdi-fw-hx8-*
+	@touch $(DESTDIR)/usr/lib/hotplug/firmware/.dahdi-fw-hx8-$(HX8_VERSION)
+	@install -m 644 dahdi-fw-hx8.bin $(DESTDIR)/lib/firmware
+	@rm -rf $(DESTDIR)/lib/firmware/.dahdi-fw-hx8-*
+	@touch $(DESTDIR)/lib/firmware/.dahdi-fw-hx8-$(HX8_VERSION)
+else
+	@echo "Firmware dahdi-fw-hx8.bin is already installed with required version $(HX8_VERSION)"
 endif
 
 # Uninstall any installed dahdi firmware images from hotplug firmware directories
