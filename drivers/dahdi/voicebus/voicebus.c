@@ -1073,6 +1073,7 @@ vb_increase_latency(struct voicebus *vb, unsigned int increase,
 		    struct list_head *buffers)
 {
 	struct vbb *vbb;
+	struct vbb *n;
 	int i;
 	LIST_HEAD(local);
 
@@ -1106,7 +1107,7 @@ vb_increase_latency(struct voicebus *vb, unsigned int increase,
 
 	handle_transmit(vb, &local);
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 27)
-	list_for_each_entry(vbb, &local, entry)
+	list_for_each_entry_safe(vbb, n, &local, entry)
 		list_move_tail(&vbb->entry, buffers);
 #else
 	list_splice_tail(&local, buffers);
