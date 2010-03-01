@@ -1073,7 +1073,9 @@ vb_increase_latency(struct voicebus *vb, unsigned int increase,
 		    struct list_head *buffers)
 {
 	struct vbb *vbb;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 27)
 	struct vbb *n;
+#endif
 	int i;
 	LIST_HEAD(local);
 
