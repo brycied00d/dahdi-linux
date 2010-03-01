@@ -575,8 +575,11 @@ static int t1_getreg(struct t1 *wc, int addr)
 	cmd->data = 0x00;
 	cmd->flags = __CMD_RD;
 	submit_cmd(wc, cmd);
-	ret = wait_for_completion_timeout(&cmd->complete, HZ/5);
+	ret = wait_for_completion_timeout(&cmd->complete, HZ*2);
 	if (unlikely(!ret)) {
+		spin_lock_bh(&wc->cmd_list_lock);
+		list_del(&cmd->node);
+		spin_unlock_bh(&wc->cmd_list_lock);
 		if (printk_ratelimit()) {
 			dev_warn(&wc->vb.pdev->dev,
 				 "Timeout in %s\n", __func__);
@@ -615,8 +618,11 @@ static inline int t1_getpins(struct t1 *wc, int inisr)
 	cmd->data = 0x00;
 	cmd->flags = __CMD_PINS;
 	submit_cmd(wc, cmd);
-	ret = wait_for_completion_timeout(&cmd->complete, HZ/5);
+	ret = wait_for_completion_timeout(&cmd->complete, HZ*2);
 	if (unlikely(!ret)) {
+		spin_lock_bh(&wc->cmd_list_lock);
+		list_del(&cmd->node);
+		spin_unlock_bh(&wc->cmd_list_lock);
 		if (printk_ratelimit()) {
 			dev_warn(&wc->vb.pdev->dev,
 				 "Timeout in %s\n", __func__);
@@ -1697,10 +1703,24 @@ static inline void t1_transmitprep(struct t1 *wc, u8 *writechunk)
 	}
 }
 
+/**
+ * is_good_frame() - Whether the SFRAME received was one sent.
+ *
+ */
+static inline bool is_good_frame(const u8 *sframe)
+{
+        const u8 a = sframe[0*(EFRAME_SIZE+EFRAME_GAP) + (EFRAME_SIZE+1)];
+        const u8 b = sframe[1*(EFRAME_SIZE+EFRAME_GAP) + (EFRAME_SIZE+1)];
+        return a != b;
+}
+
 static inline void t1_receiveprep(struct t1 *wc, const u8* readchunk)
 {
 	int x,chan;
 	unsigned char expected;
+
+	if (!is_good_frame(readchunk))
+		return;
 
 	for (x = 0; x < DAHDI_CHUNKSIZE; x++) {
 		if (likely(test_bit(INITIALIZED, &wc->bit_flags))) {
