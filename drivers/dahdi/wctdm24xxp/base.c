@@ -237,6 +237,7 @@ static int nativebridge = 0;
 static int ringdebounce = DEFAULT_RING_DEBOUNCE;
 static int fwringdetect = 0;
 static int latency = VOICEBUS_DEFAULT_LATENCY;
+static unsigned int max_latency = VOICEBUS_DEFAULT_MAXLATENCY;
 static int forceload;
 
 #define MS_PER_HOOKCHECK	(1)
@@ -4670,6 +4671,7 @@ __wctdm_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 		wc->vb.ops = &voicebus_operations;
 		ret = voicebus_init(&wc->vb, wc->board_name);
 		voicebus_set_minlatency(&wc->vb, latency);
+		voicebus_set_maxlatency(&wc->vb, max_latency);
 	}
 
 	if (ret) {
@@ -4716,6 +4718,7 @@ __wctdm_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 		voicebus_stop(&wc->vb);
 		wc->vb.ops = &voicebus_operations;
 		voicebus_set_minlatency(&wc->vb, latency);
+		voicebus_set_maxlatency(&wc->vb, max_latency);
 		voicebus_set_normal_mode(&wc->vb);
 		if (voicebus_start(&wc->vb))
 			BUG_ON(1);
@@ -5036,6 +5039,7 @@ module_param(fxsrxgain, int, 0600);
 module_param(ringdebounce, int, 0600);
 module_param(fwringdetect, int, 0600);
 module_param(latency, int, 0400);
+module_param(max_latency, int, 0400);
 module_param(neonmwi_monitor, int, 0600);
 module_param(neonmwi_level, int, 0600);
 module_param(neonmwi_envelope, int, 0600);
