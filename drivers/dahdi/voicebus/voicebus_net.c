@@ -28,6 +28,8 @@
 #include <linux/kernel.h>
 #include <linux/pci.h>
 
+#include <dahdi/kernel.h>
+
 #include "voicebus.h"
 #include "voicebus_net.h"
 
