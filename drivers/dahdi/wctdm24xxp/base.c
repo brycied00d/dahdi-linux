@@ -221,7 +221,9 @@ static unsigned int battdebounce;
 static unsigned int battalarm;
 static unsigned int battthresh;
 static int debug = 0;
+#ifdef DEBUG
 static int robust = 0;
+#endif
 static int lowpower = 0;
 static int boostringer = 0;
 static int fastringer = 0;
@@ -1787,8 +1789,10 @@ static void wctdm_fxs_off_hook(struct wctdm *wc, const int card)
 		break;
 	}
 	dahdi_hooksig(wc->aspan->span.chans[card], DAHDI_RXSIG_OFFHOOK);
+#ifdef DEBUG
 	if (robust)
 		wctdm_init_proslic(wc, card, 1, 0, 1);
+#endif
 	fxs->oldrxhook = 1;
 }
 
@@ -5021,7 +5025,9 @@ module_param(debug, int, 0600);
 module_param(fxovoltage, int, 0600);
 module_param(loopcurrent, int, 0600);
 module_param(reversepolarity, int, 0600);
+#ifdef DEBUG
 module_param(robust, int, 0600);
+#endif
 module_param(opermode, charp, 0600);
 module_param(lowpower, int, 0600);
 module_param(boostringer, int, 0600);
