@@ -5027,7 +5027,7 @@ module_param(fxshonormode, int, 0600);
 module_param(battdebounce, uint, 0600);
 module_param(battalarm, uint, 0600);
 module_param(battthresh, uint, 0600);
-module_param(alawoverride, int, 0600);
+module_param(alawoverride, int, 0400);
 module_param(nativebridge, int, 0600);
 module_param(fxotxgain, int, 0600);
 module_param(fxorxgain, int, 0600);
@@ -5035,16 +5035,16 @@ module_param(fxstxgain, int, 0600);
 module_param(fxsrxgain, int, 0600);
 module_param(ringdebounce, int, 0600);
 module_param(fwringdetect, int, 0600);
-module_param(latency, int, 0600);
+module_param(latency, int, 0400);
 module_param(neonmwi_monitor, int, 0600);
 module_param(neonmwi_level, int, 0600);
 module_param(neonmwi_envelope, int, 0600);
 module_param(neonmwi_offlimit, int, 0600);
 #ifdef VPM_SUPPORT
-module_param(vpmsupport, int, 0600);
-module_param(vpmnlptype, int, 0600);
-module_param(vpmnlpthresh, int, 0600);
-module_param(vpmnlpmaxsupp, int, 0600);
+module_param(vpmsupport, int, 0400);
+module_param(vpmnlptype, int, 0400);
+module_param(vpmnlpthresh, int, 0400);
+module_param(vpmnlpmaxsupp, int, 0400);
 #endif
 
 /* Module parameters backed by code in xhfc.c */

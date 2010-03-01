@@ -2004,10 +2004,10 @@ module_param(alarmdebounce, int, S_IRUGO | S_IWUSR);
 module_param(losalarmdebounce, int, S_IRUGO | S_IWUSR);
 module_param(aisalarmdebounce, int, S_IRUGO | S_IWUSR);
 module_param(yelalarmdebounce, int, S_IRUGO | S_IWUSR);
-module_param(latency, int, S_IRUGO | S_IWUSR);
+module_param(latency, int, S_IRUGO);
 #ifdef VPM_SUPPORT
-module_param(vpmsupport, int, S_IRUGO | S_IWUSR);
-module_param(vpmtsisupport, int, S_IRUGO | S_IWUSR);
+module_param(vpmsupport, int, S_IRUGO);
+module_param(vpmtsisupport, int, S_IRUGO);
 module_param(vpmnlptype, int, S_IRUGO);
 module_param(vpmnlpthresh, int, S_IRUGO);
 module_param(vpmnlpmaxsupp, int, S_IRUGO);
