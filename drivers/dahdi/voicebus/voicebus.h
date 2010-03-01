@@ -37,11 +37,11 @@
 #include <linux/etherdevice.h>
 #endif
 
-#define VOICEBUS_DEFAULT_LATENCY	3
-#define VOICEBUS_DEFAULT_MAXLATENCY	25
-#define VOICEBUS_MAXLATENCY_BUMP	6
+#define VOICEBUS_DEFAULT_LATENCY	3U
+#define VOICEBUS_DEFAULT_MAXLATENCY	25U
+#define VOICEBUS_MAXLATENCY_BUMP	6U
 
-#define VOICEBUS_SFRAME_SIZE 1004
+#define VOICEBUS_SFRAME_SIZE 1004U
 
 /*! The number of descriptors in both the tx and rx descriptor ring. */
 #define DRING_SIZE	(1 << 7)  /* Must be a power of 2 */
@@ -188,5 +188,18 @@ static inline int voicebus_is_latency_locked(const struct voicebus *vb)
 static inline void voicebus_set_normal_mode(struct voicebus *vb)
 {
 	set_bit(VOICEBUS_NORMAL_MODE, &vb->flags);
+}
+
+/**
+ * voicebus_set_max_latency() - Set the maximum number of milliseconds the latency will be able to grow to.
+ */
+static inline void
+voicebus_set_maxlatency(struct voicebus *vb, unsigned int max_latency)
+{
+	spin_lock_bh(&vb->lock);
+	vb->max_latency = clamp(max_latency,
+				vb->min_tx_buffer_count,
+				VOICEBUS_DEFAULT_MAXLATENCY);
+	spin_unlock_bh(&vb->lock);
 }
 #endif /* __VOICEBUS_H__ */

@@ -40,6 +40,7 @@
 #include <linux/delay.h>
 #include <linux/sched.h>
 
+#include <stdbool.h>
 #include <dahdi/kernel.h>
 
 #include "wct4xxp/wct4xxp.h"	/* For certain definitions */
@@ -64,6 +65,7 @@ static int loopback = 0;
 static int t1e1override = -1;
 static int unchannelized = 0;
 static int latency = VOICEBUS_DEFAULT_LATENCY;
+static unsigned int max_latency = VOICEBUS_DEFAULT_MAXLATENCY;
 static int vpmsupport = 1;
 static int vpmtsisupport = 0;
 
@@ -1880,6 +1882,7 @@ static int __devinit te12xp_init_one(struct pci_dev *pdev, const struct pci_devi
 	
 	if (VOICEBUS_DEFAULT_LATENCY != latency) {
 		voicebus_set_minlatency(&wc->vb, latency);
+		voicebus_set_maxlatency(&wc->vb, max_latency);
 	}
 
 	voicebus_lock_latency(&wc->vb);
