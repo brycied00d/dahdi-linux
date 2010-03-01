@@ -312,7 +312,7 @@ static inline u32
 __vb_getctl(struct voicebus *vb, u32 addr)
 {
 	u32 ret;
-	ret = inl(vb->iobase + addr);
+	ret = readl(vb->iobase + addr);
 	rmb();
 	return ret;
 }
@@ -449,7 +449,7 @@ static inline void
 __vb_setctl(struct voicebus *vb, u32 addr, u32 val)
 {
 	wmb();
-	outl(val, vb->iobase + addr);
+	writel(val, vb->iobase + addr);
 }
 
 /*!
@@ -1059,7 +1059,11 @@ voicebus_release(struct voicebus *vb)
 		dma_free_coherent(&vb->pdev->dev, VOICEBUS_SFRAME_SIZE,
 				  vb->idle_vbb, vb->idle_vbb_dma_addr);
 	}
-	release_region(vb->iobase, 0xff);
+
+	release_mem_region(pci_resource_start(vb->pdev, 1),
+		pci_resource_len(vb->pdev, 1));
+
+	pci_iounmap(vb->pdev, vb->iobase);
 	pci_disable_device(vb->pdev);
 }
 EXPORT_SYMBOL(voicebus_release);
@@ -1507,8 +1511,9 @@ __voicebus_init(struct voicebus *vb, const char *board_name, int normal_mode)
 		retval = -EIO;
 		goto cleanup;
 	}
-	vb->iobase = pci_resource_start(vb->pdev, 0);
-	if (NULL == request_region(vb->iobase, 0xff, board_name)) {
+	vb->iobase = pci_iomap(vb->pdev, 1, 0);
+	if (!request_mem_region(pci_resource_start(vb->pdev, 1),
+	    pci_resource_len(vb->pdev, 1), board_name)) {
 		dev_err(&vb->pdev->dev, "IO Registers are in use by another "
 			"module.\n");
 		retval = -EIO;
@@ -1522,7 +1527,8 @@ __voicebus_init(struct voicebus *vb, const char *board_name, int normal_mode)
 	   Configure the hardware interface.
 	   ---------------------------------------------------------------- */
 	if (pci_set_dma_mask(vb->pdev, DMA_BIT_MASK(32))) {
-		release_region(vb->iobase, 0xff);
+		release_mem_region(pci_resource_start(vb->pdev, 1),
+			pci_resource_len(vb->pdev, 1));
 		dev_warn(&vb->pdev->dev, "No suitable DMA available.\n");
 		goto cleanup;
 	}
@@ -1572,7 +1578,7 @@ cleanup:
 			  vb->idle_vbb, vb->idle_vbb_dma_addr);
 
 	if (vb->iobase)
-		release_region(vb->iobase, 0xff);
+		pci_iounmap(vb->pdev, vb->iobase);
 
 	if (vb->pdev)
 		pci_disable_device(vb->pdev);

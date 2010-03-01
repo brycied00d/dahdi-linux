@@ -105,7 +105,7 @@ struct voicebus {
 	u8			*idle_vbb;
 	dma_addr_t		idle_vbb_dma_addr;
 	const int		*debug;
-	u32			iobase;
+	void __iomem 		*iobase;
 	struct tasklet_struct 	tasklet;
 
 #if defined(CONFIG_VOICEBUS_TIMER)
