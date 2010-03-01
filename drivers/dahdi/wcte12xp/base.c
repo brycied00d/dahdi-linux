@@ -1863,7 +1863,11 @@ static int __devinit te12xp_init_one(struct pci_dev *pdev, const struct pci_devi
 	}
 
 	voicebus_lock_latency(&wc->vb);
-	voicebus_start(&wc->vb);
+	if (voicebus_start(&wc->vb)) {
+		voicebus_release(&wc->vb);
+		free_wc(wc);
+		return -EIO;
+	}
 	t1_hardware_post_init(wc);
 
 	for (x = 0; x < (wc->spantype == TYPE_E1 ? 31 : 24); x++) {
