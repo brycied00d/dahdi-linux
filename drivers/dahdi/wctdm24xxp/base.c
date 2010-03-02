@@ -964,7 +964,7 @@ static inline void wctdm_transmitprep(struct wctdm *wc, unsigned char *writechun
 				cmd_checkisr(wc, y);
 			}
 
-			if ((x < 3) && (y < wc->mods_per_board))
+			if (y < wc->mods_per_board)
 				cmd_dequeue(wc, writechunk, y, x);
 		}
 		if (!x)
@@ -1204,8 +1204,7 @@ static inline void wctdm_receiveprep(struct wctdm *wc, const u8 *readchunk)
 			}
 		}
 		for (y = 0; y < wc->avchannels; y++) {
-			if (x < 3)
-				cmd_decipher(wc, readchunk, y);
+			cmd_decipher(wc, readchunk, y);
 		}
 		if (wc->vpm100) {
 			for (y = NUM_MODULES; y < NUM_MODULES + NUM_EC; y++)
