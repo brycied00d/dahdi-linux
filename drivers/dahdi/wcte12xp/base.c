@@ -634,7 +634,7 @@ static inline int t1_getpins(struct t1 *wc, int inisr)
 	}
 	ret = cmd->data;
 	free_cmd(wc, cmd);
-	return 0;
+	return ret;
 }
 
 static void __t1xxp_set_clear(struct t1 *wc, int channo)
