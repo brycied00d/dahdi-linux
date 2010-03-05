@@ -3071,7 +3071,6 @@ static inline void t4_framer_interrupt(struct t4 *wc, int span)
  
  	if (isr3 & ISR3_ES) {
  		ts->span.count.errsec += 1;
- 		dev_info(&wc->dev->dev, "Errored second: span %d\n", span+1);
  	}
  
  	if (isr3 & 0x08) {
