@@ -1473,6 +1473,10 @@ static int t4_maint(struct dahdi_span *span, int cmd)
 			t4_framer_out(wc, span->offset, LCR1_T,
 					(reg & ~(XPRBS | EPRM)));
 
+			reg = t4_framer_in(wc, span->offset, FMR2_T);
+			t4_framer_out(wc, span->offset, FMR2_T,
+					(reg & ~FMR2_PLB));
+
 			span->mainttimer = 0;
 			break;
 		case DAHDI_MAINT_LOCALLOOP:
