@@ -1439,12 +1439,18 @@ static int t4_maint(struct dahdi_span *span, int cmd)
 			dev_info(&wc->dev->dev, "Clearing all maint modes\n");
 			break;
 		case DAHDI_MAINT_LOCALLOOP:
+			dev_info(&wc->dev->dev,
+				 "Turning on local loopback\n");
+			t4_clear_maint(span);
+			reg = t4_framer_in(wc, span->offset, LIM0_T);
+			t4_framer_out(wc, span->offset, LIM0_T, (reg|LIM0_LL));
+			break;
 		case DAHDI_MAINT_REMOTELOOP:
 		case DAHDI_MAINT_LOOPUP:
 		case DAHDI_MAINT_LOOPDOWN:
 		case DAHDI_MAINT_LOOPSTOP:
 			dev_info(&wc->dev->dev,
-					"Looping not supported in E1 mode\n");
+					"Only local loop supported in E1 mode\n");
 			break;
 		default:
 			dev_info(&wc->dev->dev,

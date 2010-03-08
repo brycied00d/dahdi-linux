@@ -1113,11 +1113,15 @@ static int t1xxp_maint(struct dahdi_span *span, int cmd)
 			t1_info(wc, "Clearing all maint modes\n");
 			break;
 		case DAHDI_MAINT_LOCALLOOP:
+			t1xxp_clear_maint(span);
+			reg = t1_getreg(wc, LIM0);
+			t1_setreg(wc, LIM0, reg | LIM0_LL);
+			break;
 		case DAHDI_MAINT_REMOTELOOP:
 		case DAHDI_MAINT_LOOPUP:
 		case DAHDI_MAINT_LOOPDOWN:
 		case DAHDI_MAINT_LOOPSTOP:
-			t1_info(wc, "Looping not supported in E1 mode\n");
+			t1_info(wc, "Only local loop supported in E1 mode\n");
 			break;
 		default:
 			t1_info(wc, "Unknown E1 maint command: %d\n", cmd);
