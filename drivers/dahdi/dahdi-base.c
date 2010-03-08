@@ -4545,6 +4545,7 @@ static int dahdi_ctl_ioctl(struct file *file, unsigned int cmd, unsigned long da
 			module_printk(KERN_NOTICE,
 				      "Unknown maintenance event: %d\n",
 				      maint.command);
+			return -ENOSYS;
 		}
 		dahdi_alarm_notify(spans[maint.spanno]);  /* process alarm-related events */
 		spin_unlock_irqrestore(&spans[maint.spanno]->lock, flags);
