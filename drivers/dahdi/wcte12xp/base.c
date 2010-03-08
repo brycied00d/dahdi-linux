@@ -1111,6 +1111,7 @@ static int t1xxp_maint(struct dahdi_span *span, int cmd)
 		switch (cmd) {
 		case DAHDI_MAINT_NONE:
 			t1_info(wc, "Clearing all maint modes\n");
+			t1xxp_clear_maint(span);
 			break;
 		case DAHDI_MAINT_LOCALLOOP:
 			t1xxp_clear_maint(span);
@@ -1122,10 +1123,10 @@ static int t1xxp_maint(struct dahdi_span *span, int cmd)
 		case DAHDI_MAINT_LOOPDOWN:
 		case DAHDI_MAINT_LOOPSTOP:
 			t1_info(wc, "Only local loop supported in E1 mode\n");
-			break;
+			return -ENOSYS;
 		default:
 			t1_info(wc, "Unknown E1 maint command: %d\n", cmd);
-			break;
+			return -ENOSYS;
 		}
 	} else {
 		switch (cmd) {
@@ -1161,7 +1162,7 @@ static int t1xxp_maint(struct dahdi_span *span, int cmd)
 			break;
 		default:
 			t1_info(wc, "Unknown T1 maint command: %d\n", cmd);
-			break;
+			return -ENOSYS;
 		}
 	}
 

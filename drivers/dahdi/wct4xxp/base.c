@@ -1437,6 +1437,7 @@ static int t4_maint(struct dahdi_span *span, int cmd)
 		switch(cmd) {
 		case DAHDI_MAINT_NONE:
 			dev_info(&wc->dev->dev, "Clearing all maint modes\n");
+			t4_clear_maint(span);
 			break;
 		case DAHDI_MAINT_LOCALLOOP:
 			dev_info(&wc->dev->dev,
@@ -1451,11 +1452,11 @@ static int t4_maint(struct dahdi_span *span, int cmd)
 		case DAHDI_MAINT_LOOPSTOP:
 			dev_info(&wc->dev->dev,
 					"Only local loop supported in E1 mode\n");
-			break;
+			return -ENOSYS;
 		default:
 			dev_info(&wc->dev->dev,
 					"Unknown E1 maint command: %d\n", cmd);
-			break;
+			return -ENOSYS;
 		}
 	} else {
 		switch(cmd) {
@@ -1535,7 +1536,7 @@ static int t4_maint(struct dahdi_span *span, int cmd)
 			reg &= ~FLLB;
 			t4_framer_out(wc, span->offset, LCR1_T, reg);
 #endif
-			break;
+			return -ENOSYS;
 		case DAHDI_RESET_COUNTERS:
 			t4_reset_counters(span);
 			break;
