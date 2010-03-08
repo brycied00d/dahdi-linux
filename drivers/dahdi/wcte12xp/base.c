@@ -76,6 +76,7 @@ static int vpmnlpmaxsupp = DEFAULT_NLPMAXSUPP;
 static int echocan_create(struct dahdi_chan *chan, struct dahdi_echocanparams *ecp,
 			   struct dahdi_echocanparam *p, struct dahdi_echocan_state **ec);
 static void echocan_free(struct dahdi_chan *chan, struct dahdi_echocan_state *ec);
+static int t1xxp_clear_maint(struct dahdi_span *span);
 
 static const struct dahdi_echocan_features vpm150m_ec_features = {
 	.NLP_automatic = 1,
@@ -1109,23 +1110,14 @@ static int t1xxp_maint(struct dahdi_span *span, int cmd)
 	if (wc->spantype == TYPE_E1) {
 		switch (cmd) {
 		case DAHDI_MAINT_NONE:
-			t1_info(wc, "XXX Turn off local and remote "
-				"loops E1 XXX\n");
+			t1_info(wc, "Clearing all maint modes\n");
 			break;
 		case DAHDI_MAINT_LOCALLOOP:
-			t1_info(wc, "XXX Turn on local loopback E1 XXX\n");
-			break;
 		case DAHDI_MAINT_REMOTELOOP:
-			t1_info(wc, "XXX Turn on remote loopback E1 XXX\n");
-			break;
 		case DAHDI_MAINT_LOOPUP:
-			t1_info(wc, "XXX Send loopup code E1 XXX\n");
-			break;
 		case DAHDI_MAINT_LOOPDOWN:
-			t1_info(wc, "XXX Send loopdown code E1 XXX\n");
-			break;
 		case DAHDI_MAINT_LOOPSTOP:
-			t1_info(wc, "XXX Stop sending loop codes E1 XXX\n");
+			t1_info(wc, "Looping not supported in E1 mode\n");
 			break;
 		default:
 			t1_info(wc, "Unknown E1 maint command: %d\n", cmd);
@@ -1134,33 +1126,33 @@ static int t1xxp_maint(struct dahdi_span *span, int cmd)
 	} else {
 		switch (cmd) {
 		case DAHDI_MAINT_NONE:
- 			/* Turn off local loop */
- 			reg = t1_getreg(wc, LIM0);
- 			t1_setreg(wc, LIM0, reg & ~LIM0_LL);
- 
- 			/* Turn off remote loop & jitter attenuator */
- 			reg = t1_getreg(wc, LIM1);
- 			t1_setreg(wc, LIM1, reg & ~(LIM1_RL | LIM1_JATT));
+			t1xxp_clear_maint(span);
 			break;
 		case DAHDI_MAINT_LOCALLOOP:
+			t1xxp_clear_maint(span);
  			reg = t1_getreg(wc, LIM0);
  			t1_setreg(wc, LIM0, reg | LIM0_LL);
 			break;
  		case DAHDI_MAINT_NETWORKLINELOOP:
+			t1xxp_clear_maint(span);
  			reg = t1_getreg(wc, LIM1);
  			t1_setreg(wc, LIM1, reg | LIM1_RL);
  			break;
  		case DAHDI_MAINT_NETWORKPAYLOADLOOP:
+			t1xxp_clear_maint(span);
  			reg = t1_getreg(wc, LIM1);
  			t1_setreg(wc, LIM1, reg | (LIM1_RL | LIM1_JATT));
 			break;
 		case DAHDI_MAINT_LOOPUP:
+			t1xxp_clear_maint(span);
 			t1_setreg(wc, 0x21, 0x50);
 			break;
 		case DAHDI_MAINT_LOOPDOWN:
+			t1xxp_clear_maint(span);
 			t1_setreg(wc, 0x21, 0x60);
 			break;
 		case DAHDI_MAINT_LOOPSTOP:
+			t1xxp_clear_maint(span);
 			t1_setreg(wc, 0x21, 0x40);
 			break;
 		default:
@@ -1171,6 +1163,22 @@ static int t1xxp_maint(struct dahdi_span *span, int cmd)
 
 	return 0;
 }
+
+static int t1xxp_clear_maint(struct dahdi_span *span)
+{
+	struct t1 *wc = span->pvt;
+	int reg = 0;
+
+	/* Turn off local loop */
+	reg = t1_getreg(wc, LIM0);
+	t1_setreg(wc, LIM0, reg & ~LIM0_LL);
+
+	/* Turn off remote loop & jitter attenuator */
+	reg = t1_getreg(wc, LIM1);
+	t1_setreg(wc, LIM1, reg & ~(LIM1_RL | LIM1_JATT));
+	return 0;
+}
+
 
 static int t1xxp_open(struct dahdi_chan *chan)
 {
