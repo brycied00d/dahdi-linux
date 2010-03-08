@@ -412,6 +412,7 @@ static int t4_startup(struct dahdi_span *span);
 static int t4_shutdown(struct dahdi_span *span);
 static int t4_rbsbits(struct dahdi_chan *chan, int bits);
 static int t4_maint(struct dahdi_span *span, int cmd);
+static int t4_clear_maint(struct dahdi_span *span);
 static int t4_reset_counters(struct dahdi_span *span);
 #ifdef SUPPORT_GEN1
 static int t4_reset_dma(struct t4 *wc);
@@ -1435,78 +1436,61 @@ static int t4_maint(struct dahdi_span *span, int cmd)
 	if (ts->spantype == TYPE_E1) {
 		switch(cmd) {
 		case DAHDI_MAINT_NONE:
-			printk(KERN_INFO "XXX Turn off local and remote loops E1 XXX\n");
+			dev_info(&wc->dev->dev, "Clearing all maint modes\n");
 			break;
 		case DAHDI_MAINT_LOCALLOOP:
-			printk(KERN_INFO "XXX Turn on local loopback E1 XXX\n");
-			break;
 		case DAHDI_MAINT_REMOTELOOP:
-			printk(KERN_INFO "XXX Turn on remote loopback E1 XXX\n");
-			break;
 		case DAHDI_MAINT_LOOPUP:
-			printk(KERN_INFO "XXX Send loopup code E1 XXX\n");
-			break;
 		case DAHDI_MAINT_LOOPDOWN:
-			printk(KERN_INFO "XXX Send loopdown code E1 XXX\n");
-			break;
 		case DAHDI_MAINT_LOOPSTOP:
-			printk(KERN_INFO "XXX Stop sending loop codes E1 XXX\n");
+			dev_info(&wc->dev->dev,
+					"Looping not supported in E1 mode\n");
 			break;
 		default:
-			printk(KERN_NOTICE "TE%dXXP: Unknown E1 maint command: %d\n", wc->numspans, cmd);
+			dev_info(&wc->dev->dev,
+					"Unknown E1 maint command: %d\n", cmd);
 			break;
 		}
 	} else {
 		switch(cmd) {
 		case DAHDI_MAINT_NONE:
-			dev_info(&wc->dev->dev, "Turning off all looping\n");
-
-			reg = t4_framer_in(wc, span->offset, LIM0_T);
-			t4_framer_out(wc, span->offset,
-				      LIM0_T, (reg & ~LIM0_LL));
-
-			reg = t4_framer_in(wc, span->offset, LIM1_T);
-			t4_framer_out(wc, span->offset, LIM1_T,
-				      (reg & ~LIM1_RL));
-
-			reg = t4_framer_in(wc, span->offset, LCR1_T);
-			t4_framer_out(wc, span->offset, LCR1_T,
-					(reg & ~(XPRBS | EPRM)));
-
-			reg = t4_framer_in(wc, span->offset, FMR2_T);
-			t4_framer_out(wc, span->offset, FMR2_T,
-					(reg & ~FMR2_PLB));
-
-			span->mainttimer = 0;
+			dev_info(&wc->dev->dev, "Clearing all maint modes\n");
+			t4_clear_maint(span);
 			break;
 		case DAHDI_MAINT_LOCALLOOP:
 			dev_info(&wc->dev->dev,
 				 "Turning on local loopback\n");
+			t4_clear_maint(span);
 			reg = t4_framer_in(wc, span->offset, LIM0_T);
 			t4_framer_out(wc, span->offset, LIM0_T, (reg|LIM0_LL));
 			break;
 		case DAHDI_MAINT_NETWORKLINELOOP:
 			dev_info(&wc->dev->dev,
 				 "Turning on network line loopback\n");
+			t4_clear_maint(span);
 			reg = t4_framer_in(wc, span->offset, LIM1_T);
 			t4_framer_out(wc, span->offset, LIM1_T, (reg|LIM1_RL));
 			break;
 		case DAHDI_MAINT_NETWORKPAYLOADLOOP:
 			dev_info(&wc->dev->dev,
 				 "Turning on network payload loopback\n");
+			t4_clear_maint(span);
 			reg = t4_framer_in(wc, span->offset, FMR2_T);
 			t4_framer_out(wc, span->offset, FMR2_T, (reg|FMR2_PLB));
 			break;
 		case DAHDI_MAINT_LOOPUP:
 			dev_info(&wc->dev->dev, "Transmitting loopup code\n");
+			t4_clear_maint(span);
 			t4_framer_out(wc, span->offset, 0x21, 0x50);
 			break;
 		case DAHDI_MAINT_LOOPDOWN:
 			dev_info(&wc->dev->dev, "Transmitting loopdown code\n");
+			t4_clear_maint(span);
 			t4_framer_out(wc, span->offset, 0x21, 0x60);
 			break;
 		case DAHDI_MAINT_LOOPSTOP:
 			dev_info(&wc->dev->dev, "Transmitting loopstop code\n");
+			t4_clear_maint(span);
 			t4_framer_out(wc, span->offset, 0x21, 0x40);
 			break;
 		case DAHDI_MAINT_FAS_DEFECT:
@@ -1555,6 +1539,33 @@ static int t4_maint(struct dahdi_span *span, int cmd)
 			break;
 	   }
     }
+	return 0;
+}
+
+static int t4_clear_maint(struct dahdi_span *span)
+{
+	struct t4_span *ts = span->pvt;
+	struct t4 *wc = ts->owner;
+	unsigned int reg;
+
+	/* Clear local loop */
+	reg = t4_framer_in(wc, span->offset, LIM0_T);
+	t4_framer_out(wc, span->offset, LIM0_T, (reg & ~LIM0_LL));
+
+	/* Clear Remote Loop */
+	reg = t4_framer_in(wc, span->offset, LIM1_T);
+	t4_framer_out(wc, span->offset, LIM1_T, (reg & ~LIM1_RL));
+
+	/* Clear Remote Payload Loop */
+	reg = t4_framer_in(wc, span->offset, FMR2_T);
+	t4_framer_out(wc, span->offset, FMR2_T, (reg & ~FMR2_PLB));
+
+	/* Clear PRBS */
+	reg = t4_framer_in(wc, span->offset, LCR1_T);
+	t4_framer_out(wc, span->offset, LCR1_T, (reg & ~(XPRBS | EPRM)));
+
+	span->mainttimer = 0;
+
 	return 0;
 }
 
