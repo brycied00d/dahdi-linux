@@ -4,7 +4,6 @@ LINUX_DIR=${LINUX_DIR:=.}
 TOOLS_DIR=${TOOLS_DIR:=../dahdi-tools}
 DESTDIR=$PWD/live
 KVERS=${KVERS:-`uname -r`}
-MODULES_DIR="$DESTDIR/lib/modules/$KVERS/dahdi"
 XPP_SYNC=${XPP_SYNC:-auto}
 AST_SCRIPT=${AST_SCRIPT:-/etc/init.d/asterisk}
 # Use this file to pass options to modules:
@@ -22,6 +21,7 @@ REMOVE_MODULES="${REMOVE_MODULES:-dahdi}" # "dahdi oslec"?
 
 if [ -r $DESTDIR/live.conf ]; then . $DESTDIR/live.conf; fi
 
+MODULES_DIR="$DESTDIR/lib/modules/$KVERS/dahdi"
 if [ ! -d "$LINUX_DIR" ]; then
 	echo >&2 "$0:dahdi-linux dir '$LINUX_DIR' does not exits.  Aborting".
 	exit 1
@@ -106,7 +106,7 @@ xpp_startup() {
 	if ! grep -q connected /proc/xpp/xbuses 2>/dev/null; then return 0; fi
 
 	echo "Waiting for Astribank devices to initialize:"
-	$TOOLS_DIR_FULL/xpp/waitfor_xpds # Asusmes a recent dahdi-tools
+	"$FIRMWARE_DIR/waitfor_xpds" # Asusmes a recent dahdi-tools
 	
 	# overriding locales for the above two, as perl can be noisy
 	# when locales are missing.
@@ -235,10 +235,10 @@ xpp-firm)
 	# Still broken. Needs to be run several times.
 	# set XPP_HOTPLUG_DISABLED=yes in /etc/dahdi/init.conf
 	XPP_FIRMWARE_DIR=$FIRMWARE_DIR \
-		sh "$TOOLS_DIR"/xpp/xpp_fxloader reset
+		"$FIRMWARE_DIR/xpp_fxloader" reset
 	sleep 5
 	XPP_FIRMWARE_DIR=$FIRMWARE_DIR \
-		sh "$TOOLS_DIR"/xpp/xpp_fxloader load
+		"$FIRMWARE_DIR/xpp_fxloader" load
 	;;
 help|'')
 	usage
