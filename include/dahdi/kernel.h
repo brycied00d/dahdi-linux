@@ -1231,4 +1231,47 @@ wait_for_completion_timeout(struct completion *x, unsigned long timeout)
 #define DMA_BIT_MASK(n)	(((n) == 64) ? ~0ULL : ((1ULL<<(n))-1))
 #endif
 
+/* prink-wrapper macros */
+#define	DAHDI_PRINTK(level, category, fmt, ...)	\
+	printk(KERN_ ## level "%s%s-%s: " fmt, #level, category, \
+			THIS_MODULE->name, ## __VA_ARGS__)
+#define	span_printk(level, category, span, fmt, ...)	\
+	printk(KERN_ ## level "%s%s-%s: span-%d: " fmt, #level,	\
+		category, THIS_MODULE->name, (span)->spanno, ## __VA_ARGS__)
+#define	chan_printk(level, category, chan, fmt, ...)	\
+	printk(KERN_ ## level "%s%s-%s: %d: " fmt, #level,	\
+		category, THIS_MODULE->name, (chan)->channo, ## __VA_ARGS__)
+#define	dahdi_err(fmt, ...)	DAHDI_PRINTK(ERR, "", fmt, ## __VA_ARGS__)
+#define	span_info(span, fmt, ...)	span_printk(INFO, "", span, fmt, \
+						## __VA_ARGS__)
+#define	span_err(span, fmt, ...)	span_printk(ERR, "", span, fmt, \
+						## __VA_ARGS__)
+#define	chan_err(chan, fmt, ...)	chan_printk(ERR, "", chan, fmt, \
+						## __VA_ARGS__)
+
+/* The dbg_* ones use a magical variable 'debug' and the user should be
+ * aware of that.
+*/
+#ifdef DAHDI_PRINK_MACROS_USE_debug
+#ifndef	BIT	/* added in 2.6.24 */
+#define	BIT(i)		(1UL << (i))
+#endif
+/* Standard debug bit values. Any module may define others. They must
+ * be of the form DAHDI_DBG_*
+ */
+#define	DAHDI_DBG_GENERAL	BIT(0)
+#define	DAHDI_DBG_DEVICES	BIT(7)	/* instantiation/destruction etc. */
+#define	dahdi_dbg(bits, fmt, ...)	\
+	((void)((debug & (DAHDI_DBG_ ## bits)) && DAHDI_PRINTK(DEBUG, \
+			"-" #bits, "%s: " fmt, __func__, ## __VA_ARGS__)))
+#define	span_dbg(bits, span, fmt, ...)	\
+			((void)((debug & (DAHDI_DBG_ ## bits)) && \
+				span_printk(DEBUG, "-" #bits, span, "%s: " \
+					fmt, __func__, ## __VA_ARGS__)))
+#define	chan_dbg(bits, chan, fmt, ...)	\
+			((void)((debug & (DAHDI_DBG_ ## bits)) && \
+				chan_printk(DEBUG, "-" #bits, chan, \
+					"%s: " fmt, __func__, ## __VA_ARGS__)))
+#endif /* DAHDI_PRINK_MACROS_USE_debug */
+
 #endif /* _DAHDI_KERNEL_H */
