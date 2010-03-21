@@ -3877,7 +3877,7 @@ static int dahdi_common_ioctl(struct file *file, unsigned int cmd, unsigned long
 	case DAHDI_SPANSTAT_V1:
 		size_to_copy = sizeof(struct dahdi_spaninfo_v1);
 		if (copy_from_user(&stack.spaninfo_v1,
-				   (struct dahdi_spaninfo_v1 *) data,
+				   (__user struct dahdi_spaninfo_v1 *) data,
 				   size_to_copy))
 			return -EFAULT;
 		i = stack.spaninfo_v1.spanno; /* get specified span number */
@@ -3939,7 +3939,7 @@ static int dahdi_common_ioctl(struct file *file, unsigned int cmd, unsigned long
 					  spans[i]->spantype,
 					  sizeof(stack.spaninfo_v1.spantype));
 
-		if (copy_to_user((struct dahdi_spaninfo_v1 *) data,
+		if (copy_to_user((__user struct dahdi_spaninfo_v1 *) data,
 				 &stack.spaninfo_v1, size_to_copy))
 			return -EFAULT;
 		break;
