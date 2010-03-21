@@ -1244,7 +1244,11 @@ wait_for_completion_timeout(struct completion *x, unsigned long timeout)
 #define	dahdi_err(fmt, ...)	DAHDI_PRINTK(ERR, "", fmt, ## __VA_ARGS__)
 #define	span_info(span, fmt, ...)	span_printk(INFO, "", span, fmt, \
 						## __VA_ARGS__)
+#define	span_notice(span, fmt, ...)	span_printk(NOTICE, "", span, fmt, \
+						## __VA_ARGS__)
 #define	span_err(span, fmt, ...)	span_printk(ERR, "", span, fmt, \
+						## __VA_ARGS__)
+#define	chan_notice(span, fmt, ...)	chan_printk(NOTICE, "", chan, fmt, \
 						## __VA_ARGS__)
 #define	chan_err(chan, fmt, ...)	chan_printk(ERR, "", chan, fmt, \
 						## __VA_ARGS__)
