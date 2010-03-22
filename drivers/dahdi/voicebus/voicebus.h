@@ -85,6 +85,7 @@ struct voicebus_descriptor_list {
 };
 
 /* Bit definitions for struct voicebus.flags */
+#define VOICEBUS_SHUTDOWN			0
 #define VOICEBUS_STOP				1
 #define VOICEBUS_STOPPED			2
 #define VOICEBUS_LATENCY_LOCKED			3
@@ -118,6 +119,7 @@ struct voicebus {
 	unsigned int		min_tx_buffer_count;
 	unsigned int		max_latency;
 	struct list_head	tx_complete;
+	struct list_head	free_rx;
 
 #ifdef VOICEBUS_NET_DEBUG
 	struct sk_buff_head captured_packets;
@@ -141,7 +143,7 @@ int __voicebus_init(struct voicebus *vb, const char *board_name,
 		    int normal_mode);
 void voicebus_release(struct voicebus *vb);
 int voicebus_start(struct voicebus *vb);
-int voicebus_stop(struct voicebus *vb);
+void voicebus_stop(struct voicebus *vb);
 int voicebus_transmit(struct voicebus *vb, struct vbb *vbb);
 int voicebus_set_minlatency(struct voicebus *vb, unsigned int milliseconds);
 int voicebus_current_latency(struct voicebus *vb);
