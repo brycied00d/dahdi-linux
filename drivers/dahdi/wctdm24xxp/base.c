@@ -4152,6 +4152,8 @@ static void wctdm_back_out_gracefully(struct wctdm *wc)
 	struct sframe_packet *frame;
 	LIST_HEAD(local_list);
 
+	voicebus_release(&wc->vb);
+
 	for (i = 0; i < ARRAY_SIZE(wc->spans); ++i) {
 		if (wc->spans[i] && wc->spans[i]->span.chans)
 			kfree(wc->spans[i]->span.chans);
@@ -4164,8 +4166,6 @@ static void wctdm_back_out_gracefully(struct wctdm *wc)
 		kfree(wc->chans[i]);
 		wc->chans[i] = NULL;
 	}
-
-	voicebus_release(&wc->vb);
 
 	spin_lock_irqsave(&wc->frame_list_lock, flags);
 	list_splice(&wc->frame_list, &local_list);
