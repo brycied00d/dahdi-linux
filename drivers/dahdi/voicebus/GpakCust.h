@@ -118,8 +118,6 @@ struct vpmadt032 {
 	spinlock_t change_list_lock;
 	struct list_head change_list;
 	spinlock_t list_lock;
-	/* Commands that are ready to be used. */
-	struct list_head free_cmds;
 	/* Commands that are waiting to be processed. */
 	struct list_head pending_cmds;
 	/* Commands that are currently in progress by the VPM module */
