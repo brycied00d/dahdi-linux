@@ -960,15 +960,6 @@ voicebus_stop(struct voicebus *vb)
 		return 0;
 	}
 
-	if (__vb_getctl(vb, IER_CSR7) & 0x10000) {
-		INIT_COMPLETION(vb->stopped_completion);
-		if (wait_for_completion_timeout(&vb->stopped_completion, HZ)) {
-			BUG_ON(!vb_is_stopped(vb));
-		} else {
-			dev_warn(&vb->pdev->dev, "Timeout while waiting for "
-				 "board to stop.\n");
-		}
-	}
 
 	set_bit(VOICEBUS_STOPPED, &vb->flags);
 
@@ -1369,14 +1360,12 @@ vb_isr(int irq, void *dev_id)
 			BUG_ON(!test_bit(VOICEBUS_STOP, &vb->flags));
 			if (__vb_is_stopped(vb)) {
 				__vb_disable_interrupts(vb);
-				complete(&vb->stopped_completion);
 			}
 		}
 		if (int_status & RX_STOPPED_INTERRUPT) {
 			BUG_ON(!test_bit(VOICEBUS_STOP, &vb->flags));
 			if (__vb_is_stopped(vb)) {
 				__vb_disable_interrupts(vb);
-				complete(&vb->stopped_completion);
 			}
 		}
 
@@ -1431,7 +1420,6 @@ __voicebus_init(struct voicebus *vb, const char *board_name, int normal_mode)
 	vb->max_latency = VOICEBUS_DEFAULT_MAXLATENCY;
 
 	spin_lock_init(&vb->lock);
-	init_completion(&vb->stopped_completion);
 	set_bit(VOICEBUS_STOP, &vb->flags);
 
 	if (normal_mode)
