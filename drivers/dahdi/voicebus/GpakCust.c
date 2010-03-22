@@ -72,21 +72,12 @@ static inline struct vpmadt032 *find_iface(const unsigned short dspid)
 
 static struct vpmadt032_cmd *vpmadt032_get_free_cmd(struct vpmadt032 *vpm)
 {
-	unsigned long flags;
 	struct vpmadt032_cmd *cmd;
 	might_sleep();
-	spin_lock_irqsave(&vpm->list_lock, flags);
-	if (list_empty(&vpm->free_cmds)) {
-		spin_unlock_irqrestore(&vpm->list_lock, flags);
-		cmd = kmalloc(sizeof(struct vpmadt032_cmd), GFP_KERNEL);
-		if (unlikely(!cmd))
-			return NULL;
-		memset(cmd, 0, sizeof(*cmd));
-	} else {
-		cmd = list_entry(vpm->free_cmds.next, struct vpmadt032_cmd, node);
-		list_del_init(&cmd->node);
-		spin_unlock_irqrestore(&vpm->list_lock, flags);
-	}
+	cmd = kmalloc(sizeof(struct vpmadt032_cmd), GFP_KERNEL);
+	if (unlikely(!cmd))
+		return NULL;
+	memset(cmd, 0, sizeof(*cmd));
 	init_completion(&cmd->complete);
 	return cmd;
 }
@@ -140,8 +131,9 @@ static int vpmadt032_getreg_full_return(struct vpmadt032 *vpm, int pagechange,
 	ret = wait_for_completion_timeout(&cmd->complete, HZ/5);
 	if (unlikely(!ret)) {
 		spin_lock_irqsave(&vpm->list_lock, flags);
-		list_add_tail(&cmd->node, &vpm->free_cmds);
+		list_del(&cmd->node);
 		spin_unlock_irqrestore(&vpm->list_lock, flags);
+		kfree(cmd);
 		return -EIO;
 	}
 
@@ -151,10 +143,8 @@ static int vpmadt032_getreg_full_return(struct vpmadt032 *vpm, int pagechange,
 		ret = 0;
 	}
 
-	/* Just throw this command back on the ready list. */
-	spin_lock_irqsave(&vpm->list_lock, flags);
-	list_add_tail(&cmd->node, &vpm->free_cmds);
-	spin_unlock_irqrestore(&vpm->list_lock, flags);
+	list_del(&cmd->node);
+	kfree(cmd);
 	return 0;
 }
 
@@ -532,7 +522,6 @@ vpmadt032_alloc(struct vpmadt032_options *options, const char *board_name)
 	spin_lock_init(&vpm->list_lock);
 	spin_lock_init(&vpm->change_list_lock);
 	INIT_LIST_HEAD(&vpm->change_list);
-	INIT_LIST_HEAD(&vpm->free_cmds);
 	INIT_LIST_HEAD(&vpm->pending_cmds);
 	INIT_LIST_HEAD(&vpm->active_cmds);
 	sema_init(&vpm->sem, 1);
@@ -714,7 +703,6 @@ void vpmadt032_free(struct vpmadt032 *vpm)
 	spin_lock_irqsave(&vpm->list_lock, flags);
 	list_splice(&vpm->pending_cmds, &local_list);
 	list_splice(&vpm->active_cmds, &local_list);
-	list_splice(&vpm->free_cmds, &local_list);
 	spin_unlock_irqrestore(&vpm->list_lock, flags);
 
 	while (!list_empty(&local_list)) {
