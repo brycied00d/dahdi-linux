@@ -114,7 +114,6 @@ struct voicebus {
 
 	struct work_struct	underrun_work;
 	const struct voicebus_operations *ops;
-	struct completion	stopped_completion;
 	unsigned long		flags;
 	unsigned int		min_tx_buffer_count;
 	unsigned int		max_latency;
