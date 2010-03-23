@@ -112,6 +112,7 @@ static struct command *get_free_cmd(struct t1 *wc)
 	cmd = kmem_cache_alloc(cmd_cache, GFP_ATOMIC);
 	if (cmd) {
 		memset(cmd, 0, sizeof(*cmd));
+		init_completion(&cmd->complete);
 		INIT_LIST_HEAD(&cmd->node);
 	}
 	return cmd;
@@ -138,8 +139,6 @@ static struct command *get_pending_cmd(struct t1 *wc)
 static void submit_cmd(struct t1 *wc, struct command *cmd)
 {
 	unsigned long flags;
-	if (cmd->flags & (__CMD_RD | __CMD_PINS))
-		init_completion(&cmd->complete);
 	spin_lock_irqsave(&wc->cmd_list_lock, flags);
 	list_add_tail(&cmd->node, &wc->pending_cmds);
 	spin_unlock_irqrestore(&wc->cmd_list_lock, flags);
@@ -213,7 +212,7 @@ static inline void cmd_decipher(struct t1 *wc, const u8 *readchunk)
 		if (cmd->flags & (__CMD_WR | __CMD_LEDS)) {
 			/* Nobody is waiting on writes...so let's just
 			 * free them here. */
-			list_del(&cmd->node);
+			list_del_init(&cmd->node);
 			free_cmd(wc, cmd);
 		} else {
 			cmd->data |= readchunk[CMD_BYTE(cmd->cs_slot, 2, IS_VPM)];
@@ -577,17 +576,31 @@ static int t1_getreg(struct t1 *wc, int addr)
 	cmd->data = 0x00;
 	cmd->flags = __CMD_RD;
 	submit_cmd(wc, cmd);
-	ret = wait_for_completion_timeout(&cmd->complete, HZ*2);
+	ret = wait_for_completion_timeout(&cmd->complete, HZ*10);
 	if (unlikely(!ret)) {
 		spin_lock_bh(&wc->cmd_list_lock);
-		list_del(&cmd->node);
-		spin_unlock_bh(&wc->cmd_list_lock);
-		if (printk_ratelimit()) {
-			dev_warn(&wc->vb.pdev->dev,
-				 "Timeout in %s\n", __func__);
+		if (!list_empty(&cmd->node)) {
+			/* Since we've removed this command from the list, we
+			 * can go ahead and free it right away. */
+			list_del_init(&cmd->node);
+			spin_unlock_bh(&wc->cmd_list_lock);
+			if (printk_ratelimit()) {
+				dev_warn(&wc->vb.pdev->dev,
+					 "Timeout in %s\n", __func__);
+			}
+			free_cmd(wc, cmd);
+			return -EIO;
+		} else {
+			/* Looks like this command was removed from the list by
+			 * someone else already. Let's wait for them to complete
+			 * it so that we don't free up the memory. */
+			spin_unlock_bh(&wc->cmd_list_lock);
+			ret = wait_for_completion_timeout(&cmd->complete, HZ*2);
+			WARN_ON(!ret);
+			ret = cmd->data;
+			free_cmd(wc, cmd);
+			return ret;
 		}
-		free_cmd(wc, cmd);
-		return -EIO;
 	}
 	ret = cmd->data;
 	free_cmd(wc, cmd);
@@ -623,7 +636,7 @@ static inline int t1_getpins(struct t1 *wc, int inisr)
 	ret = wait_for_completion_timeout(&cmd->complete, HZ*2);
 	if (unlikely(!ret)) {
 		spin_lock_bh(&wc->cmd_list_lock);
-		list_del(&cmd->node);
+		list_del_init(&cmd->node);
 		spin_unlock_bh(&wc->cmd_list_lock);
 		if (printk_ratelimit()) {
 			dev_warn(&wc->vb.pdev->dev,
@@ -678,7 +691,7 @@ static void free_wc(struct t1 *wc)
 	spin_unlock_irqrestore(&wc->cmd_list_lock, flags);
 	while (!list_empty(&list)) {
 		cmd = list_entry(list.next, struct command, node);
-		list_del(&cmd->node);
+		list_del_init(&cmd->node);
 		free_cmd(wc, cmd);
 	}
 	kfree(wc);
@@ -1115,6 +1128,8 @@ static int t1xxp_maint(struct dahdi_span *span, int cmd)
 		case DAHDI_MAINT_LOCALLOOP:
 			t1xxp_clear_maint(span);
 			reg = t1_getreg(wc, LIM0);
+			if (reg < 0)
+				return -EIO;
 			t1_setreg(wc, LIM0, reg | LIM0_LL);
 			break;
 		case DAHDI_MAINT_REMOTELOOP:
@@ -1135,17 +1150,23 @@ static int t1xxp_maint(struct dahdi_span *span, int cmd)
 		case DAHDI_MAINT_LOCALLOOP:
 			t1xxp_clear_maint(span);
  			reg = t1_getreg(wc, LIM0);
- 			t1_setreg(wc, LIM0, reg | LIM0_LL);
+			if (reg < 0)
+				return -EIO;
+			t1_setreg(wc, LIM0, reg | LIM0_LL);
 			break;
  		case DAHDI_MAINT_NETWORKLINELOOP:
 			t1xxp_clear_maint(span);
  			reg = t1_getreg(wc, LIM1);
- 			t1_setreg(wc, LIM1, reg | LIM1_RL);
+			if (reg < 0)
+				return -EIO;
+			t1_setreg(wc, LIM1, reg | LIM1_RL);
  			break;
  		case DAHDI_MAINT_NETWORKPAYLOADLOOP:
 			t1xxp_clear_maint(span);
  			reg = t1_getreg(wc, LIM1);
- 			t1_setreg(wc, LIM1, reg | (LIM1_RL | LIM1_JATT));
+			if (reg < 0)
+				return -EIO;
+			t1_setreg(wc, LIM1, reg | (LIM1_RL | LIM1_JATT));
 			break;
 		case DAHDI_MAINT_LOOPUP:
 			t1xxp_clear_maint(span);
@@ -1175,10 +1196,14 @@ static int t1xxp_clear_maint(struct dahdi_span *span)
 
 	/* Turn off local loop */
 	reg = t1_getreg(wc, LIM0);
+	if (reg < 0)
+		return -EIO;
 	t1_setreg(wc, LIM0, reg & ~LIM0_LL);
 
 	/* Turn off remote loop & jitter attenuator */
 	reg = t1_getreg(wc, LIM1);
+	if (reg < 0)
+		return -EIO;
 	t1_setreg(wc, LIM1, reg & ~(LIM1_RL | LIM1_JATT));
 	return 0;
 }
