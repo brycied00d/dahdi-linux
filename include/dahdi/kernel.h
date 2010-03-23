@@ -1186,7 +1186,9 @@ static inline short dahdi_txtone_nextsample(struct dahdi_chan *ss)
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 31)
 #define KERN_CONT ""
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 26)
-#define clamp(x, low, high) min (max (low, x), high)
+#ifndef clamp
+#define clamp(x, low, high) min(max(low, x), high)
+#endif
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 25)
 
 /* Some distributions backported fatal_signal_pending so we'll use a macro to
