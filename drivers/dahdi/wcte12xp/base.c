@@ -1114,10 +1114,54 @@ static inline void t1_check_sigbits(struct t1 *wc)
 	}
 }
 
+struct maint_loopstop_work {
+	struct work_struct work;
+	struct t1 *wc;
+	struct dahdi_span *span;
+};
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 20)
+static void t1xxp_maint_loopstop_work(void *data)
+{
+	struct maint_loopstop_work *w = data;
+#else
+static void t1xxp_maint_loopstop_work(struct work_struct *work)
+{
+	struct maint_loopstop_work *w = container_of(work, struct maint_loopstop_work, work);
+#endif
+	t1xxp_clear_maint(w->span);
+	t1_setreg(w->wc, 0x21, 0x40);
+	kfree(w);
+}
+
+static void t1xxp_maint_loopstop(struct t1 *wc, struct dahdi_span *span)
+{
+	struct maint_loopstop_work *work;
+
+	work = kmalloc(sizeof(*work), GFP_ATOMIC);
+	if (!work) {
+		t1_info(wc, "Failed to allocate memory for DAHDI_MAINT_LOOPSTOP\n");
+		return;
+	}
+
+	work->span = span;
+	work->wc = wc;
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 20)
+	INIT_WORK(&work->work, t1xxp_maint_loopstop_work, work);
+#else
+	INIT_WORK(&work->work, t1xxp_maint_loopstop_work);
+#endif
+	schedule_work(&work->work);
+}
+
 static int t1xxp_maint(struct dahdi_span *span, int cmd)
 {
 	struct t1 *wc = span->pvt;
 	int reg = 0;
+
+	if (DAHDI_MAINT_LOOPSTOP != cmd)
+		might_sleep();
 
 	if (wc->spantype == TYPE_E1) {
 		switch (cmd) {
@@ -1177,8 +1221,7 @@ static int t1xxp_maint(struct dahdi_span *span, int cmd)
 			t1_setreg(wc, 0x21, 0x60);
 			break;
 		case DAHDI_MAINT_LOOPSTOP:
-			t1xxp_clear_maint(span);
-			t1_setreg(wc, 0x21, 0x40);
+			t1xxp_maint_loopstop(wc, span);
 			break;
 		default:
 			t1_info(wc, "Unknown T1 maint command: %d\n", cmd);
