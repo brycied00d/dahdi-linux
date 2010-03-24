@@ -1114,54 +1114,28 @@ static inline void t1_check_sigbits(struct t1 *wc)
 	}
 }
 
-struct maint_loopstop_work {
+struct maint_work_struct {
 	struct work_struct work;
 	struct t1 *wc;
+	int cmd;
 	struct dahdi_span *span;
 };
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 20)
-static void t1xxp_maint_loopstop_work(void *data)
+static void t1xxp_maint_work(void *data)
 {
-	struct maint_loopstop_work *w = data;
+	struct maint_work_struct *w = data;
 #else
 static void t1xxp_maint_loopstop_work(struct work_struct *work)
 {
-	struct maint_loopstop_work *w = container_of(work, struct maint_loopstop_work, work);
+	struct maint_work_struct *w = container_of(work,
+					struct maint_work_struct, work);
 #endif
-	t1xxp_clear_maint(w->span);
-	t1_setreg(w->wc, 0x21, 0x40);
-	kfree(w);
-}
 
-static void t1xxp_maint_loopstop(struct t1 *wc, struct dahdi_span *span)
-{
-	struct maint_loopstop_work *work;
-
-	work = kmalloc(sizeof(*work), GFP_ATOMIC);
-	if (!work) {
-		t1_info(wc, "Failed to allocate memory for DAHDI_MAINT_LOOPSTOP\n");
-		return;
-	}
-
-	work->span = span;
-	work->wc = wc;
-
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 20)
-	INIT_WORK(&work->work, t1xxp_maint_loopstop_work, work);
-#else
-	INIT_WORK(&work->work, t1xxp_maint_loopstop_work);
-#endif
-	schedule_work(&work->work);
-}
-
-static int t1xxp_maint(struct dahdi_span *span, int cmd)
-{
-	struct t1 *wc = span->pvt;
+	struct t1 *wc = w->wc;
+	struct dahdi_span *span = w->span;
 	int reg = 0;
-
-	if (DAHDI_MAINT_LOOPSTOP != cmd)
-		might_sleep();
+	int cmd = w->cmd;
 
 	if (wc->spantype == TYPE_E1) {
 		switch (cmd) {
@@ -1173,8 +1147,77 @@ static int t1xxp_maint(struct dahdi_span *span, int cmd)
 			t1xxp_clear_maint(span);
 			reg = t1_getreg(wc, LIM0);
 			if (reg < 0)
-				return -EIO;
+				goto cleanup;
 			t1_setreg(wc, LIM0, reg | LIM0_LL);
+			break;
+		case DAHDI_MAINT_REMOTELOOP:
+		case DAHDI_MAINT_LOOPUP:
+		case DAHDI_MAINT_LOOPDOWN:
+		case DAHDI_MAINT_LOOPSTOP:
+			t1_info(wc, "Only local loop supported in E1 mode\n");
+			goto cleanup;
+		default:
+			t1_info(wc, "Unknown E1 maint command: %d\n", cmd);
+			goto cleanup;
+		}
+	} else {
+		switch (cmd) {
+		case DAHDI_MAINT_NONE:
+			t1xxp_clear_maint(span);
+			break;
+		case DAHDI_MAINT_LOCALLOOP:
+			t1xxp_clear_maint(span);
+ 			reg = t1_getreg(wc, LIM0);
+			if (reg < 0)
+				goto cleanup;
+			t1_setreg(wc, LIM0, reg | LIM0_LL);
+			break;
+ 		case DAHDI_MAINT_NETWORKLINELOOP:
+			t1xxp_clear_maint(span);
+ 			reg = t1_getreg(wc, LIM1);
+			if (reg < 0)
+				goto cleanup;
+			t1_setreg(wc, LIM1, reg | LIM1_RL);
+ 			break;
+ 		case DAHDI_MAINT_NETWORKPAYLOADLOOP:
+			t1xxp_clear_maint(span);
+ 			reg = t1_getreg(wc, LIM1);
+			if (reg < 0)
+				goto cleanup;
+			t1_setreg(wc, LIM1, reg | (LIM1_RL | LIM1_JATT));
+			break;
+		case DAHDI_MAINT_LOOPUP:
+			t1xxp_clear_maint(span);
+			t1_setreg(wc, 0x21, 0x50);
+			break;
+		case DAHDI_MAINT_LOOPDOWN:
+			t1xxp_clear_maint(span);
+			t1_setreg(wc, 0x21, 0x60);
+			break;
+		case DAHDI_MAINT_LOOPSTOP:
+			t1xxp_clear_maint(w->span);
+			t1_setreg(w->wc, 0x21, 0x40);
+			break;
+		default:
+			t1_info(wc, "Unknown T1 maint command: %d\n", cmd);
+			return;
+		}
+	}
+
+cleanup:
+	kfree(w);
+	return;
+}
+
+static int t1xxp_maint(struct dahdi_span *span, int cmd)
+{
+	struct maint_work_struct *work;
+	struct t1 *wc = span->pvt;
+
+	if (wc->spantype == TYPE_E1) {
+		switch (cmd) {
+		case DAHDI_MAINT_NONE:
+		case DAHDI_MAINT_LOCALLOOP:
 			break;
 		case DAHDI_MAINT_REMOTELOOP:
 		case DAHDI_MAINT_LOOPUP:
@@ -1189,39 +1232,12 @@ static int t1xxp_maint(struct dahdi_span *span, int cmd)
 	} else {
 		switch (cmd) {
 		case DAHDI_MAINT_NONE:
-			t1xxp_clear_maint(span);
-			break;
 		case DAHDI_MAINT_LOCALLOOP:
-			t1xxp_clear_maint(span);
- 			reg = t1_getreg(wc, LIM0);
-			if (reg < 0)
-				return -EIO;
-			t1_setreg(wc, LIM0, reg | LIM0_LL);
-			break;
- 		case DAHDI_MAINT_NETWORKLINELOOP:
-			t1xxp_clear_maint(span);
- 			reg = t1_getreg(wc, LIM1);
-			if (reg < 0)
-				return -EIO;
-			t1_setreg(wc, LIM1, reg | LIM1_RL);
- 			break;
- 		case DAHDI_MAINT_NETWORKPAYLOADLOOP:
-			t1xxp_clear_maint(span);
- 			reg = t1_getreg(wc, LIM1);
-			if (reg < 0)
-				return -EIO;
-			t1_setreg(wc, LIM1, reg | (LIM1_RL | LIM1_JATT));
-			break;
+		case DAHDI_MAINT_NETWORKLINELOOP:
+		case DAHDI_MAINT_NETWORKPAYLOADLOOP:
 		case DAHDI_MAINT_LOOPUP:
-			t1xxp_clear_maint(span);
-			t1_setreg(wc, 0x21, 0x50);
-			break;
 		case DAHDI_MAINT_LOOPDOWN:
-			t1xxp_clear_maint(span);
-			t1_setreg(wc, 0x21, 0x60);
-			break;
 		case DAHDI_MAINT_LOOPSTOP:
-			t1xxp_maint_loopstop(wc, span);
 			break;
 		default:
 			t1_info(wc, "Unknown T1 maint command: %d\n", cmd);
@@ -1229,6 +1245,23 @@ static int t1xxp_maint(struct dahdi_span *span, int cmd)
 		}
 	}
 
+	work = kmalloc(sizeof(*work), GFP_ATOMIC);
+	if (!work) {
+		t1_info(wc, "Failed to allocate memory for "
+			"DAHDI_MAINT_LOOPSTOP\n");
+		return -ENOMEM;
+	}
+
+	work->span = span;
+	work->wc = wc;
+	work->cmd = cmd;
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 20)
+	INIT_WORK(&work->work, t1xxp_maint_work, work);
+#else
+	INIT_WORK(&work->work, t1xxp_maint_work);
+#endif
+	schedule_work(&work->work);
 	return 0;
 }
 
