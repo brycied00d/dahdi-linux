@@ -1126,7 +1126,7 @@ static void t1xxp_maint_work(void *data)
 {
 	struct maint_work_struct *w = data;
 #else
-static void t1xxp_maint_loopstop_work(struct work_struct *work)
+static void t1xxp_maint_work(struct work_struct *work)
 {
 	struct maint_work_struct *w = container_of(work,
 					struct maint_work_struct, work);
