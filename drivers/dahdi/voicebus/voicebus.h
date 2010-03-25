@@ -89,8 +89,21 @@ struct voicebus_descriptor_list {
 #define VOICEBUS_STOP				1
 #define VOICEBUS_STOPPED			2
 #define VOICEBUS_LATENCY_LOCKED			3
-#define VOICEBUS_NORMAL_MODE			4
-#define VOICEBUS_USERMODE			5
+#define VOICEBUS_HARD_UNDERRUN			4
+
+/**
+ * voicebus_mode
+ *
+ * NORMAL:	For non-hx8 boards.  Uses idle_buffers.
+ * BOOT:	For hx8 boards.  For sending single packets at a time.
+ * RELAXED:	Normal operating mode for Hx8 Boards.  Does not use
+ *		idle_buffers.
+ */
+enum voicebus_mode {
+	NORMAL = 0,
+	BOOT = 1,
+	HX8 = 2,
+};
 
 /**
  * struct voicebus - Represents physical interface to voicebus card.
@@ -108,6 +121,7 @@ struct voicebus {
 	const int		*debug;
 	void __iomem 		*iobase;
 	struct tasklet_struct 	tasklet;
+	enum voicebus_mode	mode;
 
 #if defined(CONFIG_VOICEBUS_TIMER)
 	struct timer_list	timer;
@@ -140,7 +154,7 @@ extern struct kmem_cache *voicebus_vbb_cache;
 #endif
 
 int __voicebus_init(struct voicebus *vb, const char *board_name,
-		    int normal_mode);
+		    enum voicebus_mode mode);
 void voicebus_release(struct voicebus *vb);
 int voicebus_start(struct voicebus *vb);
 void voicebus_stop(struct voicebus *vb);
@@ -150,13 +164,13 @@ int voicebus_current_latency(struct voicebus *vb);
 
 static inline int voicebus_init(struct voicebus *vb, const char *board_name)
 {
-	return __voicebus_init(vb, board_name, 1);
+	return __voicebus_init(vb, board_name, NORMAL);
 }
 
 static inline int
-voicebus_no_idle_init(struct voicebus *vb, const char *board_name)
+voicebus_boot_init(struct voicebus *vb, const char *board_name)
 {
-	return __voicebus_init(vb, board_name, 0);
+	return __voicebus_init(vb, board_name, BOOT);
 }
 
 /**
@@ -188,7 +202,12 @@ static inline int voicebus_is_latency_locked(const struct voicebus *vb)
 
 static inline void voicebus_set_normal_mode(struct voicebus *vb)
 {
-	set_bit(VOICEBUS_NORMAL_MODE, &vb->flags);
+	vb->mode = NORMAL;
+}
+
+static inline void voicebus_set_hx8_mode(struct voicebus *vb)
+{
+	vb->mode = HX8;
 }
 
 /**

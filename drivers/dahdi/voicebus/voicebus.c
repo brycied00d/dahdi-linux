@@ -352,15 +352,15 @@ vb_cleanup_tx_descriptors(struct voicebus *vb)
 					 VOICEBUS_SFRAME_SIZE, DMA_TO_DEVICE);
 			kmem_cache_free(voicebus_vbb_cache, dl->pending[i]);
 		}
-		if (!test_bit(VOICEBUS_NORMAL_MODE, &vb->flags)) {
-			d->buffer1 = 0;
-			dl->pending[i] = NULL;
-			d->des0 &= ~OWN_BIT;
-		} else {
+		if (NORMAL == vb->mode) {
 			d->des1 |= 0x80000000;
 			d->buffer1 = vb->idle_vbb_dma_addr;
 			dl->pending[i] = vb->idle_vbb;
 			SET_OWNED(d);
+		} else {
+			d->buffer1 = 0;
+			dl->pending[i] = NULL;
+			d->des0 &= ~OWN_BIT;
 		}
 	}
 
@@ -667,7 +667,7 @@ static void setup_descriptors(struct voicebus *vb)
 	}
 	tasklet_enable(&vb->tasklet);
 
-	if (test_bit(VOICEBUS_NORMAL_MODE, &vb->flags)) {
+	if (BOOT != vb->mode) {
 		for (i = 0; i < vb->min_tx_buffer_count; ++i) {
 			vbb = kmem_cache_alloc(voicebus_vbb_cache, GFP_KERNEL);
 			if (unlikely(NULL == vbb))
@@ -679,8 +679,11 @@ static void setup_descriptors(struct voicebus *vb)
 		handle_transmit(vb, &buffers);
 
 		tasklet_disable(&vb->tasklet);
-		list_for_each_entry(vbb, &buffers, entry)
+		while (!list_empty(&buffers)) {
+			vbb = list_entry(buffers.next, struct vbb, entry);
+			list_del_init(&vbb->entry);
 			voicebus_transmit(vb, vbb);
+		}
 		tasklet_enable(&vb->tasklet);
 	}
 
@@ -791,7 +794,7 @@ vb_get_completed_txb(struct voicebus *vb)
 			 sizeof(vbb->data), DMA_TO_DEVICE);
 
 	vbb = dl->pending[head];
-	if (test_bit(VOICEBUS_NORMAL_MODE, &vb->flags)) {
+	if (NORMAL == vb->mode) {
 		d->buffer1 = vb->idle_vbb_dma_addr;
 		dl->pending[head] = vb->idle_vbb;
 		SET_OWNED(d);
@@ -845,10 +848,10 @@ __vb_rx_demand_poll(struct voicebus *vb)
 static void
 __vb_enable_interrupts(struct voicebus *vb)
 {
-	if (test_bit(VOICEBUS_NORMAL_MODE, &vb->flags))
-		__vb_setctl(vb, IER_CSR7, DEFAULT_NORMAL_INTERRUPTS);
-	else
+	if (BOOT == vb->mode)
 		__vb_setctl(vb, IER_CSR7, DEFAULT_NO_IDLE_INTERRUPTS);
+	else
+		__vb_setctl(vb, IER_CSR7, DEFAULT_NORMAL_INTERRUPTS);
 }
 
 static void
@@ -890,8 +893,9 @@ static void start_packet_processing(struct voicebus *vb)
 	spin_unlock_bh(&vb->lock);
 }
 
-static void vb_tasklet_relaxed(unsigned long data);
-static void vb_tasklet(unsigned long data);
+static void vb_tasklet_boot(unsigned long data);
+static void vb_tasklet_hx8(unsigned long data);
+static void vb_tasklet_normal(unsigned long data);
 
 /*!
  * \brief Starts the VoiceBus interface.
@@ -913,10 +917,18 @@ voicebus_start(struct voicebus *vb)
 	if (!vb_is_stopped(vb))
 		return -EBUSY;
 
-	if (test_bit(VOICEBUS_NORMAL_MODE, &vb->flags))
-		tasklet_init(&vb->tasklet, vb_tasklet, (unsigned long)vb);
-	else
-		tasklet_init(&vb->tasklet, vb_tasklet_relaxed, (unsigned long)vb);
+	if (NORMAL == vb->mode) {
+		tasklet_init(&vb->tasklet, vb_tasklet_normal,
+			     (unsigned long)vb);
+	} else if (BOOT == vb->mode) {
+		tasklet_init(&vb->tasklet, vb_tasklet_boot,
+			     (unsigned long)vb);
+	} else if (HX8 == vb->mode) {
+		tasklet_init(&vb->tasklet, vb_tasklet_hx8,
+			     (unsigned long)vb);
+	} else {
+		return -EINVAL;
+	}
 
 	ret = vb_reset_interface(vb);
 	if (ret)
@@ -1091,10 +1103,13 @@ vb_increase_latency(struct voicebus *vb, unsigned int increase,
 }
 
 /**
- * vb_tasklet_relaxed() - Service the rings without strict timing requierments.
+ * vb_tasklet_boot() - When vb->mode == BOOT
  *
+ * This deferred processing routine is for hx8 boards during initialization.  It
+ * simply services any completed tx / rx packets without any concerns about what
+ * the current latency is.
  */
-static void vb_tasklet_relaxed(unsigned long data)
+static void vb_tasklet_boot(unsigned long data)
 {
 	struct voicebus *vb = (struct voicebus *)data;
 	LIST_HEAD(buffers);
@@ -1153,7 +1168,110 @@ static void vb_tasklet_relaxed(unsigned long data)
 	return;
 }
 
-static void vb_tasklet(unsigned long data)
+/**
+ * vb_tasklet_hx8() - When vb->mode == HX8
+ *
+ * The normal deferred processing routine for the Hx8 boards.  This deferred
+ * processing routine doesn't configure any idle buffers and increases the
+ * latency when there is a hard underrun.  There are not any softunderruns here,
+ * unlike in vb_tasklet_normal.
+ */
+static void vb_tasklet_hx8(unsigned long data)
+{
+	struct voicebus *vb = (struct voicebus *)data;
+	int hardunderrun;
+	LIST_HEAD(buffers);
+	struct vbb *vbb;
+	const int DEFAULT_COUNT = 5;
+	int count = DEFAULT_COUNT;
+	u32 des0 = 0;
+
+	hardunderrun = test_and_clear_bit(VOICEBUS_HARD_UNDERRUN, &vb->flags);
+	/* First, temporarily store any non-idle buffers that the hardware has
+	 * indicated it's finished transmitting.  Non idle buffers are those
+	 * buffers that contain actual data and was filled out by the client
+	 * driver (as of this writing, the wcte12xp or wctdm24xxp drivers) when
+	 * passed up through the handle_transmit callback.
+	 *
+	 * On the other hand, idle buffers are "dummy" buffers that solely exist
+	 * to in order to prevent the transmit descriptor ring from ever
+	 * completely draining. */
+	while ((vbb = vb_get_completed_txb(vb)))
+		list_add_tail(&vbb->entry, &vb->tx_complete);
+
+	while (--count && !list_empty(&vb->tx_complete))
+		list_move_tail(vb->tx_complete.next, &buffers);
+
+	/* Prep all the new buffers for transmit before actually sending any
+	 * of them. */
+	handle_transmit(vb, &buffers);
+
+	if (unlikely(hardunderrun))
+		vb_increase_latency(vb, 1, &buffers);
+
+	/* Now we can send all our buffers together in a group. */
+	while (!list_empty(&buffers)) {
+		vbb = list_entry(buffers.next, struct vbb, entry);
+		list_del(&vbb->entry);
+		voicebus_transmit(vb, vbb);
+	}
+
+	/* Print any messages about soft latency bumps after we fix the transmit
+	 * descriptor ring. Otherwise it's possible to take so much time
+	 * printing the dmesg output that we lose the lead that we got on the
+	 * hardware, resulting in a hard underrun condition. */
+	if (unlikely(hardunderrun)) {
+#if !defined(CONFIG_VOICEBUS_SYSFS)
+		if (!test_bit(VOICEBUS_LATENCY_LOCKED, &vb->flags) &&
+		    printk_ratelimit()) {
+			if (vb->max_latency != vb->min_tx_buffer_count) {
+				dev_info(&vb->pdev->dev, "Missed interrupt. "
+					 "Increasing latency to %d ms in "
+					 "order to compensate.\n",
+					 vb->min_tx_buffer_count);
+			} else {
+				dev_info(&vb->pdev->dev, "ERROR: Unable to "
+					 "service card within %d ms and "
+					 "unable to further increase "
+					 "latency.\n", vb->max_latency);
+			}
+		}
+#endif
+	}
+
+	/* If there may still be buffers in the descriptor rings, reschedule
+	 * ourself to run again.  We essentially yield here to allow any other
+	 * cards a chance to run. */
+	if (unlikely(!count && !test_bit(VOICEBUS_STOP, &vb->flags)))
+		tasklet_hi_schedule(&vb->tasklet);
+
+	/* And finally, pass up any receive buffers. */
+	count = DEFAULT_COUNT;
+	while (--count && (vbb = vb_get_completed_rxb(vb, &des0))) {
+		if (((des0 >> 16) & 0x7fff) == VOICEBUS_SFRAME_SIZE)
+			list_add_tail(&vbb->entry, &buffers);
+		else
+			vb_submit_rxb(vb, vbb);
+	}
+
+	handle_receive(vb, &buffers);
+
+	while (!list_empty(&buffers)) {
+		vbb = list_entry(buffers.next, struct vbb, entry);
+		list_del(&vbb->entry);
+		vb_submit_rxb(vb, vbb);
+	}
+
+	return;
+}
+
+/**
+ * vb_tasklet_relaxed() - When vb->mode == NORMAL
+ *
+ * This is the standard deferred processing routine for CPLD based cards
+ * (essentially the non-hx8 cards).
+ */
+static void vb_tasklet_normal(unsigned long data)
 {
 	struct voicebus *vb = (struct voicebus *)data;
 	int softunderrun;
@@ -1166,6 +1284,7 @@ static void vb_tasklet(unsigned long data)
 	int count = DEFAULT_COUNT;
 	u32 des0 = 0;
 
+	WARN_ON_ONCE(NORMAL != vb->mode);
 	/* First, temporarily store any non-idle buffers that the hardware has
 	 * indicated it's finished transmitting.  Non idle buffers are those
 	 * buffers that contain actual data and was filled out by the client
@@ -1193,7 +1312,9 @@ static void vb_tasklet(unsigned long data)
 				goto tx_error_exit;
 
 			vbb = vb_get_completed_txb(vb);
-			list_add_tail(&vbb->entry, &vb->tx_complete);
+			WARN_ON(!vbb);
+			if (vbb)
+				list_add_tail(&vbb->entry, &vb->tx_complete);
 			behind = 1;
 		} else  {
 			behind = 2;
@@ -1380,10 +1501,16 @@ vb_isr(int irq, void *dev_id)
 	if (unlikely((int_status &
 	    (TX_UNAVAILABLE_INTERRUPT|RX_UNAVAILABLE_INTERRUPT)) &&
 	    !test_bit(VOICEBUS_STOP, &vb->flags) &&
-	    test_bit(VOICEBUS_NORMAL_MODE, &vb->flags))) {
-		__vb_disable_interrupts(vb);
-		__vb_setctl(vb, SR_CSR5, int_status);
-		schedule_work(&vb->underrun_work);
+	    (BOOT != vb->mode))) {
+		if (NORMAL == vb->mode) {
+			__vb_disable_interrupts(vb);
+			__vb_setctl(vb, SR_CSR5, int_status);
+			schedule_work(&vb->underrun_work);
+		} else if (HX8 == vb->mode) {
+			set_bit(VOICEBUS_HARD_UNDERRUN, &vb->flags);
+			tasklet_hi_schedule(&vb->tasklet);
+			__vb_setctl(vb, SR_CSR5, int_status);
+		}
 	} else if (likely(int_status &
 		   (TX_COMPLETE_INTERRUPT|RX_COMPLETE_INTERRUPT))) {
 		/* ******************************************************** */
@@ -1443,7 +1570,8 @@ vb_timer(unsigned long data)
  * \todo Complete this description.
  */
 int
-__voicebus_init(struct voicebus *vb, const char *board_name, int normal_mode)
+__voicebus_init(struct voicebus *vb, const char *board_name,
+		enum voicebus_mode mode)
 {
 	int retval = 0;
 
@@ -1461,10 +1589,10 @@ __voicebus_init(struct voicebus *vb, const char *board_name, int normal_mode)
 	spin_lock_init(&vb->lock);
 	set_bit(VOICEBUS_STOP, &vb->flags);
 
-	if (normal_mode)
-		set_bit(VOICEBUS_NORMAL_MODE, &vb->flags);
-	else
-		clear_bit(VOICEBUS_NORMAL_MODE, &vb->flags);
+	if ((NORMAL != mode) && (BOOT != mode) && (HX8 != mode))
+		return -EINVAL;
+
+	vb->mode = mode;
 
 	vb->min_tx_buffer_count = VOICEBUS_DEFAULT_LATENCY;
 

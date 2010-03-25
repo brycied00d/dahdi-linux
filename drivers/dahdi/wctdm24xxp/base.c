@@ -4668,7 +4668,7 @@ __wctdm_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 
 	if (is_hx8(wc)) {
 		wc->vb.ops = &hx8_voicebus_operations;
-		ret = voicebus_no_idle_init(&wc->vb, wc->board_name);
+		ret = voicebus_boot_init(&wc->vb, wc->board_name);
 	} else {
 		wc->vb.ops = &voicebus_operations;
 		ret = voicebus_init(&wc->vb, wc->board_name);
@@ -4716,12 +4716,12 @@ __wctdm_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 			return -EIO;
 		}
 
-		/* Switch back to the normal mode of operation */
+		/* Switch to the normal operating mode for this card. */
 		voicebus_stop(&wc->vb);
 		wc->vb.ops = &voicebus_operations;
 		voicebus_set_minlatency(&wc->vb, latency);
 		voicebus_set_maxlatency(&wc->vb, max_latency);
-		voicebus_set_normal_mode(&wc->vb);
+		voicebus_set_hx8_mode(&wc->vb);
 		if (voicebus_start(&wc->vb))
 			BUG_ON(1);
 	}
