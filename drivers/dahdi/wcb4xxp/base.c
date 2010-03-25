@@ -129,7 +129,7 @@ struct devtype {
 static struct devtype wcb4xxp =  {"Wildcard B410P", .ports = 4, .card_type = B410P  };
 static struct devtype hfc2s =	 {"HFC-2S Junghanns.NET duoBRI PCI", .ports = 2, .card_type = DUOBRI };
 static struct devtype hfc4s =	 {"HFC-4S Junghanns.NET quadBRI PCI", .ports = 4, .card_type = QUADBRI };
-static struct devtype hfc8s =	 {"HFC-4S Junghanns.NET octoBRI PCI", .ports = 8, .card_type = OCTOBRI };
+static struct devtype hfc8s =	 {"HFC-8S Junghanns.NET octoBRI PCI", .ports = 8, .card_type = OCTOBRI };
 static struct devtype hfc2s_OV = {"OpenVox B200P", .ports = 2, .card_type = B200P_OV };
 static struct devtype hfc4s_OV = {"OpenVox B400P", .ports = 4, .card_type = B400P_OV };
 static struct devtype hfc8s_OV = {"OpenVox B800P", .ports = 8, .card_type = B800P_OV };
@@ -2884,7 +2884,9 @@ static struct pci_device_id b4xx_ids[] __devinitdata =
 {
 	{ 0xd161, 0xb410, PCI_ANY_ID, PCI_ANY_ID, 0, 0, (unsigned long)&wcb4xxp },
 	{ 0x1397, 0x16b8, 0x1397, 0xb552, 0, 0, (unsigned long)&hfc8s },
+	{ 0x1397, 0x16b8, 0x1397, 0xb55b, 0, 0, (unsigned long)&hfc8s },
 	{ 0x1397, 0x08b4, 0x1397, 0xb520, 0, 0, (unsigned long)&hfc4s },
+	{ 0x1397, 0x08b4, 0x1397, 0xb550, 0, 0, (unsigned long)&hfc4s },
 	{ 0x1397, 0x08b4, 0x1397, 0xb556, 0, 0, (unsigned long)&hfc2s },
 	{ 0x1397, 0x08b4, 0x1397, 0xe884, 0, 0, (unsigned long)&hfc2s_OV },
 	{ 0x1397, 0x08b4, 0x1397, 0xe888, 0, 0, (unsigned long)&hfc4s_OV },
