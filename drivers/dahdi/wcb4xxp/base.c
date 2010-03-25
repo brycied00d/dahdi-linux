@@ -136,6 +136,7 @@ static struct devtype hfc8s_OV = {"OpenVox B800P", .ports = 8, .card_type = B800
 static struct devtype hfc2s_BN = {"BeroNet BN2S0", .ports = 2, .card_type = BN2S0 };
 static struct devtype hfc4s_BN = {"BeroNet BN4S0", .ports = 4, .card_type = BN4S0 };
 static struct devtype hfc8s_BN = {"BeroNet BN8S0", .ports = 8, .card_type = BN8S0 };
+static struct devtype hfc4s_SW = {"Swyx 4xS0 SX2 QuadBri", .ports = 4, .card_type = BSWYX_SX2 };
 static struct devtype hfc4s_EV = {"CCD HFC-4S Eval. Board", .ports = 4,
 					.card_type = QUADBRI_EVAL };
  
@@ -2897,6 +2898,7 @@ static struct pci_device_id b4xx_ids[] __devinitdata =
 	{ 0x1397, 0x08b4, 0x1397, 0xb550, 0, 0, (unsigned long)&hfc4s_BN },
 	{ 0x1397, 0x16b8, 0x1397, 0xb562, 0, 0, (unsigned long)&hfc8s_BN },
 	{ 0x1397, 0x16b8, 0x1397, 0xb56b, 0, 0, (unsigned long)&hfc8s_BN },
+	{ 0x1397, 0x08b4, 0x1397, 0xb540, 0, 0, (unsigned long)&hfc4s_SW },
 	{ 0x1397, 0x08b4, 0x1397, 0x08b4, 0, 0, (unsigned long)&hfc4s_EV },
 	{0, }
 
