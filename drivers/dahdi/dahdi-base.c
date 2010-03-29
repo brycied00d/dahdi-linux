@@ -4534,8 +4534,10 @@ static int dahdi_ctl_ioctl(struct file *file, unsigned int cmd, unsigned long da
 		case DAHDI_MAINT_PRBS:
 		case DAHDI_RESET_COUNTERS:
 			/* Prevent notifying an alarm state for generic
-			   maintenance functions */
-			spans[maint.spanno]->maintstat = 0;
+			   maintenance functions, unless the driver is
+			   already in a maint state */
+			if(!i)
+				spans[maint.spanno]->maintstat = 0;
 
 			rv = spans[maint.spanno]->maint(spans[maint.spanno],
 							maint.command);
