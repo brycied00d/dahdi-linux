@@ -592,6 +592,9 @@ static inline void cmd_dequeue_vpmadt032(struct wctdm *wc, u8 *writechunk, int w
 			writechunk[CMD_BYTE(27, 1, 0)] = 0;
 			writechunk[CMD_BYTE(27, 2, 0)] = 0;
 		}
+		if (is_cmd_write(curcmd))
+			kfree(curcmd);
+
 	} else if (test_and_clear_bit(VPM150M_SWRESET, &vpmadt032->control)) {
 		for (x = 24; x < 28; x++) {
 			if (x == 24)
@@ -785,7 +788,7 @@ static inline void cmd_decipher_vpmadt032(struct wctdm *wc, const u8 *readchunk)
 	cmd->data = (0xff & readchunk[CMD_BYTE(25, 1, 0)]) << 8;
 	cmd->data |= readchunk[CMD_BYTE(25, 2, 0)];
 	if (cmd->desc & __VPM150M_WR) {
-		kfree(&cmd->node);
+		kfree(cmd);
 	} else {
 		cmd->desc |= __VPM150M_FIN;
 		complete(&cmd->complete);

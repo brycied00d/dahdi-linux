@@ -149,6 +149,11 @@ void vpmadt032_echocan_free(struct vpmadt032 *vpm, int channo,
 struct GpakEcanParms;
 void vpmadt032_get_default_parameters(struct GpakEcanParms *p);
 
+static inline int is_cmd_write(const struct vpmadt032_cmd *cmd)
+{
+	return (cmd->desc & __VPM150M_WR) != 0;
+}
+
 /* If there is a command ready to go to the VPMADT032, return it, otherwise NULL */
 static inline struct vpmadt032_cmd *vpmadt032_get_ready_cmd(struct vpmadt032 *vpm)
 {
@@ -161,7 +166,7 @@ static inline struct vpmadt032_cmd *vpmadt032_get_ready_cmd(struct vpmadt032 *vp
 		return NULL;
 	}
 	cmd = list_entry(vpm->pending_cmds.next, struct vpmadt032_cmd, node);
-	if (cmd->desc & __VPM150M_WR)
+	if (!is_cmd_write(cmd))
 		list_move_tail(&cmd->node, &vpm->active_cmds);
 	else
 		list_del_init(&cmd->node);
