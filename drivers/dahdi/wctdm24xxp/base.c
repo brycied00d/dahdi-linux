@@ -1088,26 +1088,6 @@ static inline void wctdm_vpm_out(struct wctdm *wc, int unit, const unsigned int 
 	wctdm_setreg(wc, unit + NUM_MODULES, addr, val);
 }
 
-/* TODO: this should go in the dahdi_voicebus module... */
-static inline void cmd_vpmadt032_retransmit(struct wctdm *wc)
-{
-	unsigned long flags;
-	struct vpmadt032 *vpmadt032 = wc->vpmadt032;
-	struct vpmadt032_cmd *cmd, *temp;
-
-	BUG_ON(!vpmadt032);
-
-	/* By moving the commands back to the pending list, they will be
-	 * transmitted when room is available */
-	spin_lock_irqsave(&vpmadt032->list_lock, flags);
-	list_for_each_entry_safe(cmd, temp, &vpmadt032->active_cmds, node) {
-		cmd->desc &= ~(__VPM150M_TX);
-		list_move_tail(&cmd->node, &vpmadt032->pending_cmds);
-	}
-	spin_unlock_irqrestore(&vpmadt032->list_lock, flags);
-
-}
-
 static inline void cmd_retransmit(struct wctdm *wc)
 {
 	int x,y;
@@ -1125,7 +1105,7 @@ static inline void cmd_retransmit(struct wctdm *wc)
 	spin_unlock_irqrestore(&wc->reglock, flags);
 #ifdef VPM_SUPPORT
 	if (wc->vpmadt032)
-		cmd_vpmadt032_retransmit(wc);
+		vpmadt032_resend(wc->vpmadt032);
 #endif
 }
 
