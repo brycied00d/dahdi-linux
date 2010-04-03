@@ -135,6 +135,7 @@ struct t1 {
 	struct list_head active_cmds;
 	struct timer_list timer;
 	struct work_struct timer_work;
+	struct workqueue_struct *wq;
 };
 
 #define t1_info(t1, format, arg...)         \

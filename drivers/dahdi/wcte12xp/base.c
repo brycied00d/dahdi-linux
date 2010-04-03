@@ -696,6 +696,7 @@ static void free_wc(struct t1 *wc)
 		list_del_init(&cmd->node);
 		free_cmd(wc, cmd);
 	}
+	destroy_workqueue(wc->wq);
 	kfree(wc);
 }
 
@@ -1263,7 +1264,7 @@ static int t1xxp_maint(struct dahdi_span *span, int cmd)
 #else
 	INIT_WORK(&work->work, t1xxp_maint_work);
 #endif
-	schedule_work(&work->work);
+	queue_work(wc->wq, &work->work);
 	return 0;
 }
 
@@ -1924,7 +1925,7 @@ static void
 te12xp_timer(unsigned long data)
 {
 	struct t1 *wc = (struct t1 *)data;
-	schedule_work(&wc->timer_work);
+	queue_work(wc->wq, &wc->timer_work);
 	return;
 }
 
@@ -1995,6 +1996,12 @@ static int __devinit te12xp_init_one(struct pci_dev *pdev, const struct pci_devi
 		return res;
 	}
 	
+	wc->wq = create_singlethread_workqueue(wc->name);
+	if (!wc->wq) {
+		kfree(wc);
+		return -ENOMEM;
+	}
+
 	if (VOICEBUS_DEFAULT_LATENCY != latency) {
 		voicebus_set_minlatency(&wc->vb, latency);
 		voicebus_set_maxlatency(&wc->vb, max_latency);
@@ -2049,7 +2056,7 @@ static void __devexit te12xp_remove_one(struct pci_dev *pdev)
 #endif
 	clear_bit(INITIALIZED, &wc->bit_flags);
 	del_timer_sync(&wc->timer);
-	flush_scheduled_work();
+	flush_workqueue(wc->wq);
 	del_timer_sync(&wc->timer);
 
 	voicebus_release(&wc->vb);
