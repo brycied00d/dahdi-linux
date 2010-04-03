@@ -150,6 +150,8 @@ static void resend_cmds(struct t1 *wc)
 	spin_lock_irqsave(&wc->cmd_list_lock, flags);
 	list_splice_init(&wc->active_cmds, &wc->pending_cmds);
 	spin_unlock_irqrestore(&wc->cmd_list_lock, flags);
+	if (wc->vpmadt032)
+		vpmadt032_resend(wc->vpmadt032);
 }
 
 static void cmd_dequeue(struct t1 *wc, unsigned char *writechunk, int eframe, int slot)
