@@ -1300,32 +1300,17 @@ static void vb_tasklet_normal(unsigned long data)
 	if (unlikely(atomic_read(&dl->count) < 2)) {
 		softunderrun = 1;
 		d = vb_descriptor(dl, dl->head);
-		if (1 == atomic_read(&dl->count)) {
-			unsigned long stop;
-			stop = jiffies + HZ/4;
-			while (OWNED(d) && time_after(stop, jiffies))
-				continue;
-			if (time_before(stop, jiffies))
-				goto tx_error_exit;
+		if (1 == atomic_read(&dl->count))
+			return;
 
-			if (d->buffer1 == vb->idle_vbb_dma_addr)
+		behind = 2;
+		while (!OWNED(d)) {
+			if (d->buffer1 != vb->idle_vbb_dma_addr)
 				goto tx_error_exit;
-
-			vbb = vb_get_completed_txb(vb);
-			WARN_ON(!vbb);
-			if (vbb)
-				list_add_tail(&vbb->entry, &vb->tx_complete);
-			behind = 1;
-		} else  {
-			behind = 2;
-			while (!OWNED(d)) {
-				if (d->buffer1 != vb->idle_vbb_dma_addr)
-					goto tx_error_exit;
-				SET_OWNED(d);
-				dl->head = ++dl->head & DRING_MASK;
-				d = vb_descriptor(dl, dl->head);
-				++behind;
-			}
+			SET_OWNED(d);
+			dl->head = ++dl->head & DRING_MASK;
+			d = vb_descriptor(dl, dl->head);
+			++behind;
 		}
 
 	} else {
