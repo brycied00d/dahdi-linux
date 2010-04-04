@@ -963,26 +963,6 @@ static int t1xxp_chanconfig(struct dahdi_chan *chan, int sigtype)
 	return 0;
 }
 
-static int t1xxp_spanconfig(struct dahdi_span *span, struct dahdi_lineconfig *lc)
-{
-	struct t1 *wc = span->pvt;
-
-	/* Do we want to SYNC on receive or not */
-	if (lc->sync) {
-		set_bit(7, &wc->ctlreg);
-		span->syncsrc = span->spanno;
-	} else {
-		clear_bit(7, &wc->ctlreg);
-		span->syncsrc = 0;
-	}
-
-	/* If already running, apply changes immediately */
-	if (test_bit(DAHDI_FLAGBIT_RUNNING, &span->flags))
-		return t1xxp_startup(span);
-
-	return 0;
-}
-
 static int t1xxp_rbsbits(struct dahdi_chan *chan, int bits)
 {
 	u_char m,c;
@@ -1355,6 +1335,119 @@ static void set_span_devicetype(struct t1 *wc)
 #endif
 }
 
+static void
+setchanconfig_from_state(struct vpmadt032 *vpm, int channel,
+			 GpakChannelConfig_t *chanconfig)
+{
+	const struct vpmadt032_options *options;
+	GpakEcanParms_t *p;
+
+	BUG_ON(!vpm);
+
+	options = &vpm->options;
+
+	chanconfig->PcmInPortA = 3;
+	chanconfig->PcmInSlotA = (channel + 1) * 2;
+	chanconfig->PcmOutPortA = SerialPortNull;
+	chanconfig->PcmOutSlotA = (channel + 1) * 2;
+	chanconfig->PcmInPortB = 2;
+	chanconfig->PcmInSlotB = (channel + 1) * 2;
+	chanconfig->PcmOutPortB = 3;
+	chanconfig->PcmOutSlotB = (channel + 1) * 2;
+	chanconfig->ToneTypesA = Null_tone;
+	chanconfig->MuteToneA = Disabled;
+	chanconfig->FaxCngDetA = Disabled;
+	chanconfig->ToneTypesB = Null_tone;
+	chanconfig->EcanEnableA = Enabled;
+	chanconfig->EcanEnableB = Disabled;
+	chanconfig->MuteToneB = Disabled;
+	chanconfig->FaxCngDetB = Disabled;
+
+	chanconfig->SoftwareCompand = cmpNone;
+
+	chanconfig->FrameRate = rate10ms;
+
+	p = &chanconfig->EcanParametersA;
+
+	vpmadt032_get_default_parameters(p);
+
+	p->EcanNlpType = vpm->curecstate[channel].nlp_type;
+	p->EcanNlpThreshold = vpm->curecstate[channel].nlp_threshold;
+	p->EcanNlpMaxSuppress = vpm->curecstate[channel].nlp_max_suppress;
+
+	memcpy(&chanconfig->EcanParametersB,
+		&chanconfig->EcanParametersA,
+		sizeof(chanconfig->EcanParametersB));
+}
+
+static int
+t1xxp_spanconfig(struct dahdi_span *span, struct dahdi_lineconfig *lc)
+{
+	struct vpmadt032_options options;
+	struct t1 *wc = span->pvt;
+	int res;
+
+#ifdef VPM_SUPPORT
+	if (!fatal_signal_pending(current) && vpmsupport) {
+		struct vpmadt032 *vpm;
+		memset(&options, 0, sizeof(options));
+		options.debug = debug;
+		options.vpmnlptype = vpmnlptype;
+		options.vpmnlpthresh = vpmnlpthresh;
+		options.vpmnlpmaxsupp = vpmnlpmaxsupp;
+		options.channels = (wc->spantype == TYPE_T1) ? 24 : 32;
+
+		wc->vpm_check = jiffies + HZ*600;
+		wc->vpmadt032 = vpmadt032_alloc(&options, wc->name);
+		if (!wc->vpmadt032)
+			return -ENOMEM;
+
+		vpm = wc->vpmadt032;
+		vpm->setchanconfig_from_state = setchanconfig_from_state;
+
+		res = vpmadt032_init(vpm, &wc->vb);
+		if (-ENODEV == res) {
+			wc->vpm_check = jiffies + HZ*600;
+			vpmadt032_free(vpm);
+			wc->vpmadt032 = NULL;
+		} else if (res) {
+			wc->vpm_check = jiffies + HZ/2;
+		} else {
+			config_vpmadt032(vpm, wc);
+
+			set_span_devicetype(wc);
+			/* turn on vpm (RX audio from vpm module) */
+			wc->ctlreg |= 0x10;
+			wc->vpm_check = HZ*5;
+			if (vpmtsisupport) {
+				debug_printk(wc, 1, "enabling VPM TSI pin\n");
+				/* turn on vpm timeslot interchange pin */
+				wc->ctlreg |= 0x01;
+			}
+		}
+	} else {
+		t1_info(wc, "VPM Support Disabled\n");
+		wc->vpmadt032 = NULL;
+	}
+#endif
+
+	/* Do we want to SYNC on receive or not */
+	if (lc->sync) {
+		set_bit(7, &wc->ctlreg);
+		span->syncsrc = span->spanno;
+	} else {
+		clear_bit(7, &wc->ctlreg);
+		span->syncsrc = 0;
+	}
+
+	/* If already running, apply changes immediately */
+	if (test_bit(DAHDI_FLAGBIT_RUNNING, &span->flags))
+		return t1xxp_startup(span);
+
+	return 0;
+}
+
+
 static int t1_software_init(struct t1 *wc)
 {
 	int x;
@@ -1453,54 +1546,9 @@ static inline unsigned char t1_vpm_out(struct t1 *wc, int unit, const unsigned i
 #endif
 #endif
 
-static void setchanconfig_from_state(struct vpmadt032 *vpm, int channel, GpakChannelConfig_t *chanconfig)
-{
-	const struct vpmadt032_options *options;
-	GpakEcanParms_t *p;
-
-	BUG_ON(!vpm);
-
-	options = &vpm->options;
-
-	chanconfig->PcmInPortA = 3;
-	chanconfig->PcmInSlotA = (channel + 1) * 2;
-	chanconfig->PcmOutPortA = SerialPortNull;
-	chanconfig->PcmOutSlotA = (channel + 1) * 2;
-	chanconfig->PcmInPortB = 2;
-	chanconfig->PcmInSlotB = (channel + 1) * 2;
-	chanconfig->PcmOutPortB = 3;
-	chanconfig->PcmOutSlotB = (channel + 1) * 2;
-	chanconfig->ToneTypesA = Null_tone;
-	chanconfig->MuteToneA = Disabled;
-	chanconfig->FaxCngDetA = Disabled;
-	chanconfig->ToneTypesB = Null_tone;
-	chanconfig->EcanEnableA = Enabled;
-	chanconfig->EcanEnableB = Disabled;
-	chanconfig->MuteToneB = Disabled;
-	chanconfig->FaxCngDetB = Disabled;
-
-	chanconfig->SoftwareCompand = cmpNone;
-
-	chanconfig->FrameRate = rate10ms;
-
-	p = &chanconfig->EcanParametersA;
-
-	vpmadt032_get_default_parameters(p);
-
-	p->EcanNlpType = vpm->curecstate[channel].nlp_type;
-	p->EcanNlpThreshold = vpm->curecstate[channel].nlp_threshold;
-	p->EcanNlpMaxSuppress = vpm->curecstate[channel].nlp_max_suppress;
-
-	memcpy(&chanconfig->EcanParametersB,
-		&chanconfig->EcanParametersA,
-		sizeof(chanconfig->EcanParametersB));
-}
-
 static int t1_hardware_post_init(struct t1 *wc)
 {
-	struct vpmadt032_options options;
 	unsigned int reg;
-	int res;
 	int x;
 
 	/* T1 or E1 */
@@ -1532,43 +1580,6 @@ static int t1_hardware_post_init(struct t1 *wc)
 
 	t1_setleds(wc, wc->ledstate);
 
-#ifdef VPM_SUPPORT
-	if (!fatal_signal_pending(current) && vpmsupport) {
-		memset(&options, 0, sizeof(options));
-		options.debug = debug;
-		options.vpmnlptype = vpmnlptype;
-		options.vpmnlpthresh = vpmnlpthresh;
-		options.vpmnlpmaxsupp = vpmnlpmaxsupp;
-		options.channels = (wc->spantype == TYPE_T1) ? 24 : 32;
-
-		wc->vpmadt032 = vpmadt032_alloc(&options, wc->name);
-		if (!wc->vpmadt032)
-			return -ENOMEM;
-
-		wc->vpmadt032->setchanconfig_from_state = setchanconfig_from_state;
-
-		res = vpmadt032_init(wc->vpmadt032, &wc->vb);
-		if (res) {
-			vpmadt032_free(wc->vpmadt032);
-			wc->vpmadt032=NULL;
-			return -EIO;
-		}
-
-		config_vpmadt032(wc->vpmadt032, wc);
-
-		set_span_devicetype(wc);
-		t1_info(wc, "VPM present and operational "
-			"(Firmware version %x)\n", wc->vpmadt032->version);
-		wc->ctlreg |= 0x10; /* turn on vpm (RX audio from vpm module) */
-		if (vpmtsisupport) {
-			debug_printk(wc, 1, "enabling VPM TSI pin\n");
-			wc->ctlreg |= 0x01; /* turn on vpm timeslot interchange pin */
-		}
-	} else {
-		t1_info(wc, "VPM Support Disabled\n");
-		wc->vpmadt032 = NULL;
-	}
-#endif
 	return 0;
 }
 
@@ -1802,15 +1813,12 @@ static inline void t1_transmitprep(struct t1 *wc, u8 *writechunk)
 		}
 
 		/* process the command queue */
-		for (y = 0; y < 7; y++) {
+		for (y = 0; y < 7; y++)
 			cmd_dequeue(wc, writechunk, x, y);
-		}
+
 #ifdef VPM_SUPPORT
-		if(likely(wc->vpmadt032)) {
-			spin_lock(&wc->reglock);
+		if (wc->vpmadt032)
 			cmd_dequeue_vpmadt032(wc, writechunk, x);
-			spin_unlock(&wc->reglock);
-		}
 #endif
 
 		if (x < DAHDI_CHUNKSIZE - 1) {
@@ -1912,26 +1920,97 @@ static void timer_work_func(struct work_struct *work)
 {
 	struct t1 *wc = container_of(work, struct t1, timer_work);
 #endif
-	/* Called once every 100 ms */
-	if (unlikely(!test_bit(INITIALIZED, &wc->bit_flags)))
-		return;
 	t1_do_counters(wc);
 	t1_check_alarms(wc);
 	t1_check_sigbits(wc);
 	mod_timer(&wc->timer, jiffies + HZ/10);
 }
 
-static void
-te12xp_timer(unsigned long data)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 20)
+static void vpm_check_func(void *data)
+{
+	struct t1 *wc = data;
+#else
+static void vpm_check_func(struct work_struct *work)
+{
+	struct t1 *wc = container_of(work, struct t1, vpm_check_work);
+#endif
+	int res;
+	u16 version;
+	unsigned long flags;
+
+	res = gpakPingDsp(wc->vpmadt032->dspid, &version);
+	if (!res) {
+		spin_lock_irqsave(&wc->reglock, flags);
+		wc->ctlreg |= 0x10;
+		spin_unlock_irqrestore(&wc->reglock, flags);
+		return;
+	}
+
+	/* Bypass the rx audio from the VPM module. */
+	spin_lock_irqsave(&wc->reglock, flags);
+	wc->ctlreg &= ~(0x10);
+	spin_unlock_irqrestore(&wc->reglock, flags);
+
+	t1_info(wc, "VPMADT032 is non-responsive.  Resetting.\n");
+
+	res = vpmadt032_reset(wc->vpmadt032);
+	if (!res) {
+		config_vpmadt032(wc->vpmadt032, wc);
+		/* Looks like the reset went ok so we can put the VPM module
+		 * back in the TDM path. */
+		spin_lock_irqsave(&wc->reglock, flags);
+		wc->ctlreg |= 0x10;
+		spin_unlock_irqrestore(&wc->reglock, flags);
+		t1_info(wc, "VPMADT032 is reenabled.\n");
+	} else {
+		t1_info(wc, "Failed VPMADT032 reset. "
+			"VPMADT032 is disabled.\n");
+	}
+
+	return;
+}
+
+static void te12xp_timer(unsigned long data)
 {
 	struct t1 *wc = (struct t1 *)data;
+
+	if (unlikely(!test_bit(INITIALIZED, &wc->bit_flags)))
+		return;
+
 	queue_work(wc->wq, &wc->timer_work);
+
+	if (!wc->vpmadt032)
+		return;
+
+	if (time_after(wc->vpm_check, jiffies))
+		return;
+
+	/* We'll check the VPM module again in 5 seconds. */
+	wc->vpm_check = jiffies + 5*HZ;
+	queue_work(wc->vpmadt032->wq, &wc->vpm_check_work);
 	return;
+}
+
+static void t1_handle_error(struct voicebus *vb)
+{
+	struct t1 *wc = container_of(vb, struct t1, vb);
+	unsigned long flags;
+
+	if (wc->vpmadt032) {
+		/* Bypass the rx audio from the VPM module. */
+		spin_lock_irqsave(&wc->reglock, flags);
+		wc->ctlreg &= ~(0x10);
+		spin_unlock_irqrestore(&wc->reglock, flags);
+
+		queue_work(wc->vpmadt032->wq, &wc->vpm_check_work);
+	}
 }
 
 static const struct voicebus_operations voicebus_operations = {
 	.handle_receive = t1_handle_receive,
 	.handle_transmit = t1_handle_transmit,
+	.handle_error = t1_handle_error,
 };
 
 static int __devinit te12xp_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
@@ -1982,6 +2061,12 @@ static int __devinit te12xp_init_one(struct pci_dev *pdev, const struct pci_devi
 	INIT_WORK(&wc->timer_work, timer_work_func, wc);
 #	else
 	INIT_WORK(&wc->timer_work, timer_work_func);
+#	endif
+
+#	if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 20)
+	INIT_WORK(&wc->vpm_check_work, vpm_check_func, wc);
+#	else
+	INIT_WORK(&wc->vpm_check_work, vpm_check_func);
 #	endif
 
 	snprintf(wc->name, sizeof(wc->name)-1, "wcte12xp%d", index);
@@ -2041,33 +2126,31 @@ static void __devexit te12xp_remove_one(struct pci_dev *pdev)
 {
 	struct t1 *wc = pci_get_drvdata(pdev);
 #ifdef VPM_SUPPORT
-	unsigned long flags;
 	struct vpmadt032 *vpm = wc->vpmadt032;
 #endif
 	if (!wc)
 		return;
+
+	clear_bit(INITIALIZED, &wc->bit_flags);
+
+	del_timer_sync(&wc->timer);
+	flush_workqueue(wc->wq);
+#ifdef VPM_SUPPORT
+	if (vpm)
+		flush_workqueue(vpm->wq);
+#endif
+	del_timer_sync(&wc->timer);
 
 #ifdef VPM_SUPPORT
 	if(vpm) {
 		wc->vpmadt032 = NULL;
 		clear_bit(VPM150M_DTMFDETECT, &vpm->control);
 		clear_bit(VPM150M_ACTIVE, &vpm->control);
-	}
-#endif
-	clear_bit(INITIALIZED, &wc->bit_flags);
-	del_timer_sync(&wc->timer);
-	flush_workqueue(wc->wq);
-	del_timer_sync(&wc->timer);
-
-	voicebus_release(&wc->vb);
-
-#ifdef VPM_SUPPORT
-	if(vpm) {
-		spin_lock_irqsave(&wc->reglock, flags);
-		spin_unlock_irqrestore(&wc->reglock, flags);
 		vpmadt032_free(vpm);
 	}
 #endif
+
+	voicebus_release(&wc->vb);
 	t1_release(wc);
 }
 

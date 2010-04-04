@@ -136,6 +136,7 @@ struct dahdi_echocan_state;
 
 char vpmadt032tone_to_zaptone(GpakToneCodes_t tone);
 int vpmadt032_init(struct vpmadt032 *vpm, struct voicebus *vb);
+int vpmadt032_reset(struct vpmadt032 *vpm);
 struct vpmadt032 *vpmadt032_alloc(struct vpmadt032_options *options,
 					const char *board_name);
 void vpmadt032_free(struct vpmadt032 *vpm);
