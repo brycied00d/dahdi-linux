@@ -1362,14 +1362,14 @@ static int t1_software_init(struct t1 *wc)
 	struct pci_dev *pdev = wc->vb.pdev;
 
 	/* Find position */
-	for (x = 0; x < sizeof(ifaces) / sizeof(ifaces[0]); x++) {
+	for (x = 0; x < ARRAY_SIZE(ifaces); ++x) {
 		if (ifaces[x] == wc) {
 			debug_printk(wc, 1, "software init for card %d\n", x);
 			break;
 		}
 	}
 
-	if (x == sizeof(ifaces) / sizeof(ifaces[0]))
+	if (x == ARRAY_SIZE(ifaces))
 		return -1;
 
 	t4_serial_setup(wc);
