@@ -126,6 +126,8 @@ struct t1 {
 	atomic_t txints;
 	int vpm100;
 	struct vpmadt032 *vpmadt032;
+	unsigned long vpm_check;
+	struct work_struct vpm_check_work;
 	unsigned long dtmfactive;
 	unsigned long dtmfmask;
 	unsigned long dtmfmutemask;

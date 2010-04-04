@@ -560,6 +560,47 @@ vpmadt032_alloc(struct vpmadt032_options *options, const char *board_name)
 }
 EXPORT_SYMBOL(vpmadt032_alloc);
 
+int vpmadt032_reset(struct vpmadt032 *vpm)
+{
+	int res;
+	gpakPingDspStat_t pingstatus;
+	u16 version;
+
+	might_sleep();
+
+	set_bit(VPM150M_HPIRESET, &vpm->control);
+	msleep(2000);
+	while (test_bit(VPM150M_HPIRESET, &vpm->control))
+		msleep(1);
+
+	/* Set us up to page 0 */
+	vpmadt032_setpage(vpm, 0);
+
+	res = vpmadtreg_loadfirmware(vpm->vb);
+	if (res) {
+		dev_info(&vpm->vb->pdev->dev, "Failed to load the firmware.\n");
+		return res;
+	}
+	vpm->curpage = -1;
+
+	set_bit(VPM150M_SWRESET, &vpm->control);
+	while (test_bit(VPM150M_SWRESET, &vpm->control))
+		msleep(1);
+
+	/* Set us up to page 0 */
+	pingstatus = gpakPingDsp(vpm->dspid, &version);
+	if (!pingstatus) {
+		vpm_info(vpm, "VPM present and operational "
+			"(Firmware version %x)\n", version);
+		vpm->version = version;
+		res = 0;
+	} else {
+		res = -EIO;
+	}
+	return res;
+}
+EXPORT_SYMBOL(vpmadt032_reset);
+
 int
 vpmadt032_init(struct vpmadt032 *vpm, struct voicebus *vb)
 {
@@ -597,9 +638,9 @@ vpmadt032_init(struct vpmadt032 *vpm, struct voicebus *vb)
 		dev_info(&vpm->vb->pdev->dev, "Passed\n");
 
 	set_bit(VPM150M_HPIRESET, &vpm->control);
-	msleep(2000);
 	while (test_bit(VPM150M_HPIRESET, &vpm->control))
 		msleep(1);
+	msleep(250);
 
 	/* Set us up to page 0 */
 	vpmadt032_setpage(vpm, 0);
@@ -613,9 +654,8 @@ vpmadt032_init(struct vpmadt032 *vpm, struct voicebus *vb)
 			vpmadt032_getreg(vpm, 0x1000, &reg);
 			if (reg != i) {
 				printk(KERN_CONT "VPMADT032 Failed address test\n");
-				goto failed_exit;
+				res = -EIO;
 			}
-
 		}
 	}
 
@@ -641,11 +681,11 @@ vpmadt032_init(struct vpmadt032 *vpm, struct voicebus *vb)
 	pingstatus = gpakPingDsp(vpm->dspid, &vpm->version);
 
 	if (!pingstatus) {
-		dev_info(&vpm->vb->pdev->dev,
-			 "Version of DSP is %x\n", vpm->version);
+		dev_info(&vb->pdev->dev, "VPM present and operational "
+			"(Firmware version %x)\n", vpm->version);
 	} else {
 		dev_notice(&vpm->vb->pdev->dev, "VPMADT032 Failed! Unable to ping the DSP (%d)!\n", pingstatus);
-		res = -1;
+		res = -EIO;
 		goto failed_exit;
 	}
 
@@ -661,6 +701,7 @@ failed_exit:
 	return res;
 }
 EXPORT_SYMBOL(vpmadt032_init);
+
 
 void vpmadt032_get_default_parameters(struct GpakEcanParms *p)
 {
@@ -694,7 +735,9 @@ void vpmadt032_free(struct vpmadt032 *vpm)
 	struct change_order *order;
 	LIST_HEAD(local_list);
 
-	BUG_ON(!vpm);
+	if (!vpm)
+		return;
+
 	BUG_ON(!vpm->wq);
 
 	destroy_workqueue(vpm->wq);

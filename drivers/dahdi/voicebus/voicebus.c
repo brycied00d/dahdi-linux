@@ -1757,7 +1757,7 @@ int vpmadtreg_loadfirmware(struct voicebus *vb)
 		spin_unlock(&loader_list_lock);
 		dev_info(&vb->pdev->dev, "Failed to find a registered "
 			 "loader after loading module.\n");
-		ret = -1;
+		ret = -ENODEV;
 	}
 	return ret;
 }
