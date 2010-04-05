@@ -1301,9 +1301,8 @@ static int echocan_create(struct dahdi_chan *chan, struct dahdi_echocanparams *e
 	struct t1 *wc = chan->pvt;
 	enum adt_companding comp;
 
-	if (!wc->vpmadt032) {
+	if (!wc->vpmadt032 || !test_bit(4, &wc->ctlreg))
 		return -ENODEV;
-	}
 
 	*ec = wc->ec[chan->chanpos - 1];
 	(*ec)->ops = &vpm150m_ec_ops;
@@ -1413,16 +1412,20 @@ t1xxp_spanconfig(struct dahdi_span *span, struct dahdi_lineconfig *lc)
 		} else if (res) {
 			wc->vpm_check = jiffies + HZ/2;
 		} else {
-			config_vpmadt032(vpm, wc);
-
 			set_span_devicetype(wc);
-			/* turn on vpm (RX audio from vpm module) */
-			wc->ctlreg |= 0x10;
-			wc->vpm_check = HZ*5;
-			if (vpmtsisupport) {
-				debug_printk(wc, 1, "enabling VPM TSI pin\n");
-				/* turn on vpm timeslot interchange pin */
-				wc->ctlreg |= 0x01;
+			if (config_vpmadt032(vpm, wc)) {
+				wc->vpm_check = jiffies + HZ/2;
+			} else {
+				/* turn on vpm (RX audio from vpm module) */
+				set_bit(4, &wc->ctlreg);
+				wc->vpm_check = jiffies + HZ*5;
+				if (vpmtsisupport) {
+					debug_printk(wc, 1,
+						     "enabling VPM TSI pin\n");
+					/* turn on vpm timeslot
+					 * interchange pin */
+					set_bit(0, &wc->ctlreg);
+				}
 			}
 		}
 	} else {
@@ -1937,31 +1940,27 @@ static void vpm_check_func(struct work_struct *work)
 #endif
 	int res;
 	u16 version;
-	unsigned long flags;
 
 	res = gpakPingDsp(wc->vpmadt032->dspid, &version);
 	if (!res) {
-		spin_lock_irqsave(&wc->reglock, flags);
-		wc->ctlreg |= 0x10;
-		spin_unlock_irqrestore(&wc->reglock, flags);
+		set_bit(4, &wc->ctlreg);
 		return;
 	}
 
-	/* Bypass the rx audio from the VPM module. */
-	spin_lock_irqsave(&wc->reglock, flags);
-	wc->ctlreg &= ~(0x10);
-	spin_unlock_irqrestore(&wc->reglock, flags);
+	clear_bit(4, &wc->ctlreg);
 
 	t1_info(wc, "VPMADT032 is non-responsive.  Resetting.\n");
 
 	res = vpmadt032_reset(wc->vpmadt032);
 	if (!res) {
-		config_vpmadt032(wc->vpmadt032, wc);
+		res = config_vpmadt032(wc->vpmadt032, wc);
+		if (res) {
+			queue_work(wc->vpmadt032->wq, &wc->vpm_check_work);
+			return;
+		}
 		/* Looks like the reset went ok so we can put the VPM module
 		 * back in the TDM path. */
-		spin_lock_irqsave(&wc->reglock, flags);
-		wc->ctlreg |= 0x10;
-		spin_unlock_irqrestore(&wc->reglock, flags);
+		set_bit(4, &wc->ctlreg);
 		t1_info(wc, "VPMADT032 is reenabled.\n");
 	} else {
 		t1_info(wc, "Failed VPMADT032 reset. "
@@ -1995,16 +1994,11 @@ static void te12xp_timer(unsigned long data)
 static void t1_handle_error(struct voicebus *vb)
 {
 	struct t1 *wc = container_of(vb, struct t1, vb);
-	unsigned long flags;
 
-	if (wc->vpmadt032) {
-		/* Bypass the rx audio from the VPM module. */
-		spin_lock_irqsave(&wc->reglock, flags);
-		wc->ctlreg &= ~(0x10);
-		spin_unlock_irqrestore(&wc->reglock, flags);
-
-		queue_work(wc->vpmadt032->wq, &wc->vpm_check_work);
-	}
+	if (!wc->vpmadt032)
+		return;
+	clear_bit(4, &wc->ctlreg);
+	queue_work(wc->vpmadt032->wq, &wc->vpm_check_work);
 }
 
 static const struct voicebus_operations voicebus_operations = {

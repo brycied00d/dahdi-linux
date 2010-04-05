@@ -222,7 +222,7 @@ struct change_order {
 
 static struct change_order *alloc_change_order(void)
 {
-	return kzalloc(sizeof(struct change_order), GFP_KERNEL);
+	return kzalloc(sizeof(struct change_order), GFP_ATOMIC);
 }
 
 static void free_change_order(struct change_order *order)
@@ -617,6 +617,11 @@ vpmadt032_init(struct vpmadt032 *vpm, struct voicebus *vb)
 
 	might_sleep();
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 20)
+	INIT_WORK(&vpm->work, vpmadt032_bh, vpm);
+#else
+	INIT_WORK(&vpm->work, vpmadt032_bh);
+#endif
 	if (vpm->options.debug & DEBUG_VPMADT032_ECHOCAN)
 		dev_info(&vpm->vb->pdev->dev, "VPMADT032 Testing page access: ");
 
@@ -688,12 +693,6 @@ vpmadt032_init(struct vpmadt032 *vpm, struct voicebus *vb)
 		res = -EIO;
 		goto failed_exit;
 	}
-
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,20)
-	INIT_WORK(&vpm->work, vpmadt032_bh, vpm);
-#else
-	INIT_WORK(&vpm->work, vpmadt032_bh);
-#endif
 
 	return 0;
 
