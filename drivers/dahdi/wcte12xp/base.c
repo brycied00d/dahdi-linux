@@ -150,8 +150,11 @@ static void resend_cmds(struct t1 *wc)
 	spin_lock_irqsave(&wc->cmd_list_lock, flags);
 	list_splice_init(&wc->active_cmds, &wc->pending_cmds);
 	spin_unlock_irqrestore(&wc->cmd_list_lock, flags);
+
+	spin_lock(&wc->reglock);
 	if (wc->vpmadt032)
 		vpmadt032_resend(wc->vpmadt032);
+	spin_unlock(&wc->reglock);
 }
 
 static void cmd_dequeue(struct t1 *wc, unsigned char *writechunk, int eframe, int slot)
@@ -1420,9 +1423,11 @@ static int check_and_load_vpm(struct t1 *wc)
 	res = vpmadt032_init(wc->vpmadt032, &wc->vb);
 	if (-ENODEV == res) {
 		/* There does not appear to be a VPMADT032 installed. */
-		vpmadt032_free(wc->vpmadt032);
-		wc->vpmadt032 = NULL;
 		clear_bit(4, &wc->ctlreg);
+		spin_lock_bh(&wc->reglock);
+		wc->vpmadt032 = NULL;
+		spin_unlock_bh(&wc->reglock);
+		vpmadt032_free(wc->vpmadt032);
 		return res;
 
 	} else if (res) {
@@ -1850,8 +1855,10 @@ static inline void t1_transmitprep(struct t1 *wc, u8 *writechunk)
 			cmd_dequeue(wc, writechunk, x, y);
 
 #ifdef VPM_SUPPORT
+		spin_lock(&wc->reglock);
 		if (wc->vpmadt032)
 			cmd_dequeue_vpmadt032(wc, writechunk, x);
+		spin_unlock(&wc->reglock);
 #endif
 
 		if (x < DAHDI_CHUNKSIZE - 1) {
@@ -1903,11 +1910,10 @@ static inline void t1_receiveprep(struct t1 *wc, const u8* readchunk)
 		}
 		cmd_decipher(wc, readchunk);
 #ifdef VPM_SUPPORT
-		if (wc->vpmadt032) {
-			spin_lock(&wc->reglock);
+		spin_lock(&wc->reglock);
+		if (wc->vpmadt032)
 			cmd_decipher_vpmadt032(wc, readchunk);
-			spin_unlock(&wc->reglock);
-		}
+		spin_unlock(&wc->reglock);
 #endif
 		readchunk += (EFRAME_SIZE + EFRAME_GAP);
 	}
@@ -2032,13 +2038,17 @@ static void te12xp_timer(unsigned long data)
 
 	queue_work(wc->wq, &wc->timer_work);
 
+	spin_lock(&wc->reglock);
 	if (!wc->vpmadt032)
-		return;
+		goto unlock_exit;
 
 	if (time_after(wc->vpm_check, jiffies))
-		return;
+		goto unlock_exit;
 
 	queue_work(wc->vpmadt032->wq, &wc->vpm_check_work);
+
+unlock_exit:
+	spin_unlock(&wc->reglock);
 	return;
 }
 
@@ -2046,10 +2056,14 @@ static void t1_handle_error(struct voicebus *vb)
 {
 	struct t1 *wc = container_of(vb, struct t1, vb);
 
+	spin_lock_bh(&wc->reglock);
 	if (!wc->vpmadt032)
-		return;
+		goto unlock_exit;
 	clear_bit(4, &wc->ctlreg);
 	queue_work(wc->vpmadt032->wq, &wc->vpm_check_work);
+
+unlock_exit:
+	spin_unlock_bh(&wc->reglock);
 }
 
 static const struct voicebus_operations voicebus_operations = {
