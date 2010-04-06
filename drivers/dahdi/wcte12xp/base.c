@@ -1956,7 +1956,8 @@ static void timer_work_func(struct work_struct *work)
 	t1_do_counters(wc);
 	t1_check_alarms(wc);
 	t1_check_sigbits(wc);
-	mod_timer(&wc->timer, jiffies + HZ/10);
+	if (test_bit(INITIALIZED, &wc->bit_flags))
+		mod_timer(&wc->timer, jiffies + HZ/10);
 }
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 20)
