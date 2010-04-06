@@ -1405,7 +1405,7 @@ static int check_and_load_vpm(struct t1 *wc)
 	options.vpmnlptype = vpmnlptype;
 	options.vpmnlpthresh = vpmnlpthresh;
 	options.vpmnlpmaxsupp = vpmnlpmaxsupp;
-	options.channels = (TYPE_T1 == wc->spantype) ? 24 : 32; 
+	options.channels = (TYPE_T1 == wc->spantype) ? 24 : 32;
 
 	/* We do not want to check that the VPM is alive until after we're
 	 * done setting it up here, an hour should cover it... */
