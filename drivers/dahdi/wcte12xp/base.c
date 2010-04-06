@@ -1972,6 +1972,9 @@ static void vpm_check_func(struct work_struct *work)
 	int res;
 	u16 version;
 
+	if (!test_bit(INITIALIZED, &wc->bit_flags))
+		return;
+
 	if (test_bit(4, &wc->ctlreg)) {
 		res = gpakPingDsp(wc->vpmadt032->dspid, &version);
 		if (!res) {
@@ -1985,6 +1988,9 @@ static void vpm_check_func(struct work_struct *work)
 	}
 
 
+	if (!test_bit(INITIALIZED, &wc->bit_flags))
+		return;
+
 	res = vpmadt032_reset(wc->vpmadt032);
 	if (res) {
 		t1_info(wc, "Failed VPMADT032 reset. VPMADT032 is disabled.\n");
@@ -1992,13 +1998,22 @@ static void vpm_check_func(struct work_struct *work)
 		return;
 	}
 
+	if (!test_bit(INITIALIZED, &wc->bit_flags))
+		return;
+
 	res = config_vpmadt032(wc->vpmadt032, wc);
 	if (res) {
 		/* We failed the configuration, let's try again. */
 		t1_info(wc, "Failed to configure the ports.  Retrying.\n");
+
+		if (!test_bit(INITIALIZED, &wc->bit_flags))
+			return;
 		queue_work(wc->vpmadt032->wq, &wc->vpm_check_work);
 		return;
 	}
+
+	if (!test_bit(INITIALIZED, &wc->bit_flags))
+		return;
 
 	/* Looks like the reset went ok so we can put the VPM module back in
 	 * the TDM path. */
