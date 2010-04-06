@@ -1379,60 +1379,90 @@ setchanconfig_from_state(struct vpmadt032 *vpm, int channel,
 		sizeof(chanconfig->EcanParametersB));
 }
 
+#ifdef VPM_SUPPORT
+static int check_and_load_vpm(struct t1 *wc)
+{
+	int res;
+	struct vpmadt032_options options;
+
+	if (!vpmsupport) {
+		t1_info(wc, "VPM Support Disabled\n");
+		vpmadt032_free(wc->vpmadt032);
+		wc->vpmadt032 = NULL;
+		return 0;
+	}
+
+	/* The firmware may already be loaded. */
+	if (wc->vpmadt032) {
+		u16 version;
+		res = gpakPingDsp(wc->vpmadt032->dspid, &version);
+		if (!res)
+			return 0;
+	}
+
+	memset(&options, 0, sizeof(options));
+	options.debug = debug;
+	options.vpmnlptype = vpmnlptype;
+	options.vpmnlpthresh = vpmnlpthresh;
+	options.vpmnlpmaxsupp = vpmnlpmaxsupp;
+	options.channels = (TYPE_T1 == wc->spantype) ? 24 : 32; 
+
+	/* We do not want to check that the VPM is alive until after we're
+	 * done setting it up here, an hour should cover it... */
+	wc->vpm_check = jiffies + HZ*3600;
+
+	wc->vpmadt032 = vpmadt032_alloc(&options, wc->name);
+	if (!wc->vpmadt032)
+		return -ENOMEM;
+
+	wc->vpmadt032->setchanconfig_from_state = setchanconfig_from_state;
+
+	res = vpmadt032_init(wc->vpmadt032, &wc->vb);
+	if (-ENODEV == res) {
+		/* There does not appear to be a VPMADT032 installed. */
+		vpmadt032_free(wc->vpmadt032);
+		wc->vpmadt032 = NULL;
+		clear_bit(4, &wc->ctlreg);
+		return res;
+
+	} else if (res) {
+		/* There was some problem during initialization, but it passed
+		 * the address test, let's try again in a bit. */
+		wc->vpm_check = jiffies + HZ/2;
+		return -EAGAIN;
+	}
+
+	if (config_vpmadt032(wc->vpmadt032, wc)) {
+		clear_bit(4, &wc->ctlreg);
+		wc->vpm_check = jiffies + HZ/2;
+		return -EAGAIN;
+	}
+
+	/* turn on vpm (RX audio from vpm module) */
+	set_bit(4, &wc->ctlreg);
+	wc->vpm_check = jiffies + HZ*5;
+	if (vpmtsisupport) {
+		debug_printk(wc, 1, "enabling VPM TSI pin\n");
+		/* turn on vpm timeslot interchange pin */
+		set_bit(0, &wc->ctlreg);
+	}
+
+	return 0;
+}
+#else
+static inline int check_and_load_vpm(const struct t1 *wc)
+{
+	return 0;
+}
+#endif
+
 static int
 t1xxp_spanconfig(struct dahdi_span *span, struct dahdi_lineconfig *lc)
 {
-	struct vpmadt032_options options;
 	struct t1 *wc = span->pvt;
-	int res;
 
-#ifdef VPM_SUPPORT
-	if (!fatal_signal_pending(current) && vpmsupport) {
-		struct vpmadt032 *vpm;
-		memset(&options, 0, sizeof(options));
-		options.debug = debug;
-		options.vpmnlptype = vpmnlptype;
-		options.vpmnlpthresh = vpmnlpthresh;
-		options.vpmnlpmaxsupp = vpmnlpmaxsupp;
-		options.channels = (wc->spantype == TYPE_T1) ? 24 : 32;
-
-		wc->vpm_check = jiffies + HZ*600;
-		wc->vpmadt032 = vpmadt032_alloc(&options, wc->name);
-		if (!wc->vpmadt032)
-			return -ENOMEM;
-
-		vpm = wc->vpmadt032;
-		vpm->setchanconfig_from_state = setchanconfig_from_state;
-
-		res = vpmadt032_init(vpm, &wc->vb);
-		if (-ENODEV == res) {
-			wc->vpm_check = jiffies + HZ*600;
-			vpmadt032_free(vpm);
-			wc->vpmadt032 = NULL;
-		} else if (res) {
-			wc->vpm_check = jiffies + HZ/2;
-		} else {
-			set_span_devicetype(wc);
-			if (config_vpmadt032(vpm, wc)) {
-				wc->vpm_check = jiffies + HZ/2;
-			} else {
-				/* turn on vpm (RX audio from vpm module) */
-				set_bit(4, &wc->ctlreg);
-				wc->vpm_check = jiffies + HZ*5;
-				if (vpmtsisupport) {
-					debug_printk(wc, 1,
-						     "enabling VPM TSI pin\n");
-					/* turn on vpm timeslot
-					 * interchange pin */
-					set_bit(0, &wc->ctlreg);
-				}
-			}
-		}
-	} else {
-		t1_info(wc, "VPM Support Disabled\n");
-		wc->vpmadt032 = NULL;
-	}
-#endif
+	check_and_load_vpm(wc);
+	set_span_devicetype(wc);
 
 	/* Do we want to SYNC on receive or not */
 	if (lc->sync) {
@@ -1941,32 +1971,39 @@ static void vpm_check_func(struct work_struct *work)
 	int res;
 	u16 version;
 
-	res = gpakPingDsp(wc->vpmadt032->dspid, &version);
-	if (!res) {
-		set_bit(4, &wc->ctlreg);
+	if (test_bit(4, &wc->ctlreg)) {
+		res = gpakPingDsp(wc->vpmadt032->dspid, &version);
+		if (!res) {
+			set_bit(4, &wc->ctlreg);
+			wc->vpm_check = jiffies + HZ*5;
+			return;
+		}
+
+		clear_bit(4, &wc->ctlreg);
+		t1_info(wc, "VPMADT032 is non-responsive.  Resetting.\n");
+	}
+
+
+	res = vpmadt032_reset(wc->vpmadt032);
+	if (res) {
+		t1_info(wc, "Failed VPMADT032 reset. VPMADT032 is disabled.\n");
+		wc->vpm_check = jiffies + HZ*5;
 		return;
 	}
 
-	clear_bit(4, &wc->ctlreg);
-
-	t1_info(wc, "VPMADT032 is non-responsive.  Resetting.\n");
-
-	res = vpmadt032_reset(wc->vpmadt032);
-	if (!res) {
-		res = config_vpmadt032(wc->vpmadt032, wc);
-		if (res) {
-			queue_work(wc->vpmadt032->wq, &wc->vpm_check_work);
-			return;
-		}
-		/* Looks like the reset went ok so we can put the VPM module
-		 * back in the TDM path. */
-		set_bit(4, &wc->ctlreg);
-		t1_info(wc, "VPMADT032 is reenabled.\n");
-	} else {
-		t1_info(wc, "Failed VPMADT032 reset. "
-			"VPMADT032 is disabled.\n");
+	res = config_vpmadt032(wc->vpmadt032, wc);
+	if (res) {
+		/* We failed the configuration, let's try again. */
+		t1_info(wc, "Failed to configure the ports.  Retrying.\n");
+		queue_work(wc->vpmadt032->wq, &wc->vpm_check_work);
+		return;
 	}
 
+	/* Looks like the reset went ok so we can put the VPM module back in
+	 * the TDM path. */
+	set_bit(4, &wc->ctlreg);
+	t1_info(wc, "VPMADT032 is reenabled.\n");
+	wc->vpm_check = jiffies + HZ*5;
 	return;
 }
 
@@ -1985,8 +2022,6 @@ static void te12xp_timer(unsigned long data)
 	if (time_after(wc->vpm_check, jiffies))
 		return;
 
-	/* We'll check the VPM module again in 5 seconds. */
-	wc->vpm_check = jiffies + 5*HZ;
 	queue_work(wc->vpmadt032->wq, &wc->vpm_check_work);
 	return;
 }
