@@ -2185,6 +2185,8 @@ static void __devexit te12xp_remove_one(struct pci_dev *pdev)
 #endif
 	del_timer_sync(&wc->timer);
 
+	voicebus_release(&wc->vb);
+
 #ifdef VPM_SUPPORT
 	if(vpm) {
 		wc->vpmadt032 = NULL;
@@ -2194,7 +2196,6 @@ static void __devexit te12xp_remove_one(struct pci_dev *pdev)
 	}
 #endif
 
-	voicebus_release(&wc->vb);
 	t1_release(wc);
 }
 
