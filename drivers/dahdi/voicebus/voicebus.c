@@ -1284,7 +1284,7 @@ static void vb_tasklet_normal(unsigned long data)
 	int count = DEFAULT_COUNT;
 	u32 des0 = 0;
 
-	WARN_ON_ONCE(NORMAL != vb->mode);
+	BUG_ON(NORMAL != vb->mode);
 	/* First, temporarily store any non-idle buffers that the hardware has
 	 * indicated it's finished transmitting.  Non idle buffers are those
 	 * buffers that contain actual data and was filled out by the client
