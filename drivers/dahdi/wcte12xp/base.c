@@ -2116,10 +2116,9 @@ static int __devinit te12xp_init_one(struct pci_dev *pdev, const struct pci_devi
 		return -ENOMEM;
 	}
 
-	if (VOICEBUS_DEFAULT_LATENCY != latency) {
-		voicebus_set_minlatency(&wc->vb, latency);
-		voicebus_set_maxlatency(&wc->vb, max_latency);
-	}
+	voicebus_set_minlatency(&wc->vb, latency);
+	voicebus_set_maxlatency(&wc->vb, max_latency);
+	max_latency = wc->vb.max_latency;
 
 	voicebus_lock_latency(&wc->vb);
 	if (voicebus_start(&wc->vb)) {
@@ -2242,6 +2241,7 @@ module_param(losalarmdebounce, int, S_IRUGO | S_IWUSR);
 module_param(aisalarmdebounce, int, S_IRUGO | S_IWUSR);
 module_param(yelalarmdebounce, int, S_IRUGO | S_IWUSR);
 module_param(latency, int, S_IRUGO);
+module_param(max_latency, int, S_IRUGO);
 #ifdef VPM_SUPPORT
 module_param(vpmsupport, int, S_IRUGO);
 module_param(vpmtsisupport, int, S_IRUGO);
