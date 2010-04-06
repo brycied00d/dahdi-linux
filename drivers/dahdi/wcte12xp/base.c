@@ -77,6 +77,7 @@ static int echocan_create(struct dahdi_chan *chan, struct dahdi_echocanparams *e
 			   struct dahdi_echocanparam *p, struct dahdi_echocan_state **ec);
 static void echocan_free(struct dahdi_chan *chan, struct dahdi_echocan_state *ec);
 static int t1xxp_clear_maint(struct dahdi_span *span);
+static int check_and_load_vpm(struct t1 *wc);
 
 static const struct dahdi_echocan_features vpm150m_ec_features = {
 	.NLP_automatic = 1,
@@ -930,10 +931,26 @@ static void t1xxp_framer_start(struct t1 *wc, struct dahdi_span *span)
 	set_bit(DAHDI_FLAGBIT_RUNNING, &wc->span.flags);
 }
 
+static void set_span_devicetype(struct t1 *wc)
+{
+	strncpy(wc->span.devicetype, wc->variety,
+		sizeof(wc->span.devicetype) - 1);
+
+#if defined(VPM_SUPPORT)
+	if (wc->vpmadt032) {
+		strncat(wc->span.devicetype, " (VPMADT032)",
+			sizeof(wc->span.devicetype) - 1);
+	}
+#endif
+}
+
 static int t1xxp_startup(struct dahdi_span *span)
 {
 	struct t1 *wc = span->pvt;
 	int i;
+
+	check_and_load_vpm(wc);
+	set_span_devicetype(wc);
 
 	/* initialize the start value for the entire chunk of last ec buffer */
 	for (i = 0; i < span->channels; i++) {
@@ -1327,16 +1344,6 @@ static void echocan_free(struct dahdi_chan *chan, struct dahdi_echocan_state *ec
 	vpmadt032_echocan_free(wc->vpmadt032, chan->chanpos - 1, ec);
 }
 
-static void set_span_devicetype(struct t1 *wc)
-{
-	strncpy(wc->span.devicetype, wc->variety, sizeof(wc->span.devicetype) - 1);
-
-#if defined(VPM_SUPPORT)
-	if (wc->vpmadt032)
-		strncat(wc->span.devicetype, " (VPMADT032)", sizeof(wc->span.devicetype) - 1);
-#endif
-}
-
 static void
 setchanconfig_from_state(struct vpmadt032 *vpm, int channel,
 			 GpakChannelConfig_t *chanconfig)
@@ -1465,9 +1472,6 @@ static int
 t1xxp_spanconfig(struct dahdi_span *span, struct dahdi_lineconfig *lc)
 {
 	struct t1 *wc = span->pvt;
-
-	check_and_load_vpm(wc);
-	set_span_devicetype(wc);
 
 	/* Do we want to SYNC on receive or not */
 	if (lc->sync) {
