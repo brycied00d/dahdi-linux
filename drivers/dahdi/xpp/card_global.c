@@ -158,7 +158,7 @@ static int execute_chip_command(xpd_t *xpd, const int argc, char *argv[])
 			//XPD_DBG(REGS, xpd, "READING\n");
 			break;
 		default:
-			XPD_ERR(xpd, "Unkown operation type '%c'\n", op);
+			XPD_ERR(xpd, "Unknown operation type '%c'\n", op);
 			goto out;
 	}
 	addr_mode = argv[argno][1];
@@ -187,7 +187,7 @@ static int execute_chip_command(xpd_t *xpd, const int argc, char *argv[])
 			//XPD_DBG(REGS, xpd, "Multibyte (%c)\n", addr_mode);
 			break;
 		default:
-			XPD_ERR(xpd, "Unkown addressing type '%c'\n", addr_mode);
+			XPD_ERR(xpd, "Unknown addressing type '%c'\n", addr_mode);
 			goto out;
 	}
 	if(argv[argno][2] != '\0') {
