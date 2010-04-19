@@ -82,7 +82,7 @@ calc_debug() {
 			let j++
 		done
 		if [ "$found" -eq 0 ]; then
-			echo >&2 "$0: Unkown debug flag '$wanted'"
+			echo >&2 "$0: Unknown debug flag '$wanted'"
 			exit 1
 		fi
 	done
@@ -98,7 +98,7 @@ module="$1"
 shift
 
 if ! echo "$modules" | grep -w "$module" > /dev/null; then
-	echo >&2 "$0: Unkown module $module"
+	echo >&2 "$0: Unknown module $module"
 	exit 1
 fi
 

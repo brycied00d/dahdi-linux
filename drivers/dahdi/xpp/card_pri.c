@@ -101,7 +101,7 @@ enum pri_protocol {
 static const char *pri_protocol_name(enum pri_protocol pri_protocol)
 {
 	static const char *protocol_names[] = {
-		[PRI_PROTO_0] = "??",	/* unkown */
+		[PRI_PROTO_0] = "??",	/* unknown */
 		[PRI_PROTO_E1] = "E1",
 		[PRI_PROTO_T1] = "T1",
 		[PRI_PROTO_J1] = "J1"
@@ -1766,7 +1766,7 @@ static void PRI_card_pcm_fromspan(xbus_t *xbus, xpd_t *xpd, xpacket_t *pack)
 	spin_unlock_irqrestore(&xpd->lock, flags);
 }
 
-/*! Copy PCM chunks from the packet we recieved to the xpd struct.
+/*! Copy PCM chunks from the packet we received to the xpd struct.
  * \param xbus	xbus of target xpd.
  * \param xpd	target xpd.
  * \param pack	Source packet.

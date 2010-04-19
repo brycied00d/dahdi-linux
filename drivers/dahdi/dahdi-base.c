@@ -4119,7 +4119,7 @@ static int dahdi_ctl_ioctl(struct file *file, unsigned int cmd, unsigned long da
 				 * Set the rxhooksig back to
 				 * DAHDI_RXSIG_INITIAL so that new events are
 				 * queued on the channel with the actual
-				 * recieved hook state.
+				 * received hook state.
 				 * 
 				 */
 				spans[j]->chans[x]->rxhooksig = DAHDI_RXSIG_INITIAL;
@@ -6944,7 +6944,7 @@ void dahdi_hooksig(struct dahdi_chan *chan, enum dahdi_rxsig rxsig)
  * @chan:	the DAHDI channel
  * @cursig:	the bits to set
  *
- * Set the channel's rxsig (recieved: from device to userspace) and act
+ * Set the channel's rxsig (received: from device to userspace) and act
  * accordingly.
  */
 void dahdi_rbsbits(struct dahdi_chan *chan, int cursig)
@@ -7125,7 +7125,7 @@ static inline void __dahdi_ec_chunk(struct dahdi_chan *ss, unsigned char *rxchun
  * @rxchunk:	chunk of audio on which to cancel echo
  * @txchunk:	reference chunk from the other direction
  *
- * The echo canceller function fixes recieved (from device to userspace)
+ * The echo canceller function fixes received (from device to userspace)
  * audio. In order to fix it it uses the transmitted audio as a
  * reference. This call updates the echo canceller for a single chunk (8
  * bytes).

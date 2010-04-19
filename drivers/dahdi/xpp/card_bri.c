@@ -1719,7 +1719,7 @@ static int proc_bri_info_read(char *page, char **start, off_t off, int count, in
 					priv->state_register.bits.v_su_info0,
 					priv->state_register.bits.v_g2_g3);
 	} else
-		len += sprintf(page + len, "Unkown\n");
+		len += sprintf(page + len, "Unknown\n");
 	if(IS_NT(xpd)) {
 		len += sprintf(page + len, "T1 Timer: %d\n", priv->t1);
 	} else {
