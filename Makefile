@@ -62,7 +62,7 @@ ROOT_PREFIX:=
 ASCIIDOC:=asciidoc
 ASCIIDOC_CMD:=$(ASCIIDOC) -n -a toc -a toclevels=4
 
-GENERATED_DOCS:=README.html dahdi-api.html
+GENERATED_DOCS:=README.html
 
 ifneq ($(wildcard .version),)
   DAHDIVERSION:=$(shell cat .version)
