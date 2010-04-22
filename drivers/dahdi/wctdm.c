@@ -295,6 +295,8 @@ static unsigned int battdebounce;
 static unsigned int battalarm;
 static unsigned int battthresh;
 static int ringdebounce = DEFAULT_RING_DEBOUNCE;
+/* times 4, because must be a multiple of 4ms: */
+static int dialdebounce = 8 * 8;
 static int fwringdetect = 0;
 static int debug = 0;
 static int robust = 0;
@@ -1015,7 +1017,7 @@ static inline void wctdm_proslic_check_hook(struct wctdm *wc, int card)
 	hook = (res & 1);
 	if (hook != fxs->lastrxhook) {
 		/* Reset the debounce (must be multiple of 4ms) */
-		fxs->debounce = 8 * (4 * 8);
+		fxs->debounce = dialdebounce * 4;
 #if 0
 		printk(KERN_DEBUG "Resetting debounce card %d hook %d, %d\n",
 		       card, hook, fxs->debounce);
@@ -2812,6 +2814,7 @@ module_param(battdebounce, uint, 0600);
 module_param(battalarm, uint, 0600);
 module_param(battthresh, uint, 0600);
 module_param(ringdebounce, int, 0600);
+module_param(dialdebounce, int, 0600);
 module_param(fwringdetect, int, 0600);
 module_param(alawoverride, int, 0600);
 module_param(fastpickup, int, 0600);
