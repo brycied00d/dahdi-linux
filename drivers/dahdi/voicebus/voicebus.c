@@ -433,6 +433,7 @@ __vb_setctl(struct voicebus *vb, u32 addr, u32 val)
 {
 	wmb();
 	writel(val, vb->iobase + addr);
+	readl(vb->iobase + addr);
 }
 
 /*!
