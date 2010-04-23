@@ -662,19 +662,37 @@ static void __t1xxp_set_clear(struct t1 *wc, int channo)
 	int ret;
 	unsigned short val=0;
 	
-	for (i = 0; i < 24; i++) {
-		j = (i / 8);
-		if (wc->span.chans[i]->flags & DAHDI_FLAG_CLEAR) 
-			val |= 1 << (7 - (i % 8));
-		if (((i % 8)==7) &&  /* write byte every 8 channels */
-		    ((channo < 0) ||    /* channo=-1 means all channels */ 
-		     (j == (channo-1)/8) )) { /* only the register for this channo */    
-			ret = t1_setreg(wc, 0x2f + j, val);
-			if (ret < 0) {
-				t1_info(wc, "set_clear failed for chan %d!\n",
-					i);
-			}
-			val = 0;
+	if (channo < 0) {
+		/* If channo is passed as -1, we want to set all
+		   24 channels to clear mode */
+		t1_setreg(wc, 0x2f, 0xff);
+		t1_setreg(wc, 0x30, 0xff);
+		t1_setreg(wc, 0x31, 0xff);
+	} else {
+		/* if channo is passed as an existing channel
+		   set that specific channel depending on its flag */
+
+		/* Get register offset and regster's value */
+		j = (channo-1)/8;
+		val = t1_getreg(wc, 0x2f+j);
+
+		for (i = 0; i < 24; i++) {
+			if(wc->span.chans[i]->flags & DAHDI_FLAG_CLEAR)
+				debug |= (1<<i);
+			else
+				debug &= ~(1<<i);
+		}
+
+		/* Clear or set the bit depending on the channo's flag */
+		if (wc->span.chans[channo-1]->flags & DAHDI_FLAG_CLEAR) {
+			val |= 1 << (7 - ((channo-1) % 8));
+		} else {
+			val &= ~(1 << (7 - ((channo-1) % 8)));
+		}
+
+		ret = t1_setreg(wc, 0x2f+j, val);
+		if (ret < 0) {
+			t1_info(wc, "set_clear failed for chan %d!\n", channo);
 		}
 	}
 }
@@ -978,7 +996,7 @@ static int t1xxp_chanconfig(struct dahdi_chan *chan, int sigtype)
 	struct t1 *wc = chan->pvt;
 	if (test_bit(DAHDI_FLAGBIT_RUNNING, &chan->span->flags) &&
 		(wc->spantype != TYPE_E1)) {
-		__t1xxp_set_clear(wc, chan->channo);
+		__t1xxp_set_clear(wc, chan->chanpos);
 	}
 	return 0;
 }
@@ -1300,14 +1318,18 @@ static int t1xxp_close(struct dahdi_chan *chan)
 
 static int t1xxp_ioctl(struct dahdi_chan *chan, unsigned int cmd, unsigned long data)
 {
+	struct t4_regs regs;
+	unsigned int x;
+	struct t1 *wc;
+	
 	switch (cmd) {
 	case WCT4_GET_REGS:
-		/* Since all register access was moved into the voicebus
-		 * module....this was removed.  Although...why does the client
-		 * library need access to the registers (debugging)? \todo ..
-		 */
-		WARN_ON(1);
-		return -ENOSYS;
+		wc = chan->pvt;
+		for (x = 0; x < sizeof(regs.regs) / sizeof(regs.regs[0]); x++)
+			regs.regs[x] = t1_getreg(wc, x);
+		
+		if (copy_to_user((struct t4_regs *) data, &regs, sizeof(regs)))
+			return -EFAULT;
 		break;
 	default:
 		return -ENOTTY;
