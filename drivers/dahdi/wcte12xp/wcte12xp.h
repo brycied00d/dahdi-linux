@@ -150,4 +150,9 @@ struct t1 {
 #define LIM1_RL 	(1<<1)
 #define LIM1_JATT	(1<<2)
 
+/* Clear Channel Registers */
+#define CCB1		0x2f
+#define CCB2		0x30
+#define CCB3		0x31
+
 #endif

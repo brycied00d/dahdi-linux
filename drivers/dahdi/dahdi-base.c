@@ -4288,10 +4288,8 @@ static int dahdi_ctl_ioctl(struct file *file, unsigned int cmd, unsigned long da
 		}
 
 		if (!res && chans[ch.chan]->span->chanconfig) {
-			spin_unlock_irqrestore(&chans[ch.chan]->lock, flags);
 			res = chans[ch.chan]->span->chanconfig(chans[ch.chan],
 							       ch.sigtype);
-			spin_lock_irqsave(&chans[ch.chan]->lock, flags);
 		}
 
 #ifdef CONFIG_DAHDI_NET
