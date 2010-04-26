@@ -658,42 +658,39 @@ static inline int t1_getpins(struct t1 *wc, int inisr)
 
 static void __t1xxp_set_clear(struct t1 *wc, int channo)
 {
-	int i,j;
+	int i,offset;
 	int ret;
-	unsigned short val=0;
+	unsigned short reg[2];
 	
 	if (channo < 0) {
 		/* If channo is passed as -1, we want to set all
 		   24 channels to clear mode */
-		t1_setreg(wc, 0x2f, 0xff);
-		t1_setreg(wc, 0x30, 0xff);
-		t1_setreg(wc, 0x31, 0xff);
+		t1_setreg(wc, CCB1, 0xff);
+		t1_setreg(wc, CCB2, 0xff);
+		t1_setreg(wc, CCB3, 0xff);
 	} else {
-		/* if channo is passed as an existing channel
-		   set that specific channel depending on its flag */
-
-		/* Get register offset and regster's value */
-		j = (channo-1)/8;
-		val = t1_getreg(wc, 0x2f+j);
+		/* Calculate all states on all 24 channels using the channel
+		   flags, then write all 3 clear channel registers at once */
 
 		for (i = 0; i < 24; i++) {
+			offset = i/8;
 			if(wc->span.chans[i]->flags & DAHDI_FLAG_CLEAR)
-				debug |= (1<<i);
+				reg[offset] |= 1 << (7 - (i % 8));
 			else
-				debug &= ~(1<<i);
+				reg[offset] &= ~(1 << (7 - (i % 8)));
 		}
 
-		/* Clear or set the bit depending on the channo's flag */
-		if (wc->span.chans[channo-1]->flags & DAHDI_FLAG_CLEAR) {
-			val |= 1 << (7 - ((channo-1) % 8));
-		} else {
-			val &= ~(1 << (7 - ((channo-1) % 8)));
-		}
-
-		ret = t1_setreg(wc, 0x2f+j, val);
-		if (ret < 0) {
+		ret = t1_setreg(wc, CCB1, reg[0]);
+		if (ret < 0)
 			t1_info(wc, "set_clear failed for chan %d!\n", channo);
-		}
+
+		ret = t1_setreg(wc, CCB2, reg[1]);
+		if (ret < 0)
+			t1_info(wc, "set_clear failed for chan %d!\n", channo);
+
+		ret = t1_setreg(wc, CCB3, reg[2]);
+		if (ret < 0)
+			t1_info(wc, "set_clear failed for chan %d!\n", channo);
 	}
 }
 
