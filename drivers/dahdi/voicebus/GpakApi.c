@@ -102,7 +102,6 @@ static DSP_ADDRESS pEventFifoAddress[MAX_DSP_CORES]; /* event fifo */
 static unsigned char DlByteBufr[DOWNLOAD_BLOCK_SIZE * 2]; /* Dowload byte buf */
 static DSP_WORD DlWordBufr[DOWNLOAD_BLOCK_SIZE];      /* Dowload word buffer */
 
-
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
  * CheckDspReset - Check if the DSP was reset.
  *
@@ -116,7 +115,7 @@ static DSP_WORD DlWordBufr[DOWNLOAD_BLOCK_SIZE];      /* Dowload word buffer */
  *   1 = Reset occurred.
  *
  */
-static int CheckDspReset(
+static int __CheckDspReset(
     int DspId               /* DSP Identifier (0 to MaxDSPCores-1) */
     )
 {
@@ -179,6 +178,20 @@ static int CheckDspReset(
     return (0);
 }
 
+static int CheckDspReset(
+    int DspId               /* DSP Identifier (0 to MaxDSPCores-1) */
+    )
+{
+	int ret;
+	int retries = 20;
+	while (--retries) {
+		ret = __CheckDspReset(DspId);
+		if (-1 != ret)
+			return ret;
+		msleep(5);
+	}
+	return ret;
+}
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
  * WriteDspCmdMessage - Write a Host Command/Request message to DSP.

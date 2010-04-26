@@ -32,7 +32,6 @@
 
 #include <linux/version.h>
 #include <linux/types.h>
-#include <linux/delay.h>
 #include <linux/pci.h>
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,26)
 #include <linux/semaphore.h>
