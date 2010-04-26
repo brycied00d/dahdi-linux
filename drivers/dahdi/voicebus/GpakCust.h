@@ -39,6 +39,7 @@
 #include <linux/device.h>
 #include <linux/completion.h>
 #include <linux/workqueue.h>
+#include <linux/delay.h>
 
 #include "gpakenum.h"
 #include "adt_lec.h"
