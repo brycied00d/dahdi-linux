@@ -2112,6 +2112,29 @@ static ssize_t voicebus_current_latency_show(struct device *dev,
 static DEVICE_ATTR(voicebus_current_latency, 0400,
 		   voicebus_current_latency_show, NULL);
 
+
+static ssize_t vpm_firmware_version_show(struct device *dev,
+				struct device_attribute *attr,
+				char *buf)
+{
+	int res;
+	u16 version = 0;
+	struct t1 *wc = dev_get_drvdata(dev);
+
+	if (wc->vpmadt032) {
+		res = gpakPingDsp(wc->vpmadt032->dspid, &version);
+		if (res) {
+			t1_info(wc, "Failed gpakPingDsp %d\n", res);
+			version = -1;
+		}
+	}
+
+	return sprintf(buf, "%x.%02x\n", (version & 0xff00) >> 8, (version & 0xff));
+}
+
+static DEVICE_ATTR(vpm_firmware_version, 0400,
+		   vpm_firmware_version_show, NULL);
+
 static void create_sysfs_files(struct t1 *wc)
 {
 	int ret;
@@ -2121,10 +2144,20 @@ static void create_sysfs_files(struct t1 *wc)
 		dev_info(&wc->vb.pdev->dev,
 			"Failed to create device attributes.\n");
 	}
+
+	ret = device_create_file(&wc->vb.pdev->dev,
+				 &dev_attr_vpm_firmware_version);
+	if (ret) {
+		dev_info(&wc->vb.pdev->dev,
+			"Failed to create device attributes.\n");
+	}
 }
 
 static void remove_sysfs_files(struct t1 *wc)
 {
+	device_remove_file(&wc->vb.pdev->dev,
+			   &dev_attr_vpm_firmware_version);
+
 	device_remove_file(&wc->vb.pdev->dev,
 			   &dev_attr_voicebus_current_latency);
 }

@@ -4594,8 +4594,62 @@ voicebus_current_latency_show(struct device *dev,
 
 static DEVICE_ATTR(voicebus_current_latency, 0400,
 		   voicebus_current_latency_show, NULL);
-#endif
 
+static ssize_t vpm_firmware_version_show(struct device *dev,
+				struct device_attribute *attr,
+				char *buf)
+{
+	int res;
+	u16 version = 0;
+	struct wctdm *wc = dev_get_drvdata(dev);
+
+	if (wc->vpmadt032) {
+		res = gpakPingDsp(wc->vpmadt032->dspid, &version);
+		if (res) {
+			dev_info(&wc->vb.pdev->dev, "Failed gpakPingDsp %d\n", res);
+			version = -1;
+		}
+	}
+
+	return sprintf(buf, "%x.%02x\n", (version & 0xff00) >> 8, (version & 0xff));
+}
+
+static DEVICE_ATTR(vpm_firmware_version, 0400,
+		   vpm_firmware_version_show, NULL);
+
+static void create_sysfs_files(struct wctdm *wc)
+{
+	int ret;
+	ret = device_create_file(&wc->vb.pdev->dev,
+				 &dev_attr_voicebus_current_latency);
+	if (ret) {
+		dev_info(&wc->vb.pdev->dev,
+			"Failed to create device attributes.\n");
+	}
+
+	ret = device_create_file(&wc->vb.pdev->dev,
+				 &dev_attr_vpm_firmware_version);
+	if (ret) {
+		dev_info(&wc->vb.pdev->dev,
+			"Failed to create device attributes.\n");
+	}
+}
+
+static void remove_sysfs_files(struct wctdm *wc)
+{
+	device_remove_file(&wc->vb.pdev->dev,
+			   &dev_attr_vpm_firmware_version);
+
+	device_remove_file(&wc->vb.pdev->dev,
+			   &dev_attr_voicebus_current_latency);
+}
+
+#else
+
+static inline void create_sysfs_files(struct wctdm *wc) { return; }
+static inline void remove_sysfs_files(struct wctdm *wc) { return; }
+
+#endif /* CONFIG_VOICEBUS_SYSFS */
 
 #ifdef USE_ASYNC_INIT
 struct async_data {
@@ -4661,14 +4715,9 @@ __wctdm_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 		return ret;
 	}
 
-#ifdef CONFIG_VOICEBUS_SYSFS
-	ret = device_create_file(&wc->vb.pdev->dev,
-				 &dev_attr_voicebus_current_latency);
-	if (ret) {
-		dev_info(&wc->vb.pdev->dev,
-			"Failed to create device attributes.\n");
-	}
-#endif
+
+	create_sysfs_files(wc);
+
 	voicebus_lock_latency(&wc->vb);
 
 	init_waitqueue_head(&wc->regq);
@@ -4890,12 +4939,11 @@ static void __devexit wctdm_remove_one(struct pci_dev *pdev)
 	struct vpmadt032 *vpm = wc->vpmadt032;
 	int i;
 
-#ifdef CONFIG_VOICEBUS_SYSFS
-	device_remove_file(&wc->vb.pdev->dev,
-			   &dev_attr_voicebus_current_latency);
-#endif
 
 	if (wc) {
+
+		remove_sysfs_files(wc);
+
 		if (vpm) {
 			clear_bit(VPM150M_DTMFDETECT, &vpm->control);
 			clear_bit(VPM150M_ACTIVE, &vpm->control);
