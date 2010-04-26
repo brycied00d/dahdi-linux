@@ -2095,6 +2095,48 @@ static const struct voicebus_operations voicebus_operations = {
 	.handle_error = t1_handle_error,
 };
 
+#ifdef CONFIG_VOICEBUS_SYSFS
+static ssize_t voicebus_current_latency_show(struct device *dev,
+					     struct device_attribute *attr,
+					     char *buf)
+{
+	unsigned long flags;
+	struct t1 *wc = dev_get_drvdata(dev);
+	unsigned int current_latency;
+	spin_lock_irqsave(&wc->vb.lock, flags);
+	current_latency = wc->vb.min_tx_buffer_count;
+	spin_unlock_irqrestore(&wc->vb.lock, flags);
+	return sprintf(buf, "%d\n", current_latency);
+}
+
+static DEVICE_ATTR(voicebus_current_latency, 0400,
+		   voicebus_current_latency_show, NULL);
+
+static void create_sysfs_files(struct t1 *wc)
+{
+	int ret;
+	ret = device_create_file(&wc->vb.pdev->dev,
+				 &dev_attr_voicebus_current_latency);
+	if (ret) {
+		dev_info(&wc->vb.pdev->dev,
+			"Failed to create device attributes.\n");
+	}
+}
+
+static void remove_sysfs_files(struct t1 *wc)
+{
+	device_remove_file(&wc->vb.pdev->dev,
+			   &dev_attr_voicebus_current_latency);
+}
+
+#else
+
+static inline void create_sysfs_files(struct t1 *wc) { return; }
+static inline void remove_sysfs_files(struct t1 *wc) { return; }
+
+#endif /* CONFIG_VOICEBUS_SYSFS */
+
+
 static int __devinit te12xp_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 {
 	struct t1 *wc;
@@ -2173,6 +2215,8 @@ static int __devinit te12xp_init_one(struct pci_dev *pdev, const struct pci_devi
 	voicebus_set_maxlatency(&wc->vb, max_latency);
 	max_latency = wc->vb.max_latency;
 
+	create_sysfs_files(wc);
+
 	voicebus_lock_latency(&wc->vb);
 	if (voicebus_start(&wc->vb)) {
 		voicebus_release(&wc->vb);
@@ -2211,6 +2255,8 @@ static void __devexit te12xp_remove_one(struct pci_dev *pdev)
 #endif
 	if (!wc)
 		return;
+
+	remove_sysfs_files(wc);
 
 	clear_bit(INITIALIZED, &wc->bit_flags);
 
