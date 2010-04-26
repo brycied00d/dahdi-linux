@@ -900,11 +900,11 @@ void gpakLockAccess(unsigned short DspId)
 
 	vpm = find_iface(DspId);
 
-	if (vpm) {
-		if (down_interruptible(&vpm->sem)) {
-			return;
-		}
-	}
+	if (!vpm)
+		return;
+
+	down(&vpm->sem);
+	return;
 }
 
 
