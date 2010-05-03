@@ -656,42 +656,37 @@ static inline int t1_getpins(struct t1 *wc, int inisr)
 	return ret;
 }
 
-static void __t1xxp_set_clear(struct t1 *wc, int channo)
+static void __t1xxp_set_clear(struct t1 *wc)
 {
 	int i,offset;
 	int ret;
-	unsigned short reg[2];
-	
-	if (channo < 0) {
-		/* If channo is passed as -1, we want to set all
-		   24 channels to clear mode */
-		t1_setreg(wc, CCB1, 0xff);
-		t1_setreg(wc, CCB2, 0xff);
-		t1_setreg(wc, CCB3, 0xff);
-	} else {
-		/* Calculate all states on all 24 channels using the channel
-		   flags, then write all 3 clear channel registers at once */
+	unsigned short reg[3] = {0, 0, 0};
 
-		for (i = 0; i < 24; i++) {
-			offset = i/8;
-			if(wc->span.chans[i]->flags & DAHDI_FLAG_CLEAR)
-				reg[offset] |= 1 << (7 - (i % 8));
-			else
-				reg[offset] &= ~(1 << (7 - (i % 8)));
-		}
+	/* Calculate all states on all 24 channels using the channel
+	   flags, then write all 3 clear channel registers at once */
 
-		ret = t1_setreg(wc, CCB1, reg[0]);
-		if (ret < 0)
-			t1_info(wc, "set_clear failed for chan %d!\n", channo);
-
-		ret = t1_setreg(wc, CCB2, reg[1]);
-		if (ret < 0)
-			t1_info(wc, "set_clear failed for chan %d!\n", channo);
-
-		ret = t1_setreg(wc, CCB3, reg[2]);
-		if (ret < 0)
-			t1_info(wc, "set_clear failed for chan %d!\n", channo);
+	for (i = 0; i < 24; i++) {
+		offset = i/8;
+		if (wc->span.chans[i]->flags & DAHDI_FLAG_CLEAR)
+			reg[offset] |= 1 << (7 - (i % 8));
+		else
+			reg[offset] &= ~(1 << (7 - (i % 8)));
 	}
+
+	ret = t1_setreg(wc, CCB1, reg[0]);
+	t1_info(wc, "Set CCB1 to 0x%X\n", reg[0]);
+	if (ret < 0)
+		t1_info(wc, "Unable to set clear/rbs mode!\n");
+
+	ret = t1_setreg(wc, CCB2, reg[1]);
+	t1_info(wc, "Set CCB2 to 0x%X\n", reg[1]);
+	if (ret < 0)
+		t1_info(wc, "Unable to set clear/rbs mode!\n");
+
+	ret = t1_setreg(wc, CCB3, reg[2]);
+	t1_info(wc, "Set CCB3 to 0x%X\n", reg[2]);
+	if (ret < 0)
+		t1_info(wc, "Unable to set clear/rbs mode!\n");
 }
 
 static void free_wc(struct t1 *wc)
@@ -940,7 +935,7 @@ static void t1xxp_framer_start(struct t1 *wc, struct dahdi_span *span)
 		t1_configure_e1(wc, span->lineconfig);
 	} else { /* is a T1 card */
 		t1_configure_t1(wc, span->lineconfig, span->txlevel);
-		__t1xxp_set_clear(wc, -1);
+		__t1xxp_set_clear(wc);
 	}
 
 	set_bit(DAHDI_FLAGBIT_RUNNING, &wc->span.flags);
@@ -993,7 +988,7 @@ static int t1xxp_chanconfig(struct dahdi_chan *chan, int sigtype)
 	struct t1 *wc = chan->pvt;
 	if (test_bit(DAHDI_FLAGBIT_RUNNING, &chan->span->flags) &&
 		(wc->spantype != TYPE_E1)) {
-		__t1xxp_set_clear(wc, chan->chanpos);
+		__t1xxp_set_clear(wc);
 	}
 	return 0;
 }
