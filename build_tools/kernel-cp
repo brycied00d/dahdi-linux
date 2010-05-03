@@ -26,7 +26,7 @@ if [ "$1" = 'download' ]; then
 	fi
 	
 	wget -O "$check_patch" "$URL"
-	if [ `wc -c "$check_patch"` -lt 1000 ]; then
+	if [ `wc -c <"$check_patch"` -lt 1000 ]; then
 		# already downloaded
 		# FIXME: redirection fails on downloading and you get a
 		# short HTML file as your "script".
