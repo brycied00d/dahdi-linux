@@ -674,17 +674,14 @@ static void __t1xxp_set_clear(struct t1 *wc)
 	}
 
 	ret = t1_setreg(wc, CCB1, reg[0]);
-	t1_info(wc, "Set CCB1 to 0x%X\n", reg[0]);
 	if (ret < 0)
 		t1_info(wc, "Unable to set clear/rbs mode!\n");
 
 	ret = t1_setreg(wc, CCB2, reg[1]);
-	t1_info(wc, "Set CCB2 to 0x%X\n", reg[1]);
 	if (ret < 0)
 		t1_info(wc, "Unable to set clear/rbs mode!\n");
 
 	ret = t1_setreg(wc, CCB3, reg[2]);
-	t1_info(wc, "Set CCB3 to 0x%X\n", reg[2]);
 	if (ret < 0)
 		t1_info(wc, "Unable to set clear/rbs mode!\n");
 }
