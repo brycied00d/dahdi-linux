@@ -64,6 +64,10 @@ ifeq (1,$(shell fgrep -q ' hrtimer_set_expires' include/linux/hrtimer.h 2>/dev/n
 EXTRA_CFLAGS+=-DHAVE_HRTIMER_ACCESSORS=1
 endif
 
+ifeq (1,$(shell fgrep -q 'wait_for_completion_timeout' include/linux/completion.h 2>/dev/null && echo 1))
+CFLAGS_MODULE+=-DHAVE_WAIT_FOR_COMPLETION_TIMEOUT=1
+endif
+
 # In 2.6.18 skb_linearize changed; however, some distros backported the change
 ifneq (,$(wildcard $(srctree)/include/linux/skbuff.h))
 ifeq ($(shell grep "skb_linearize.*(.*, .* gfp)" $(srctree)/include/linux/skbuff.h),)
