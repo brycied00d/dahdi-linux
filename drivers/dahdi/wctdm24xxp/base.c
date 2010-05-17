@@ -4113,7 +4113,9 @@ retry:
 					goto retry;
 
 				} else {
-					dev_notice(&wc->vb.pdev->dev, "Port %d: Not installed\n", x + 1);
+					dev_info(&wc->vb.pdev->dev,
+						 "Port %d: Not installed\n",
+						 x + 1);
 					wc->modtype[x] = MOD_TYPE_NONE;
 				}
 			}
