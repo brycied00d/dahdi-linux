@@ -1875,6 +1875,9 @@ static void b4xxp_init_stage2(struct b4xxp *b4)
 	flush_pci();
 	b4xxp_setreg8(b4, R_PCM_MD1, V_PLL_ADJ_00 | V_PCM_DR_2048);
 
+	b4xxp_setreg8(b4, R_PWM_MD, 0xa0);
+	b4xxp_setreg8(b4, R_PWM0, 0x1b);
+
 /*
  * set up the flow controller.
  * B channel map: (4 ports cards with Hardware Echo Cancel present & active)
