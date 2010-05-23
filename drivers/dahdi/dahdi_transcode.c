@@ -126,7 +126,7 @@ int dahdi_transcoder_unregister(struct dahdi_transcoder *tc)
 	if (!is_on_list(&tc->registration_list_node, &registration_list)) {
 		spin_unlock(&translock);
 		printk(KERN_WARNING "%s: Failed to unregister %s, which is " \
-		       "not currently registerd.\n", THIS_MODULE->name, tc->name);
+		       "not currently registered.\n", THIS_MODULE->name, tc->name);
 		return -EINVAL;
 	}
 	list_del_init(&tc->registration_list_node);
