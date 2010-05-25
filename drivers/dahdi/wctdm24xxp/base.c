@@ -4965,9 +4965,9 @@ static void __devexit wctdm_remove_one(struct pci_dev *pdev)
 			wc->vpmadt032 = NULL;
 		}
 
+		dev_info(&wc->vb.pdev->dev, "Freed a Wildcard\n");
 		/* Release span */
 		wctdm_release(wc);
-		dev_info(&wc->vb.pdev->dev, "Freed a Wildcard\n");
 	}
 }
 
