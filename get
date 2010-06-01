@@ -1,0 +1,3 @@
+#!/bin/bash
+
+git archive origin/oct612x drivers/dahdi/oct612x | tar xv
