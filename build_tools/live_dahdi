@@ -8,6 +8,7 @@ XPP_SYNC=${XPP_SYNC:-auto}
 AST_SCRIPT=${AST_SCRIPT:-/etc/init.d/asterisk}
 # Use this file to pass options to modules:
 PERLLIBDIR=`perl -V:sitelib | cut -d "'" -f 2`
+EXTRA_MODS="crc_ccitt"
 
 # Manual list of modules. They will be loaded by insmod.
 # If reside in a subdir, add it explicitly.
@@ -55,6 +56,7 @@ export ASTRIBANK_HEXLOAD
 
 # make sure Astribank initialization scripts are from our tree.
 xpp_ARGS="$xpp_ARGS initdir=$FIRMWARE_DIR"
+dahdi_ARGS="$dahdi_ARGS initdir=$FIRMWARE_DIR"
 
 # the same as xpp/utils/dahdi_drivers .
 # With the remote mode, I can't rely on files in the source directory.
@@ -84,6 +86,7 @@ set_modules_to_load() {
 			# FIXME: better automation of the voicebus
 			# dependency:
 			MODULES_LOAD="$MODULES_LOAD voicebus/dahdi_voicebus $mod/$mod"
+			EXTRA_MODS="$EXTRA_MODS firmware_class"
 				;;
 		wct4xxp | wcte12xp | wctc4xp | wcb4xxp)
 			MODULES_LOAD="$MODULES_LOAD $mod/$mod"
@@ -196,7 +199,9 @@ load)
 	# TODO: Find a way to use modprobe.
 	# Or implement a way to pass arguments to modules here (yuck)
 	set_modules_to_load
-	modprobe crc_ccitt || : # FIXME: Make this optional?
+	for mod in $EXTRA_MODS; do
+		modprobe $mod || : # FIXME: Make this optional?
+	done
 	for module in $MODULES_LOAD; do
 		eval module_args="\$`basename ${module}`_ARGS"
 		insmod $MODULES_DIR/$module.ko $module_args
