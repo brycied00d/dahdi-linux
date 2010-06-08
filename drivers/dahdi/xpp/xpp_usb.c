@@ -78,6 +78,14 @@ static DEF_PARM(uint, drop_pcm_after, 6, 0644, "Number of consecutive tx_sluggis
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,0)
 #  warning "This module is tested only with 2.6 kernels"
 #endif
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 34)
+#  define usb_alloc_coherent(dev, size, mem_flags, dma) \
+	usb_buffer_alloc(dev, size, mem_flags, dma)
+#  define usb_free_coherent(dev, size, addr, dma) \
+	usb_buffer_free(dev, size, addr, dma)
+#endif
+
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,12)
 #  undef USB_FIELDS_MISSING
 #else
@@ -308,7 +316,7 @@ static xframe_t *alloc_xframe(xbus_t *xbus, gfp_t gfp_flags)
 		return NULL;
 	}
 	usb_init_urb(&uframe->urb);
-	p = usb_buffer_alloc(xusb->udev, size, gfp_flags, &uframe->urb.transfer_dma);
+	p = usb_alloc_coherent(xusb->udev, size, gfp_flags, &uframe->urb.transfer_dma);
 	if(!p) {
 		if((rate_limit++ % 1003) == 0)
 			XUSB_ERR(xusb, "buffer allocation failed (%d)\n", rate_limit);
@@ -330,7 +338,7 @@ static void free_xframe(xbus_t *xbus, xframe_t *xframe)
 
 	BUG_ON(xbus->transport.priv != uframe->xusb);
 	//XUSB_INFO(uframe->xusb, "frame_free\n");
-	usb_buffer_free(urb->dev, uframe->transfer_buffer_length,
+	usb_free_coherent(urb->dev, uframe->transfer_buffer_length,
 			urb->transfer_buffer,
 			urb->transfer_dma);
 	memset(uframe, 0, sizeof(*uframe));
