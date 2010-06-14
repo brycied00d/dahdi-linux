@@ -4518,6 +4518,8 @@ module_param(aisalarmdebounce, int, 0600);
 module_param(yelalarmdebounce, int, 0600);
 module_param(j1mode, int, 0600);
 module_param(sigmode, int, 0600);
+module_param(latency, int, 0600);
+module_param(ms_per_irq, int, 0600);
 #ifdef VPM_SUPPORT
 module_param(vpmsupport, int, 0600);
 module_param(vpmdtmfsupport, int, 0600);
