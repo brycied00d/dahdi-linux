@@ -182,6 +182,6 @@
 /*
  * Pass DAHDI_AUDIOMODE to channel driver as well
  */
-#define	DAHDI_AUDIO_NOTIFY
+/* #define	DAHDI_AUDIO_NOTIFY */
 
 #endif
