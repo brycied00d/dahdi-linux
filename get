@@ -1,3 +1,4 @@
 #!/bin/bash
 
 git archive origin/externals drivers/dahdi/oct612x | tar xv
+git show origin/externals .authors > .authors
