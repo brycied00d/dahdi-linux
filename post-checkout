@@ -1,0 +1,65 @@
+#!/bin/bash
+PROJECT="dahdi/linux"
+
+# Do not update the .version file if it's part of the repository
+git ls-files | grep ^\.version
+if [ $? -eq 0 ]; then
+    exit 0
+fi
+
+if [ -d .git ]; then
+    # If the first log commit messages indicates that this is checked into
+    # subversion, we'll just use the SVN- form of the revision.
+    SVN_REV=`git log --pretty=full -1 | grep git-svn-id | sed -e "s/.*\@\([^\s]*\)\s.*/\1/g"`
+    if [ -z "$SVN_REV" ]; then
+        RESULT=`git log --pretty=format:"%h" -1`
+        echo GIT-${RESULT} > .version
+    else
+        PARTS=`LANG=C git log --pretty=full | grep git-svn | head -1 | awk '{print $2;}' | sed -e s:^.*/svn/${PROJECT}/:: | sed -e 's:/: :g' | sed -e 's/@.*$//g'`
+        BRANCH=0
+        TEAM=0
+    
+        if [ "${PARTS}" = "trunk" ]
+        then
+        echo SVN-'trunk'-r${SVN_REV} > .version
+	exit 0
+        fi
+        
+        for PART in $PARTS
+          do
+          if [ ${BRANCH} != 0 ]
+          then
+          RESULT="${RESULT}-${PART}"
+          break
+          fi
+          
+          if [ ${TEAM} != 0 ]
+          then
+          RESULT="${RESULT}-${PART}"
+          continue
+          fi
+          
+          if [ "${PART}" = "branches" ]
+          then
+          BRANCH=1
+          RESULT="branch"
+          continue
+          fi
+          
+          if [ "${PART}" = "tags" ]
+          then
+          BRANCH=1
+          RESULT="tag"
+          continue
+          fi
+          
+          if [ "${PART}" = "team" ]
+          then
+          TEAM=1
+          continue
+          fi
+        done
+
+        echo SVN-${RESULT##-}-r${SVN_REV} > .version
+    fi
+fi

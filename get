@@ -1,5 +1,22 @@
 #!/bin/bash
 
-git archive origin/externals drivers/dahdi/oct612x | tar xv
-git show origin/externals .authors > .authors
-git show origin/externals:patch.patch | patch -p1 
+echo "Updating drivers/dahdi/oct612x"
+git archive origin/externals drivers/dahdi/oct612x | tar xv > /dev/null
+
+if [[ -e .git/authors ]]; then
+    echo "WARNING: Not overwriting .git/authors"
+else
+    echo "Updating .git/authors"
+    git show origin/externals:.authors > .git/authors
+fi
+
+if [[ -e .git/hooks/post-checkout ]]; then
+    echo "WARNING: Not overwriting .git/hooks/post-checkout"
+    echo "         delete the file and rerun get if you would like to"
+    echo "         update the hook."
+else
+    echo "Installing post-commit hook to update version"
+    git show origin/externals:post-checkout > .git/hooks/post-checkout
+    chmod +x .git/hooks/post-checkout
+    .git/hooks/post-checkout
+fi
