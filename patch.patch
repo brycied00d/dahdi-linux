@@ -1,0 +1,79 @@
+diff --git a/Makefile b/Makefile
+index d89e0de..bf22b16 100644
+--- a/Makefile
++++ b/Makefile
+@@ -69,6 +69,10 @@ ifneq ($(wildcard .version),)
+ else
+ ifneq ($(wildcard .svn),)
+   DAHDIVERSION:=$(shell build_tools/make_version . dahdi/linux)
++else
++ifneq ($(wildcard .git),)
++  DAHDIVERSION:=$(shell build_tools/make_version . dahdi/linux)
++endif
+ endif
+ endif
+ 
+diff --git a/build_tools/make_version b/build_tools/make_version
+index e6caaa2..7c5dfa3 100755
+--- a/build_tools/make_version
++++ b/build_tools/make_version
+@@ -53,4 +53,59 @@ elif [ -d .svn ]; then
+     done
+     
+     echo SVN-${RESULT##-}-r${REV}
++
++elif [ -d .git ]; then
++
++    SVN_REV=`git svn find-rev origin/master`
++    if [ -z "$SVN_REV" ]; then
++        RESULT=`git log --pretty=format:"%h" -1`
++        echo GIT-${RESULT}
++    else
++        PARTS=`LANG=C git log --pretty=full | grep git-svn | head -1 | awk '{print $2;}' | sed -e s:^.*/svn/${2}/:: | sed -e 's:/: :g' | sed -e 's/@.*$//g'`
++        BRANCH=0
++        TEAM=0
++    
++        if [ "${PARTS}" = "trunk" ]
++        then
++        echo SVN-'trunk'-r${SVN_REV}
++        exit 0
++        fi
++        
++        for PART in $PARTS
++          do
++          if [ ${BRANCH} != 0 ]
++          then
++          RESULT="${RESULT}-${PART}"
++          break
++          fi
++          
++          if [ ${TEAM} != 0 ]
++          then
++          RESULT="${RESULT}-${PART}"
++          continue
++          fi
++          
++          if [ "${PART}" = "branches" ]
++          then
++          BRANCH=1
++          RESULT="branch"
++          continue
++          fi
++          
++          if [ "${PART}" = "tags" ]
++          then
++          BRANCH=1
++          RESULT="tag"
++          continue
++          fi
++          
++          if [ "${PART}" = "team" ]
++          then
++          TEAM=1
++          continue
++          fi
++        done
++
++        echo SVN-${RESULT##-}-r${SVN_REV}
++    fi
+ fi
