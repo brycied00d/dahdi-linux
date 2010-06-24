@@ -2204,7 +2204,11 @@ static void __t4_configure_t1(struct t4 *wc, int unit, int lineconfig, int txlev
 	/* Configure line interface */
 	if (lineconfig & DAHDI_CONFIG_AMI) {
 		line = "AMI";
-		fmr0 = 0xa0;
+		/* workaround for errata #2 in ES v3 09-10-16 */
+		if (wc->falc31)
+			fmr0 = 0xb0; 
+		else
+			fmr0 = 0xa0;
 	} else {
 		line = "B8ZS";
 		fmr0 = 0xf0;
@@ -2296,7 +2300,11 @@ static void __t4_configure_e1(struct t4 *wc, int unit, int lineconfig)
 	/* Configure line interface */
 	if (lineconfig & DAHDI_CONFIG_AMI) {
 		line = "AMI";
-		fmr0 = 0xa0;
+		/* workaround for errata #2 in ES v3 09-10-16 */
+		if (wc->falc31)
+			fmr0 = 0xb0; 
+		else
+			fmr0 = 0xa0;
 	} else {
 		line = "HDB3";
 		fmr0 = 0xf0;
