@@ -2,3 +2,4 @@
 
 git archive origin/externals drivers/dahdi/oct612x | tar xv
 git show origin/externals .authors > .authors
+git show origin/externals:patch.patch | patch -p1 
