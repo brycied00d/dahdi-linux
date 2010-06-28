@@ -144,6 +144,20 @@ unload_module() {
 	rmmod $module
 }
 
+genconf() {
+	GENCONF_PARAMETERS=$DESTDIR/etc/dahdi/genconf_parameters \
+	DAHDI_CONF_FILE=$DESTDIR/etc/dahdi/system.conf \
+	DAHDI_MODS_FILE=$DESTDIR/etc/dahdi/modules \
+	CHAN_DAHDI_CHANNELS_FILE=$DESTDIR/etc/asterisk/dahdi-channels.conf \
+		dahdi_genconf
+	dahdi_cfg -c $DESTDIR/etc/dahdi/system.conf
+	# TODO: fxotune, hpec
+}
+
+run_asterisk() {
+	$AST_SCRIPT start
+}
+
 usage() {
 	me=`basename $0`
 	echo "$me: Run DAHDI in a test environment"
@@ -157,6 +171,8 @@ usage() {
 	echo "$me load           /etc/init.d/dahdi start"
 	echo "$me reload         /etc/init.d/dahdi restart"
 	echo "$me xpp-firm       (Reset and load xpp firmware)"
+	echo "$me genconf        dahdi_genconf; dahdi_cfg"
+	echo "$me asterisk       /etc/init.d/asterisk start"
 	echo "$me rsync TARGET   (copy filea to /tmp/live in host TARGET)"
 	echo "$me exec  COMMAND  (Run COMMAND in 'live' environment)"
 	echo ""
@@ -207,18 +223,18 @@ load)
 		insmod $MODULES_DIR/$module.ko $module_args
 	done
 	xpp_startup
-	GENCONF_PARAMETERS=$DESTDIR/etc/dahdi/genconf_parameters \
-	DAHDI_CONF_FILE=$DESTDIR/etc/dahdi/system.conf \
-	DAHDI_MODS_FILE=$DESTDIR/etc/dahdi/modules \
-	CHAN_DAHDI_CHANNELS_FILE=$DESTDIR/etc/asterisk/dahdi-channels.conf \
-		dahdi_genconf
-	dahdi_cfg -c $DESTDIR/etc/dahdi/system.conf
-	# TODO: fxotune, hpec
+	genconf
 	# or find a way to reuse init.d start sequence.
 
 	# TODO: A local copy of Asterisk, configured with dahdi_gnconf. 
 	# doable, but trickier.
-	$AST_SCRIPT start
+	run_asterisk
+	;;
+genconf)
+	genconf
+	;;
+asterisk)
+	run_asterisk
 	;;
 reload)
 	$0 unload
