@@ -871,6 +871,18 @@ added. That definition is for the old version and thus it might appear
 slightly confusing in the code, but it is useful for writing code that works
 with all versions of DAHDI. 
 
+Past Incompatibilities
+^^^^^^^^^^^^^^^^^^^^^^
+.DAHDI 2.3:
+DAHDI_SPANINFO_V1 (extra members added). This will typically only be
+used on ISDN (PRI/BRI) spans in Asterisk.
+
+.DAHDI 2.2:
+* DAHDI_GET_PARAMS_V1, DAHDI_GETCONF_V1, DAHDI_SETCONF_V1,
+  DAHDI_GETGAINS_V1 ('direction' changed from 'R' to 'RW' to fix
+  FreeBSD support).
+* DAHDI_CONFDIAG_V1, DAHDI_CHANDIAG_V1 (fixed direction).
+
 
 Alarm Types
 ~~~~~~~~~~~
