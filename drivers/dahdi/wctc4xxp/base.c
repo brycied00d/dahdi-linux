@@ -934,7 +934,7 @@ wctc4xxp_submit(struct wctc4xxp_descriptor_ring *dr, struct tcb *c)
 
 	SET_OWNED(d); /* That's it until the hardware is done with it. */
 	dr->pending[dr->tail] = c;
-	dr->tail = ++dr->tail & DRING_MASK;
+	dr->tail = (dr->tail + 1) & DRING_MASK;
 	++dr->count;
 	spin_unlock_irqrestore(&dr->lock, flags);
 	return 0;
