@@ -828,34 +828,33 @@ original struct.
 
 So suppose we had the following ioctl:
 ----------------------------------
-struct zt_example {
+struct dahdi_example {
 	int sample;
 }
 
-#define DAHDI_EXAMPLE     _IOWR (DAHDI_CODE, 62, struct zt_example)
+#define DAHDI_EXAMPLE     _IOWR (DAHDI_CODE, 62, struct dahdi_example)
 ----------------------------------
 
 And we want to add the field 'int onemore', we won't just add it to the
 struct. We will do something that is more complex:
 ------------------------------------
 /* The original, unchanged: */
-struct zt_example_v1 {
+struct dahdi_example_v1 {
 	int sample;
 }
 
 /* The new struct: */
-struct zt_example {
+struct dahdi_example {
 	int sample;
 	int onemore;
 }
 
-#define DAHDI_EXAMPLE_V1  _IOWR (DAHDI_CODE, 62, struct zt_example_v1)
-#define DAHDI_EXAMPLE     _IOWR (DAHDI_CODE, 62, struct zt_example)
+#define DAHDI_EXAMPLE_V1  _IOWR(DAHDI_CODE, 62, struct dahdi_example_v1)
+#define DAHDI_EXAMPLE     _IOWR(DAHDI_CODE, 62, struct dahdi_example)
 ------------------------------------
 We actually have here two different ioctls: the old DAHDI_EXAMPLE would be
-0xC0044A3E . DAHDI_EXAMPLE_V1 would have the same value. But the new value
-of DAHDI_EXAMPLE would be 0xC0084A3E .
-(TODO: fix ioctl values)
+0xC004DA3E . DAHDI_EXAMPLE_V1 would have the same value. But the new value
+of DAHDI_EXAMPLE would be 0xC008DA3E .
 
 Programs built with the original dahdi/user.h (before the change) use the
 original ioctl, whether or not the kernel code is actually of the newer
@@ -863,7 +862,7 @@ version. Thus in most cases there are no compatibility issues.
 
 When can we have compatibility issues? If we have code built with the new
 dahdi/user.h, but the loaded kernel code (modules) are of the older version.
-Thus the userspace program will try to use the newer DAHDI_EXAMPLE (0xC0084A3E).
+Thus the userspace program will try to use the newer DAHDI_EXAMPLE (0xC008DA3E).
 But the kernel code has no handler for that ioctl. The result: the error 25,
 ENOTTY, which means "Inappropriate ioctl for device".
 
