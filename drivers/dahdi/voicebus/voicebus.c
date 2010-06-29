@@ -614,7 +614,7 @@ int voicebus_transmit(struct voicebus *vb, struct vbb *vbb)
 	dl->pending[dl->tail] = vbb;
 	d->buffer1 = dma_map_single(&vb->pdev->dev, vbb->data,
 				    sizeof(vbb->data), DMA_TO_DEVICE);
-	dl->tail = (++(dl->tail)) & DRING_MASK;
+	dl->tail = (dl->tail + 1) & DRING_MASK;
 	SET_OWNED(d); /* That's it until the hardware is done with it. */
 	atomic_inc(&dl->count);
 	return 0;
@@ -1309,7 +1309,7 @@ static void vb_tasklet_normal(unsigned long data)
 			if (d->buffer1 != vb->idle_vbb_dma_addr)
 				goto tx_error_exit;
 			SET_OWNED(d);
-			dl->head = ++dl->head & DRING_MASK;
+			dl->head = (dl->head + 1) & DRING_MASK;
 			d = vb_descriptor(dl, dl->head);
 			++behind;
 		}
@@ -1334,7 +1334,7 @@ static void vb_tasklet_normal(unsigned long data)
 			if (d->buffer1 != vb->idle_vbb_dma_addr)
 				goto tx_error_exit;
 			SET_OWNED(d);
-			dl->head = ++dl->head & DRING_MASK;
+			dl->head = (dl->head + 1) & DRING_MASK;
 			d = vb_descriptor(dl, dl->head);
 			++behind;
 		}
@@ -1344,7 +1344,7 @@ static void vb_tasklet_normal(unsigned long data)
 			d->buffer1 = vb->idle_vbb_dma_addr;
 			dl->pending[dl->head] = vb->idle_vbb;
 			d->des0 |= OWN_BIT;
-			dl->head = ++dl->head & DRING_MASK;
+			dl->head = (dl->head + 1) & DRING_MASK;
 		}
 		dl->tail = dl->head;
 	}
