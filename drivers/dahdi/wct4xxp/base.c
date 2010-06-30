@@ -176,6 +176,7 @@ static int alarmdebounce = 2500; /* LOF/LFA def to 2.5s AT&T TR54016*/
 static int losalarmdebounce = 2500;/* LOS def to 2.5s AT&T TR54016*/
 static int aisalarmdebounce = 2500;/* AIS(blue) def to 2.5s AT&T TR54016*/
 static int yelalarmdebounce = 500;/* RAI(yellow) def to 0.5s AT&T devguide */
+static int extendedreset = 0;
 #ifdef VPM_SUPPORT
 static int vpmsupport = 1;
 /* If set to auto, vpmdtmfsupport is enabled for VPM400M and disabled for VPM450M */
@@ -4017,6 +4018,33 @@ static void t4_tsi_unassign(struct t4 *wc, int tospan, int tochan)
 	spin_unlock_irqrestore(&wc->reglock, flags);
 }
 
+static void t4_extended_reset(struct t4 *wc)
+{
+	unsigned int oldreg = t4_pci_in(wc, 0x4);
+
+	udelay(1000);
+
+	t4_pci_out(wc, 0x4, 0x42000000);
+	t4_pci_out(wc, 0xa, 0x42000000);
+	t4_pci_out(wc, 0xa, 0x00080000);
+	t4_pci_out(wc, 0xa, 0x00080000);
+	t4_pci_out(wc, 0xa, 0x00080000);
+	t4_pci_out(wc, 0xa, 0x00180000);
+	t4_pci_out(wc, 0xa, 0x00080000);
+	t4_pci_out(wc, 0xa, 0x00180000);
+	t4_pci_out(wc, 0xa, 0x00080000);
+	t4_pci_out(wc, 0xa, 0x00180000);
+	t4_pci_out(wc, 0xa, 0x00080000);
+	t4_pci_out(wc, 0xa, 0x00180000);
+	t4_pci_out(wc, 0xa, 0x00080000);
+	t4_pci_out(wc, 0xa, 0x00180000);
+	t4_pci_out(wc, 0xa, 0x00080000);
+	t4_pci_out(wc, 0xa, 0x00180000);
+	t4_pci_out(wc, 0x4, oldreg);
+
+	udelay(1000);
+}
+
 static int t4_hardware_init_1(struct t4 *wc, unsigned int cardflags)
 {
 	unsigned int version;
@@ -4026,6 +4054,11 @@ static int t4_hardware_init_1(struct t4 *wc, unsigned int cardflags)
 #ifdef ENABLE_WORKQUEUES
 	printk(KERN_INFO "TE%dXXP running with work queues.\n", wc->numspans);
 #endif
+
+	if (extendedreset) {
+		t4_extended_reset(wc);
+	}
+
 
 	/* Make sure DMA engine is not running and interrupts are acknowledged */
 	wc->dmactrl = 0x0;
@@ -4522,6 +4555,7 @@ module_param(j1mode, int, 0600);
 module_param(sigmode, int, 0600);
 module_param(latency, int, 0600);
 module_param(ms_per_irq, int, 0600);
+module_param(extendedreset, int, 0600);
 #ifdef VPM_SUPPORT
 module_param(vpmsupport, int, 0600);
 module_param(vpmdtmfsupport, int, 0600);
