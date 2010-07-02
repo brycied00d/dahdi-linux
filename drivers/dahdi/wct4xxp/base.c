@@ -77,6 +77,9 @@
 #define DEBUG_RBS 		(1 << 5)
 #define DEBUG_FRAMER		(1 << 6)
 
+/* Maximum latency to be used with Gen 5 */
+#define GEN5_MAX_LATENCY	127
+
 #define T4_BASE_SIZE (DAHDI_MAX_CHUNKSIZE * 32 * 4) 
 
 #ifdef ENABLE_WORKQUEUES
@@ -176,6 +179,7 @@ static int alarmdebounce = 2500; /* LOF/LFA def to 2.5s AT&T TR54016*/
 static int losalarmdebounce = 2500;/* LOS def to 2.5s AT&T TR54016*/
 static int aisalarmdebounce = 2500;/* AIS(blue) def to 2.5s AT&T TR54016*/
 static int yelalarmdebounce = 500;/* RAI(yellow) def to 0.5s AT&T devguide */
+static int max_latency = GEN5_MAX_LATENCY;  /* Used to set a maximum latency (if you don't wish it to hard cap it at a certain value) in milliseconds */
 static int extendedreset = 0;
 #ifdef VPM_SUPPORT
 static int vpmsupport = 1;
@@ -3483,6 +3487,7 @@ DAHDI_IRQ_HANDLER(t4_interrupt_gen2)
 	
 		if ((rxident != expected) && !test_bit(T4_IGNORE_LATENCY, &wc->checkflag)) {
 			int needed_latency;
+			int smallest_max;
 
 			if (debug & DEBUG_MAIN)
 				printk("!!! Missed interrupt.  Expected ident of %d and got ident of %d\n", expected, rxident);
@@ -3498,9 +3503,11 @@ DAHDI_IRQ_HANDLER(t4_interrupt_gen2)
 
 			needed_latency += 1;
 
-			if (needed_latency >= 128) {
-				printk("Truncating latency request to 127 instead of %d\n", needed_latency);
-				needed_latency = 127;
+			smallest_max = (max_latency >= GEN5_MAX_LATENCY) ? GEN5_MAX_LATENCY : max_latency;
+
+			if (needed_latency > smallest_max) {
+				printk("Truncating latency request to %d instead of %d\n", smallest_max, needed_latency);
+				needed_latency = smallest_max;
 			}
 
 			if (needed_latency > wc->numbufs) {
@@ -4551,6 +4558,7 @@ module_param(alarmdebounce, int, 0600);
 module_param(losalarmdebounce, int, 0600);
 module_param(aisalarmdebounce, int, 0600);
 module_param(yelalarmdebounce, int, 0600);
+module_param(max_latency, int, 0600);
 module_param(j1mode, int, 0600);
 module_param(sigmode, int, 0600);
 module_param(latency, int, 0600);
