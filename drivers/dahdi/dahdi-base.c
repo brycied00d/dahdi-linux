@@ -8342,7 +8342,7 @@ static void coretimer_func(unsigned long param)
 	unsigned long ms_since_start;
 	struct timespec now;
 	const unsigned long MAX_INTERVAL = 100000L;
-	const unsigned long FOURMS_INTERVAL = HZ/250;
+	const unsigned long FOURMS_INTERVAL = max(HZ/250, 1);
 	const unsigned long ONESEC_INTERVAL = HZ;
 	const unsigned long MS_LIMIT = 3000;
 
