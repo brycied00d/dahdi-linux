@@ -98,7 +98,7 @@ static struct hrtimer zaptimer;
 #define CLOCK_SRC "Linux26"
 static struct timer_list timer;
 static atomic_t shutdown;
-#define JIFFIES_INTERVAL (HZ/250) 	/* 4ms is fine for dahdi_dummy */
+#define JIFFIES_INTERVAL max(HZ/250, 1) 	/* 4ms is fine for dahdi_dummy */
 #endif
 
 /* Different bits of the debug variable: */
