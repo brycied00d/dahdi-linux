@@ -249,6 +249,9 @@ void xpd_free(xpd_t *xpd)
 	}
 	KZFREE(xpd);
 	DBG(DEVICES, "refcount_xbus=%d\n", refcount_xbus(xbus));
+	/*
+	 * This must be last, so the xbus cannot be released before the xpd
+	 */
 	put_xbus(__FUNCTION__, xbus);		/* was taken in xpd_alloc() */
 }
 
@@ -555,6 +558,10 @@ __must_check xpd_t *xpd_alloc(xbus_t *xbus,
 	xbus_xpd_bind(xbus, xpd, unit, subunit);
 	if(xpd_proc_create(xbus, xpd) < 0)
 		goto err;
+	/*
+	 * This makes sure the xbus cannot be removed before this xpd
+	 * is removed in xpd_free()
+	 */
 	xbus = get_xbus(__FUNCTION__, xbus);	/* returned in xpd_free() */
 	xproto_get(type);			/* will be returned in xpd_free() */
 	return xpd;

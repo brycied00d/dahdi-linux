@@ -576,13 +576,17 @@ HANDLER_DEF(GLOBAL, NULL_REPLY)
 
 HANDLER_DEF(GLOBAL, AB_DESCRIPTION)	/* 0x08 */
 {
-	struct xbus_workqueue	*worker = xbus->worker;
+	struct xbus_workqueue	*worker;
 	byte			rev;
 	struct unit_descriptor	*units;
 	int			count_units;
 	int			i;
 	int			ret = 0;
 
+	if (!xbus) {
+		NOTICE("%s: xbus is gone!!!\n", __func__);
+		goto out;
+	}
 	rev = RPACKET_FIELD(pack, GLOBAL, AB_DESCRIPTION, rev);
 	units = RPACKET_FIELD(pack, GLOBAL, AB_DESCRIPTION, unit_descriptor);
 	count_units = XPACKET_LEN(pack) - ((byte *)units - (byte *)pack);
@@ -611,10 +615,11 @@ HANDLER_DEF(GLOBAL, AB_DESCRIPTION)	/* 0x08 */
 	}
 	XBUS_INFO(xbus, "DESCRIPTOR: %d cards, protocol revision %d\n", count_units, rev);
 	xbus->revision = rev;
-	if(!worker) {
-		XBUS_ERR(xbus, "missing worker\n");
+	worker = &xbus->worker;
+	if (!worker->wq) {
+		XBUS_ERR(xbus, "missing worker thread\n");
 		ret = -ENODEV;
-		goto err;
+		goto out;
 	}
 	for(i = 0; i < count_units; i++) {
 		struct unit_descriptor	*this_unit = &units[i];
@@ -624,7 +629,7 @@ HANDLER_DEF(GLOBAL, AB_DESCRIPTION)	/* 0x08 */
 		if((card_desc = KZALLOC(sizeof(struct card_desc_struct), GFP_ATOMIC)) == NULL) {
 			XBUS_ERR(xbus, "Card description allocation failed.\n");
 			ret = -ENOMEM;
-			goto err;
+			goto out;
 		}
 		card_desc->magic = CARD_DESC_MAGIC;
 		INIT_LIST_HEAD(&card_desc->card_list);
@@ -650,12 +655,14 @@ HANDLER_DEF(GLOBAL, AB_DESCRIPTION)	/* 0x08 */
 		list_add_tail(&card_desc->card_list, &worker->card_list);
 		spin_unlock_irqrestore(&worker->worker_lock, flags);
 	}
-	if(!xbus_process_worker(xbus))
-		return -ENODEV;
-	return 0;
+	if (!xbus_process_worker(xbus)) {
+		ret = -ENODEV;
+		goto out;
+	}
+	goto out;
 proto_err:
 	dump_packet("AB_DESCRIPTION", pack, DBG_ANY);
-err:
+out:
 	return ret;
 }
 

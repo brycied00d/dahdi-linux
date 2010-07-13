@@ -127,7 +127,6 @@ void transportops_put(xbus_t *xbus);
  * Encapsulate all poll related data of a single xbus.
  */
 struct xbus_workqueue {
-	xbus_t			*xbus;
 	struct workqueue_struct	*wq;
 	struct work_struct	xpds_init_work;
 	bool			xpds_init_done;
@@ -141,6 +140,7 @@ struct xbus_workqueue {
 #endif
 #endif
 	spinlock_t		worker_lock;
+	struct semaphore	running_initialization;
 };
 
 /*
@@ -224,8 +224,7 @@ struct xbus {
 	int			sample_pos;
 #endif
 
-	struct xbus_workqueue	*worker;
-	struct semaphore	in_worker;
+	struct xbus_workqueue	worker;
 
 	/*
 	 * Sync adjustment
