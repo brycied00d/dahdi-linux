@@ -98,7 +98,8 @@ typedef enum
 typedef enum
 {
     inactive=0,          // channel inactive 
-    tdmToTdm=1           // tdmToTdm
+    tdmToTdm=1,          // tdmToTdm
+    tdmToTdmDebug=2           // tdmToTdm
 } GpakChanType;
 
 /* G.PAK Algorithm control commands */

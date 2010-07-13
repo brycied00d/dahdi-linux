@@ -882,7 +882,7 @@ void t1_vpm150m_init(struct t1 *wc) {
 	pingstatus = gpakPingDsp(vpm150m->dspid, &vpm150m->version);
 
 	if (!pingstatus) {
-		debug_printk(1, "Version of DSP is %x\n", vpm150m->version);
+		module_printk("Version of DSP is %x\n", vpm150m->version);
 	} else {
 		module_printk("Unable to ping the DSP (%d)!\n", pingstatus);
 		goto failed_exit;
@@ -1136,6 +1136,7 @@ int vpm150m_config_hw(struct t1 *wc)
 	GpakChannelConfig_t chanconfig;
 	GPAK_ChannelConfigStat_t cstatus;
 	GPAK_AlgControlStat_t algstatus;
+	GpakEcanParms_t *p;
 
 	int res, i;
 
@@ -1262,22 +1263,34 @@ int vpm150m_config_hw(struct t1 *wc)
 		chanconfig.EcanParametersA.EcanCrossCorrLimit = 15;
 		chanconfig.EcanParametersA.EcanNumFirSegments = 3;
 		chanconfig.EcanParametersA.EcanFirSegmentLen = 64;
+
+		p = &chanconfig.EcanParametersA;
+
+#define DEFAULT_NLPTYPE 6
+#define DEFAULT_NLPTHRESH 22
+#define DEFAULT_NLPMAXSUPP 10
 	
-		chanconfig.EcanParametersB.EcanTapLength = 1024;
-		chanconfig.EcanParametersB.EcanNlpType = vpmnlptype;
-		chanconfig.EcanParametersB.EcanAdaptEnable = 1;
-		chanconfig.EcanParametersB.EcanG165DetEnable = 1;
-		chanconfig.EcanParametersB.EcanDblTalkThresh = 6;
-		chanconfig.EcanParametersB.EcanNlpThreshold = vpmnlpthresh;
-		chanconfig.EcanParametersB.EcanNlpConv = 0;
-		chanconfig.EcanParametersB.EcanNlpUnConv = 0;
-		chanconfig.EcanParametersB.EcanNlpMaxSuppress = vpmnlpmaxsupp;
-		chanconfig.EcanParametersB.EcanCngThreshold = 43;
-		chanconfig.EcanParametersB.EcanAdaptLimit = 50;
-		chanconfig.EcanParametersB.EcanCrossCorrLimit = 15;
-		chanconfig.EcanParametersB.EcanNumFirSegments = 3;
-		chanconfig.EcanParametersB.EcanFirSegmentLen = 64;
-	
+		p->EcanTapLength = 1024;
+		p->EcanNlpType = DEFAULT_NLPTYPE;
+		p->EcanAdaptEnable = 1;
+		p->EcanG165DetEnable = 1;
+		p->EcanDblTalkThresh = 6;
+		p->EcanMaxDoubleTalkThres = 40;
+		p->EcanNlpThreshold = DEFAULT_NLPTHRESH;
+		p->EcanNlpConv = 18;
+		p->EcanNlpUnConv = 12;
+		p->EcanNlpMaxSuppress = DEFAULT_NLPMAXSUPP;
+		p->EcanCngThreshold = 43;
+		p->EcanAdaptLimit = 50;
+		p->EcanCrossCorrLimit = 15;
+		p->EcanNumFirSegments = 3;
+		p->EcanFirSegmentLen = 48;
+		p->EcanReconvergenceCheckEnable = 2;
+		p->EcanTandemOperationEnable = 0;
+		p->EcanMixedFourWireMode = 0;
+
+		memcpy(&chanconfig.EcanParametersB, p, sizeof(*p));
+
 		if ((res = gpakConfigureChannel(vpm150m->dspid, i, tdmToTdm, &chanconfig, &cstatus))) {
 			module_printk("Unable to configure channel (%d)\n", res);
 			if (res == 1) {

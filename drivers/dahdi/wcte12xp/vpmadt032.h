@@ -30,6 +30,8 @@
 #ifndef _VPM150M_H
 #define _VPM150M_H
 
+#include "dahdi/kernel.h"
+
 #include "wcte12xp.h"
 #include "adt_lec.h"
 
