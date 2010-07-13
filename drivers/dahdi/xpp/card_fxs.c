@@ -1146,7 +1146,7 @@ static int FXS_card_tick(xbus_t *xbus, xpd_t *xpd)
 		}
 	}
 	if(SPAN_REGISTERED(xpd)) {
-		i f(!vmwi_ioctl && priv->search_fsk_pattern)
+		if (!vmwi_ioctl && priv->search_fsk_pattern)
 			detect_vmwi(xpd);	/* Detect via FSK modulation */
 	}
 	return 0;
