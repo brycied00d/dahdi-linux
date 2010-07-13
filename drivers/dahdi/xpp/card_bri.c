@@ -1671,6 +1671,7 @@ static xproto_table_t PROTO_TABLE(BRI) = {
 		.card_pcm_recompute	= BRI_card_pcm_recompute,
 		.card_pcm_fromspan	= BRI_card_pcm_fromspan,
 		.card_pcm_tospan	= BRI_card_pcm_tospan,
+		.card_timing_priority	= generic_timing_priority,
 		.card_ioctl	= BRI_card_ioctl,
 		.card_open	= BRI_card_open,
 		.card_close	= BRI_card_close,

@@ -130,7 +130,7 @@ static void xpd_destroy(struct kref *kref)
 	xpd_t	*xpd;
 
 	xpd = kref_to_xpd(kref);
-	XPD_NOTICE(xpd, "%s\n", __func__);
+	XPD_DBG(DEVICES, xpd, "%s\n", __func__);
 	xpd_device_unregister(xpd);
 }
 

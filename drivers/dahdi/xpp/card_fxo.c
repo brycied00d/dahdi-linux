@@ -1133,6 +1133,7 @@ static xproto_table_t PROTO_TABLE(FXO) = {
 		.card_pcm_recompute	= generic_card_pcm_recompute,
 		.card_pcm_fromspan	= generic_card_pcm_fromspan,
 		.card_pcm_tospan	= generic_card_pcm_tospan,
+		.card_timing_priority	= generic_timing_priority,
 		.card_ioctl	= FXO_card_ioctl,
 		.card_open	= FXO_card_open,
 		.card_register_reply	= FXO_card_register_reply,

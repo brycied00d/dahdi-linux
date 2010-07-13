@@ -194,6 +194,8 @@ struct xbus {
 
 	bool			self_ticking;
 	enum sync_mode		sync_mode;
+	/* Managed by low-level drivers: */
+	enum sync_mode		sync_mode_default;
 	struct timer_list	command_timer;
 	unsigned int		xbus_frag_count;
 	struct xframe_queue	pcm_tospan;

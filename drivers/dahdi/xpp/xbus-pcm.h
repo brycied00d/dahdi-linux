@@ -108,6 +108,7 @@ void		update_wanted_pcm_mask(xpd_t *xpd, xpp_line_t new_mask, uint new_pcm_len);
 void		generic_card_pcm_recompute(xbus_t *xbus, xpd_t *xpd, xpp_line_t pcm_mask);
 void		generic_card_pcm_fromspan(xbus_t *xbus, xpd_t *xpd, xpacket_t *pack);
 void		generic_card_pcm_tospan(xbus_t *xbus, xpd_t *xpd, xpacket_t *pack);
+int		generic_timing_priority(xbus_t *xbus, xpd_t *xpd);
 void		fill_beep(u_char *buf, int num, int duration);
 const char	*sync_mode_name(enum sync_mode mode);
 void		xbus_set_command_timer(xbus_t *xbus, bool on);
