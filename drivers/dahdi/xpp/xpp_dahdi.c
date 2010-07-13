@@ -362,7 +362,7 @@ static int xpd_read_proc(char *page, char **start, off_t off, int count, int *eo
 	}
 	len += sprintf(page + len, "\n\t%-17s: ", "msg_waiting");
 	for_each_line(xpd, i) {
-		len += sprintf(page + len, "%d ", IS_SET(xpd->msg_waiting, i));
+		len += sprintf(page + len, "%d ", xpd->msg_waiting[i]);
 	}
 	len += sprintf(page + len, "\n\t%-17s: ", "ringing");
 	for_each_line(xpd, i) {

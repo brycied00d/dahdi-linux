@@ -35,17 +35,12 @@ static const char rcsid[] = "$Id$";
 
 static DEF_PARM(int, debug, 0, 0644, "Print DBG statements");	/* must be before dahdi_debug.h */
 static DEF_PARM_BOOL(reversepolarity, 0, 0644, "Reverse Line Polarity");
-static DEF_PARM_BOOL(vmwineon, 0, 0644, "Indicate voicemail to a neon lamp");
 static DEF_PARM_BOOL(dtmf_detection, 1, 0644, "Do DTMF detection in hardware");
 #ifdef	POLL_DIGITAL_INPUTS
 static DEF_PARM(uint, poll_digital_inputs, 1000, 0644, "Poll Digital Inputs");
 #endif
 
-#ifdef	DAHDI_VMWI
-static DEF_PARM_BOOL(vmwi_ioctl, 0, 0644, "Asterisk support VMWI notification via ioctl");
-#else
-#define	vmwi_ioctl	0	/* not supported */
-#endif
+static DEF_PARM_BOOL(vmwi_ioctl, 1, 0644, "Asterisk support VMWI notification via ioctl");
 
 /* Signaling is opposite (fxo signalling for fxs card) */
 #if 1
@@ -53,6 +48,10 @@ static DEF_PARM_BOOL(vmwi_ioctl, 0, 0644, "Asterisk support VMWI notification vi
 #else
 #define	FXS_DEFAULT_SIGCAP	(DAHDI_SIG_SF | DAHDI_SIG_EM)
 #endif
+
+#define	VMWI_TYPE(priv, pos, type)	\
+	((priv)->vmwisetting[pos].vmwi_type & DAHDI_VMWI_HVAC)
+#define	VMWI_NEON(priv, pos)		VMWI_TYPE(priv, pos, HVAC)
 
 #define	LINES_DIGI_OUT	2
 #define	LINES_DIGI_INP	4
@@ -142,6 +141,7 @@ struct FXS_priv_data {
 #define OHT_TIMER		6000	/* How long after RING to retain OHT */
 	enum fxs_state		idletxhookstate[CHANNELS_PERXPD];	/* IDLE changing hook state */
 	enum fxs_state		lasttxhook[CHANNELS_PERXPD];
+	struct dahdi_vmwi_info	vmwisetting[CHANNELS_PERXPD];
 };
 
 /*
@@ -183,7 +183,7 @@ static void vmwi_search(xpd_t *xpd, lineno_t pos, bool on)
 
 	priv = xpd->priv;
 	BUG_ON(!xpd);
-	if(vmwineon && on) {
+	if (VMWI_NEON(priv, pos) && on) {
 		LINE_DBG(SIGNAL, xpd, pos, "START\n");
 		BIT_SET(priv->search_fsk_pattern, pos);
 	} else {
@@ -559,13 +559,16 @@ static void __do_mute_dtmf(xpd_t *xpd, int pos, bool muteit)
 	CALL_XMETHOD(card_pcm_recompute, xpd->xbus, xpd, 0);	/* already spinlocked */
 }
 
-static int set_vm_led_mode(xbus_t *xbus, xpd_t *xpd, int pos, bool msg_waiting)
+static int set_vm_led_mode(xbus_t *xbus, xpd_t *xpd, int pos,
+		unsigned int msg_waiting)
 {
 	int	ret = 0;
+	struct FXS_priv_data	*priv;
 	BUG_ON(!xbus);
 	BUG_ON(!xpd);
 
-	if (vmwineon && msg_waiting) {
+	priv = xpd->priv;
+	if (VMWI_NEON(priv, pos) && msg_waiting) {
 		/* A write to register 0x40 will now turn on/off the VM led */
 		LINE_DBG(SIGNAL, xpd, pos, "NEON\n");
 		ret += SLIC_INDIRECT_REQUEST(xbus, xpd, pos, SLIC_WRITE, 0x16, 0xE8, 0x03);
@@ -598,17 +601,18 @@ static int set_vm_led_mode(xbus_t *xbus, xpd_t *xpd, int pos, bool msg_waiting)
 static void start_stop_vm_led(xbus_t *xbus, xpd_t *xpd, lineno_t pos)
 {
 	struct FXS_priv_data	*priv;
-	bool		on;
+	unsigned int		msgs;
 
 	BUG_ON(!xpd);
 	if (IS_SET(xpd->digital_outputs | xpd->digital_inputs, pos))
 		return;
 	priv = xpd->priv;
-	on = IS_SET(xpd->msg_waiting, pos);
-	LINE_DBG(SIGNAL, xpd, pos, "%s\n", (on)?"ON":"OFF");
-	set_vm_led_mode(xbus, xpd, pos, on);
-	do_chan_power(xbus, xpd, pos, on);
-	linefeed_control(xbus, xpd, pos, (on) ? FXS_LINE_RING : priv->idletxhookstate[pos]);
+	msgs = xpd->msg_waiting[pos];
+	LINE_DBG(SIGNAL, xpd, pos, "%s\n", (msgs) ? "ON" : "OFF");
+	set_vm_led_mode(xbus, xpd, pos, msgs);
+	do_chan_power(xbus, xpd, pos, msgs > 0);
+	linefeed_control(xbus, xpd, pos, (msgs > 0) ?
+			FXS_LINE_RING : priv->idletxhookstate[pos]);
 }
 
 static int relay_out(xpd_t *xpd, int pos, bool on)
@@ -763,6 +767,45 @@ static int FXS_card_hooksig(xbus_t *xbus, xpd_t *xpd, int pos, enum dahdi_txsig 
 	return ret;
 }
 
+static int set_vmwi(xpd_t *xpd, int pos, unsigned long arg)
+{
+	struct FXS_priv_data	*priv;
+	struct dahdi_vmwi_info	vmwisetting;
+	const int vmwi_flags = DAHDI_VMWI_LREV | DAHDI_VMWI_HVDC
+		| DAHDI_VMWI_HVAC;
+
+	priv = xpd->priv;
+	BUG_ON(!priv);
+	if (copy_from_user(&vmwisetting, (__user void *)arg,
+				sizeof(vmwisetting)))
+		return -EFAULT;
+	if ((vmwisetting.vmwi_type & ~vmwi_flags) != 0) {
+		LINE_NOTICE(xpd, pos, "Bad DAHDI_VMWI_CONFIG: 0x%X\n",
+			vmwisetting.vmwi_type);
+		return -EINVAL;
+	}
+	LINE_DBG(SIGNAL, xpd, pos,
+			"DAHDI_VMWI_CONFIG: 0x%X\n",
+			vmwisetting.vmwi_type);
+	if (VMWI_TYPE(priv, pos, LREV)) {
+		LINE_NOTICE(xpd, pos,
+			"%s: VMWI(lrev) is not implemented yet. Ignored.\n",
+			__func__);
+	}
+	if (VMWI_TYPE(priv, pos, HVDC)) {
+		LINE_NOTICE(xpd, pos,
+			"%s: VMWI(hvdc) is not implemented yet. Ignored.\n",
+			__func__);
+	}
+	if (VMWI_TYPE(priv, pos, HVAC))
+		/* VMWI_NEON */
+	if (priv->vmwisetting[pos].vmwi_type == 0)
+		/* Disable VMWI */
+	priv->vmwisetting[pos] = vmwisetting;
+	set_vm_led_mode(xpd->xbus, xpd, pos, xpd->msg_waiting[pos]);
+	return 0;
+}
+
 /*
  * Private ioctl()
  * We don't need it now, since we detect vmwi via FSK patterns
@@ -802,7 +845,7 @@ static int FXS_card_ioctl(xpd_t *xpd, int pos, unsigned int cmd, unsigned long a
 				CALL_XMETHOD(card_pcm_recompute, xbus, xpd, priv->search_fsk_pattern);
 				LINE_DBG(SIGNAL, xpd, pos, "Start OHT_TIMER. wanted_pcm_mask=0x%X\n", xpd->wanted_pcm_mask);
 			}
-			if(vmwineon && !IS_OFFHOOK(xpd, pos))
+			if (VMWI_NEON(priv, pos) && !IS_OFFHOOK(xpd, pos))
 				start_stop_vm_led(xbus, xpd, pos);
 			return 0;
 		case DAHDI_TONEDETECT:
@@ -871,7 +914,10 @@ static int FXS_card_ioctl(xpd_t *xpd, int pos, unsigned int cmd, unsigned long a
 				priv->lasttxhook[pos] &= ~FXS_LINE_RING;
 			linefeed_control(xbus, xpd, pos, priv->lasttxhook[pos]);
 			return 0;
-#ifdef	DAHDI_VMWI
+		case DAHDI_VMWI_CONFIG:
+			if (set_vmwi(xpd, pos, arg) < 0)
+				return -EINVAL;
+			return 0;
 		case DAHDI_VMWI:		/* message-waiting led control */
 			if (get_user(val, (int __user *)arg))
 				return -EFAULT;
@@ -886,12 +932,10 @@ static int FXS_card_ioctl(xpd_t *xpd, int pos, unsigned int cmd, unsigned long a
 			/* Digital inputs/outputs don't have VM leds */
 			if (IS_SET(xpd->digital_inputs | xpd->digital_outputs, pos))
 				return 0;
-			if (val)
-				BIT_SET(xpd->msg_waiting, pos);
-			else
-				BIT_CLR(xpd->msg_waiting, pos);
+			xpd->msg_waiting[pos] = val;
+			LINE_DBG(SIGNAL, xpd, pos, "DAHDI_VMWI: %s\n",
+					(val) ? "yes" : "no");
 			return 0;
-#endif
 		default:
 			report_bad_ioctl(THIS_MODULE->name, xpd, pos, cmd);
 	}
@@ -1048,11 +1092,11 @@ static void detect_vmwi(xpd_t *xpd)
 			oht_pcm(xpd, i, 0);
 			if(unlikely(mem_equal(writechunk, FSK_ON_PATTERN, DAHDI_CHUNKSIZE))) {
 				LINE_DBG(SIGNAL, xpd, i, "MSG WAITING ON\n");
-				BIT_SET(xpd->msg_waiting, i);
+				xpd->msg_waiting[i] = 1;
 				start_stop_vm_led(xbus, xpd, i);
 			} else if(unlikely(mem_equal(writechunk, FSK_OFF_PATTERN, DAHDI_CHUNKSIZE))) {
 				LINE_DBG(SIGNAL, xpd, i, "MSG WAITING OFF\n");
-				BIT_CLR(xpd->msg_waiting, i);
+				xpd->msg_waiting[i] = 0;
 				start_stop_vm_led(xbus, xpd, i);
 			} else {
 				int	j;
@@ -1102,7 +1146,7 @@ static int FXS_card_tick(xbus_t *xbus, xpd_t *xpd)
 		}
 	}
 	if(SPAN_REGISTERED(xpd)) {
-		if(vmwineon && !vmwi_ioctl && priv->search_fsk_pattern)
+		i f(!vmwi_ioctl && priv->search_fsk_pattern)
 			detect_vmwi(xpd);	/* Detect via FSK modulation */
 	}
 	return 0;
@@ -1549,11 +1593,7 @@ static int __init card_fxs_startup(void)
 #else
 	INFO("FEATURE: without DIGITAL INPUTS support\n");
 #endif
-#ifdef	DAHDI_VMWI
-	INFO("FEATURE: DAHDI_VMWI\n");
-#else
-	INFO("FEATURE: NO DAHDI_VMWI\n");
-#endif
+	INFO("FEATURE: DAHDI_VMWI (HVAC only)\n");
 #ifdef	WITH_METERING
 	INFO("FEATURE: WITH METERING Generation\n");
 #else
