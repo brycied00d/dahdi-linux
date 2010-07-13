@@ -1310,8 +1310,6 @@ static int PRI_card_dahdi_preregistration(xpd_t *xpd, bool on)
 			cur_chan->flags &= ~DAHDI_FLAG_HDLC;
 		}
 	}
-	if(!priv->is_cas)
-		clear_bit(DAHDI_FLAGBIT_RBS, &xpd->span.flags);
 	xpd->span.spanconfig = pri_spanconfig;
 	xpd->span.chanconfig = pri_chanconfig;
 	xpd->span.startup = pri_startup;
