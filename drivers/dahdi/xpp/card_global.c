@@ -431,6 +431,8 @@ static void global_packet_dump(const char *msg, xpacket_t *pack);
 		DBG(DEVICES, "NO XBUS\n");
 		return -EINVAL;
 	}
+	if (xbus_check_unique(xbus))
+		return -EBUSY;
 	XFRAME_NEW_CMD(xframe, pack, xbus, GLOBAL, AB_REQUEST, 0);
 	RPACKET_FIELD(pack, GLOBAL, AB_REQUEST, rev) = XPP_PROTOCOL_VERSION;
 	RPACKET_FIELD(pack, GLOBAL, AB_REQUEST, reserved) = 0;
@@ -614,6 +616,8 @@ HANDLER_DEF(GLOBAL, AB_DESCRIPTION)	/* 0x08 */
 		goto proto_err;
 	}
 	XBUS_INFO(xbus, "DESCRIPTOR: %d cards, protocol revision %d\n", count_units, rev);
+	if (xbus_check_unique(xbus))
+		return -EBUSY;
 	xbus->revision = rev;
 	worker = &xbus->worker;
 	if (!worker->wq) {

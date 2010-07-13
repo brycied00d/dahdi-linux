@@ -87,6 +87,42 @@ static struct xbus_desc {
 	xbus_t			*xbus;
 } xbuses_array[MAX_BUSES];
 
+static xbus_t *xbus_byhwid(const char *hwid)
+{
+	int	i;
+	xbus_t	*xbus;
+
+	for (i = 0; i < ARRAY_SIZE(xbuses_array); i++) {
+		xbus = xbuses_array[i].xbus;
+		if (xbus && strcmp(hwid, xbus->label) == 0)
+			return xbus;
+	}
+	return NULL;
+}
+
+int xbus_check_unique(xbus_t *xbus)
+{
+	if (!xbus)
+		return -ENOENT;
+	if (xbus->label) {
+		xbus_t	*xbus_old;
+
+		XBUS_DBG(DEVICES, xbus, "Checking LABEL='%s'\n", xbus->label);
+		xbus_old = xbus_byhwid(xbus->label);
+		if (xbus_old && xbus_old != xbus) {
+			XBUS_NOTICE(xbus_old,
+				"Duplicate LABEL='%s'. Leave %s unused. refcount_xbus=%d\n",
+				xbus_old->label,
+				xbus->busname,
+				refcount_xbus(xbus_old));
+			return -EBUSY;
+		}
+	} else {
+		XBUS_NOTICE(xbus, "MISSING BOARD LABEL!!!\n");
+	}
+	return 0;
+}
+
 const char *xbus_statename(enum xbus_state st)
 {
 	switch(st) {
