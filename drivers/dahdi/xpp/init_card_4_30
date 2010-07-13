@@ -341,7 +341,18 @@ sub port_setup($) {
 	my $ccr1 = 0x18;		# CCR1 (Common Configuration Register1)
 					#      EITS (Enable Internal Time Slot 0 to 31 Signalling)
 					#      ITF  (Interframe Time Fill)
-	if ( $pri_protocol eq 'T1' ) {
+	my $sysfs_pri_protocol;
+	if (defined $pri_protocol) {
+		$sysfs_pri_protocol = $pri_protocol;
+	} else {
+		my $file = sprintf "/sys/bus/xpds/devices/%02d:%1d:%1d/pri_protocol",
+				$ENV{XBUS_NUMBER}, $ENV{UNIT_NUMBER}, $portno;
+		open(F, $file) || die "$0: Failed opening '$file'";
+		$sysfs_pri_protocol = <F>;
+		close F;
+		chomp $sysfs_pri_protocol;
+	}
+	if($sysfs_pri_protocol eq 'T1') {
 		$ccr1 |= 0x80;		#      RSCC (Serial CAS Format Selection)
 	}
 
