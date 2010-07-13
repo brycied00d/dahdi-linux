@@ -110,12 +110,14 @@ int total_registered_spans(void)
 	return atomic_read(&num_registered_spans);
 }
 
+#ifdef	CONFIG_PROC_FS
 static int xpd_read_proc(char *page, char **start, off_t off, int count, int *eof, void *data);
 #ifdef	OLD_PROC
 static int proc_xpd_ztregister_read(char *page, char **start, off_t off, int count, int *eof, void *data);
 static int proc_xpd_ztregister_write(struct file *file, const char __user *buffer, unsigned long count, void *data);
 static int proc_xpd_blink_read(char *page, char **start, off_t off, int count, int *eof, void *data);
 static int proc_xpd_blink_write(struct file *file, const char __user *buffer, unsigned long count, void *data);
+#endif
 #endif
 
 /*------------------------- XPD Management -------------------------*/
@@ -216,9 +218,11 @@ static int xpd_proc_create(xbus_t *xbus, xpd_t *xpd)
 #endif
 #endif
 	return 0;
+#ifdef	CONFIG_PROC_FS
 err:
 	xpd_proc_remove(xbus, xpd);
 	return -EFAULT;
+#endif
 }
 
 void xpd_free(xpd_t *xpd)
@@ -831,12 +835,6 @@ static int proc_xpd_blink_write(struct file *file, const char __user *buffer, un
  */
 int xpp_open(struct dahdi_chan *chan)
 {
-#if 0
-	xpd_t		*xpd = chan->pvt;
-	xbus_t		*xbus = xpd->xbus;
-	int		pos = chan->chanpos - 1;
-	unsigned long	flags;
-#else
 	xpd_t		*xpd;
 	xbus_t		*xbus;
 	int		pos;
@@ -863,7 +861,6 @@ int xpp_open(struct dahdi_chan *chan)
 		put_xpd(__FUNCTION__, xpd);
 		return -ENODEV;
 	}
-#endif
 	spin_lock_irqsave(&xbus->lock, flags);
 	atomic_inc(&xpd->open_counter);
 	LINE_DBG(DEVICES, xpd, pos, "%s[%d]: open_counter=%d\n",
@@ -1178,7 +1175,8 @@ static void do_cleanup(void)
 
 static int __init xpp_dahdi_init(void)
 {
-	int			ret = 0;
+	int	ret = 0;
+	void	*top = NULL;
 
 	INFO("revision %s MAX_XPDS=%d (%d*%d)\n", XPP_VERSION,
 			MAX_XPDS, MAX_UNIT, MAX_SUBUNIT);
@@ -1193,13 +1191,14 @@ static int __init xpp_dahdi_init(void)
 		ret = -EIO;
 		goto err;
 	}
+	top = xpp_proc_toplevel;
 #endif
 	ret = xbus_core_init();
 	if(ret) {
 		ERR("xbus_core_init failed (%d)\n", ret);
 		goto err;
 	}
-	ret = xbus_pcm_init(xpp_proc_toplevel);
+	ret = xbus_pcm_init(top);
 	if(ret) {
 		ERR("xbus_pcm_init failed (%d)\n", ret);
 		xbus_core_shutdown();

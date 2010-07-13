@@ -266,7 +266,9 @@ static void xpp_send_callback(USB_PASS_CB(urb));
 static void xpp_receive_callback(USB_PASS_CB(urb));
 static int xusb_probe		(struct usb_interface *interface, const struct usb_device_id *id);
 static void xusb_disconnect	(struct usb_interface *interface);
+#ifdef	CONFIG_PROC_FS
 static int xusb_read_proc(char *page, char **start, off_t off, int count, int *eof, void *data);
+#endif
 
 /*------------------------------------------------------------------*/
 
@@ -656,7 +658,9 @@ static int xusb_probe(struct usb_interface *interface, const struct usb_device_i
 	struct usb_host_interface	*iface_desc = usb_altnum_to_altsetting(interface, 0);
 	xusb_t			*xusb = NULL;
 	struct xusb_model_info	*model_info = (struct xusb_model_info*)id->driver_info;
+#ifdef CONFIG_PROC_FS
 	struct proc_dir_entry	*procsummary = NULL;
+#endif
 	xbus_t			*xbus = NULL;
 	unsigned long		flags;
 	int			retval = -ENOMEM;
@@ -784,11 +788,13 @@ probe_failed:
 		KZFREE(xusb);
 	}
 	if(xbus) {
+#ifdef CONFIG_PROC_FS
 		if(procsummary) {
 			XBUS_DBG(PROC, xbus, "Remove proc_entry: " PROC_USBXPP_SUMMARY "\n");
 			remove_proc_entry(PROC_USBXPP_SUMMARY, xbus->proc_xbus_dir);
 			procsummary = NULL;
 		}
+#endif
 		ERR("Calling xbus_disconnect()\n");
 		xbus_disconnect(xbus);		// Blocking until fully deactivated!
 	}

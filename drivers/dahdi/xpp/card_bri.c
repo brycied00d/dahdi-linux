@@ -56,6 +56,7 @@ enum xhfc_states {
 	ST_NT_DEACTIVTING	= 4,	/* G4	*/
 };
 
+#ifdef CONFIG_PROC_FS
 static const char *xhfc_state_name(bool is_nt, enum xhfc_states state)
 {
 	const char	*p;
@@ -92,6 +93,7 @@ static const char *xhfc_state_name(bool is_nt, enum xhfc_states state)
 	}
 	return p;
 }
+#endif
 
 /* xhfc Layer1 physical commands */
 #define HFC_L1_ACTIVATE_TE		0x01
@@ -157,7 +159,9 @@ typedef union {
 static int write_state_register(xpd_t *xpd, byte value);
 static bool bri_packet_is_valid(xpacket_t *pack);
 static void bri_packet_dump(const char *msg, xpacket_t *pack);
+#ifdef	CONFIG_PROC_FS
 static int proc_bri_info_read(char *page, char **start, off_t off, int count, int *eof, void *data);
+#endif
 static int bri_spanconfig(struct dahdi_span *span, struct dahdi_lineconfig *lc);
 static int bri_chanconfig(struct dahdi_chan *chan, int sigtype);
 static int bri_startup(struct dahdi_span *span);
@@ -799,14 +803,12 @@ static int bri_proc_create(xbus_t *xbus, xpd_t *xpd)
 	priv->bri_info = create_proc_read_entry(PROC_BRI_INFO_FNAME, 0444, xpd->proc_xpd_dir, proc_bri_info_read, xpd);
 	if(!priv->bri_info) {
 		XPD_ERR(xpd, "Failed to create proc file '%s'\n", PROC_BRI_INFO_FNAME);
-		goto err;
+		bri_proc_remove(xbus, xpd);
+		return -EINVAL;
 	}
 	SET_PROC_DIRENTRY_OWNER(priv->bri_info);
 #endif
 	return 0;
-err:
-	bri_proc_remove(xbus, xpd);
-	return -EINVAL;
 }
 
 static xpd_t *BRI_card_new(xbus_t *xbus, int unit, int subunit, const xproto_table_t *proto_table,
@@ -1694,6 +1696,7 @@ static void bri_packet_dump(const char *msg, xpacket_t *pack)
 }
 /*------------------------- REGISTER Handling --------------------------*/
 
+#ifdef	CONFIG_PROC_FS
 static int proc_bri_info_read(char *page, char **start, off_t off, int count, int *eof, void *data)
 {
 	int			len = 0;
@@ -1756,6 +1759,7 @@ static int proc_bri_info_read(char *page, char **start, off_t off, int count, in
 		len = 0;
 	return len;
 }
+#endif
 
 static DRIVER_ATTR_READER(dchan_hardhdlc_show, drv,buf)
 {

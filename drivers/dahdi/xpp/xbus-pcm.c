@@ -1234,7 +1234,7 @@ static struct proc_dir_entry	*top;
 #endif
 #endif	/* OLD_PROC */
 
-int xbus_pcm_init(struct proc_dir_entry *toplevel)
+int xbus_pcm_init(void *toplevel)
 {
 	int			ret = 0;
 
