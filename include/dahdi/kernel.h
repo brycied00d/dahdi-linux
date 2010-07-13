@@ -55,6 +55,8 @@
 #endif
 
 #include <linux/poll.h>
+#include <linux/sched.h>
+#include <linux/slab.h>
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,10)
 #define dahdi_pci_module pci_register_driver
