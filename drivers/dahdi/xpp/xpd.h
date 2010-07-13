@@ -167,7 +167,8 @@ struct xpd {
 	xpp_line_t	no_pcm;			/* Temporary: disable PCM (for USB-1) */
 	xpp_line_t	offhook_state;		/* Actual chip state: 0 - ONHOOK, 1 - OFHOOK */
 	xpp_line_t	oht_pcm_pass;		/* Transfer on-hook PCM */
-	xpp_line_t	msg_waiting;		/* Voice Mail Waiting Indication */
+	/* Voice Mail Waiting Indication: */
+	unsigned int	msg_waiting[CHANNELS_PERXPD];
 	xpp_line_t	digital_outputs;	/* 0 - no, 1 - yes */
 	xpp_line_t	digital_inputs;		/* 0 - no, 1 - yes */
 	xpp_line_t	digital_signalling;	/* BRI signalling channels */
