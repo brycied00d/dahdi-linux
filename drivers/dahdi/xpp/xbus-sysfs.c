@@ -781,7 +781,7 @@ int xpd_device_register(xbus_t *xbus, xpd_t *xpd)
 		XPD_ERR(xpd, "%s: device_register failed: %d\n", __FUNCTION__, ret);
 		return ret;
 	}
-	get_xpd(__FUNCTION__, xpd);
+	xpd = get_xpd(__func__, xpd);	/* Released in xbus_release_xpds() */
 	BUG_ON(!xpd);
 	return 0;
 }
@@ -811,12 +811,12 @@ void xbus_sysfs_remove(xbus_t *xbus)
 	BUG_ON(!xbus);
 	XBUS_DBG(DEVICES, xbus, "\n");
 	astribank = &xbus->astribank;
-	BUG_ON(!astribank);
 	sysfs_remove_link(&astribank->kobj, "transport");
 	if(!dev_get_drvdata(astribank))
 		return;
 	BUG_ON(dev_get_drvdata(astribank) != xbus);
-	device_unregister(&xbus->astribank);
+	device_unregister(astribank);
+	dev_set_drvdata(astribank, NULL);
 }
 
 int xbus_sysfs_create(xbus_t *xbus)
@@ -826,7 +826,6 @@ int xbus_sysfs_create(xbus_t *xbus)
 
 	BUG_ON(!xbus);
 	astribank = &xbus->astribank;
-	BUG_ON(!astribank);
 	XBUS_DBG(DEVICES, xbus, "\n");
 	astribank->bus = &toplevel_bus_type;
 	astribank->parent = xbus->transport.transport_device;
