@@ -175,7 +175,7 @@ static struct proc_dir_entry *proc_entries[DAHDI_MAX_SPANS];
 #elif LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,13)
 #define CLASS_DEV_DESTROY(class, devt) \
 	class_device_destroy(class, devt)
-#elif LINUX_VERSION_CODE <= KERNEL_VERSION(2,6,9)
+#elif LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,9)
 #define CLASS_DEV_DESTROY(class, devt) \
 	class_simple_device_remove(devt)
 #else
@@ -1146,7 +1146,7 @@ retry:
 		*c = tolower(*d);
 	}
 
-	request_module(modname_buf);
+	request_module("%s", modname_buf);
 
 	tried_once = 1;
 
@@ -1161,6 +1161,14 @@ static void release_echocan(const struct dahdi_echocan *ec)
 #endif
 }
 
+/** 
+ * close_channel - close the channel, resetting any channel variables
+ * @chan: the dahdi_chan to close
+ *
+ * This function might be called before the channel is placed on the global
+ * array of channels, (chans), and therefore, neither this function nor it's
+ * children should depend on the dahdi_chan.channo member which is not set yet.
+ */
 static void close_channel(struct dahdi_chan *chan)
 {
 	unsigned long flags;
@@ -1478,43 +1486,43 @@ static void dahdi_set_law(struct dahdi_chan *chan, int law)
 static int dahdi_chan_reg(struct dahdi_chan *chan)
 {
 	int x;
-	int res = 0;
 	unsigned long flags;
 
 	might_sleep();
+
+	spin_lock_init(&chan->lock);
+	if (!chan->master)
+		chan->master = chan;
+	if (!chan->readchunk)
+		chan->readchunk = chan->sreadchunk;
+	if (!chan->writechunk)
+		chan->writechunk = chan->swritechunk;
+	dahdi_set_law(chan, 0);
+	close_channel(chan);
 
 	write_lock_irqsave(&chan_lock, flags);
 	for (x = 1; x < DAHDI_MAX_CHANNELS; x++) {
 		if (chans[x])
 			continue;
 
-		spin_lock_init(&chan->lock);
 		chans[x] = chan;
 		if (maxchans < x + 1)
 			maxchans = x + 1;
 		chan->channo = x;
-		if (!chan->master)
-			chan->master = chan;
-		if (!chan->readchunk)
-			chan->readchunk = chan->sreadchunk;
-		if (!chan->writechunk)
-			chan->writechunk = chan->swritechunk;
 		write_unlock_irqrestore(&chan_lock, flags);
-		dahdi_set_law(chan, 0);
-		close_channel(chan);
 		/* set this AFTER running close_channel() so that
 		   HDLC channels wont cause hangage */
-		chan->flags |= DAHDI_FLAG_REGISTERED;
-		res = 0;
+		set_bit(DAHDI_FLAGBIT_REGISTERED, &chan->flags);
 		break;
 	}
 
 	if (DAHDI_MAX_CHANNELS == x) {
 		write_unlock_irqrestore(&chan_lock, flags);
 		module_printk(KERN_ERR, "No more channels available\n");
+		return -ENOMEM;
 	}
 
-	return res;
+	return 0;
 }
 
 char *dahdi_lboname(int x)
@@ -1877,9 +1885,9 @@ static void dahdi_chan_unreg(struct dahdi_chan *chan)
 	}
 #endif
 	write_lock_irqsave(&chan_lock, flags);
-	if (chan->flags & DAHDI_FLAG_REGISTERED) {
+	if (test_bit(DAHDI_FLAGBIT_REGISTERED, &chan->flags)) {
 		chans[chan->channo] = NULL;
-		chan->flags &= ~DAHDI_FLAG_REGISTERED;
+		clear_bit(DAHDI_FLAGBIT_REGISTERED, &chan->flags);
 	}
 #ifdef CONFIG_DAHDI_PPP
 	if (chan->ppp) {
@@ -2355,7 +2363,7 @@ static int dahdi_hangup(struct dahdi_chan *chan)
 	}
 
 	/* if not registered yet, just return here */
-	if (!(chan->flags & DAHDI_FLAG_REGISTERED))
+	if (!test_bit(DAHDI_FLAGBIT_REGISTERED, &chan->flags))
 		return res;
 
 	/* Mark all buffers as empty */
@@ -5353,7 +5361,7 @@ int dahdi_register(struct dahdi_span *span, int prefmaster)
 	if (!span)
 		return -EINVAL;
 
-	if (span->flags & DAHDI_FLAG_REGISTERED) {
+	if (test_bit(DAHDI_FLAGBIT_REGISTERED, &span->flags)) {
 		module_printk(KERN_ERR, "Span %s already appears to be registered\n", span->name);
 		return -EBUSY;
 	}
@@ -5379,7 +5387,7 @@ int dahdi_register(struct dahdi_span *span, int prefmaster)
 		return -EBUSY;
 	}
 
-	span->flags |= DAHDI_FLAG_REGISTERED;
+	set_bit(DAHDI_FLAGBIT_REGISTERED, &span->flags);
 	span->spanno = x;
 
 	spin_lock_init(&span->lock);
@@ -5447,7 +5455,7 @@ int dahdi_unregister(struct dahdi_span *span)
 	char tempfile[17];
 #endif /* CONFIG_PROC_FS */
 
-	if (!(span->flags & DAHDI_FLAG_REGISTERED)) {
+	if (!test_bit(DAHDI_FLAGBIT_REGISTERED, &span->flags)) {
 		module_printk(KERN_ERR, "Span %s does not appear to be registered\n", span->name);
 		return -1;
 	}
@@ -5474,7 +5482,7 @@ int dahdi_unregister(struct dahdi_span *span)
 
 	spans[span->spanno] = NULL;
 	span->spanno = 0;
-	span->flags &= ~DAHDI_FLAG_REGISTERED;
+	clear_bit(DAHDI_FLAGBIT_REGISTERED, &span->flags);
 	for (x=0;x<span->channels;x++)
 		dahdi_chan_unreg(span->chans[x]);
 	new_maxspans = 0;
@@ -7606,7 +7614,7 @@ int dahdi_transmit(struct dahdi_span *span)
 int dahdi_receive(struct dahdi_span *span)
 {
 	int x,y,z;
-	unsigned long flags, flagso;
+	unsigned long flags;
 
 #if 1
 #ifdef CONFIG_DAHDI_WATCHDOG
@@ -7688,7 +7696,8 @@ int dahdi_receive(struct dahdi_span *span)
 	if (span == master) {
 		/* Hold the big zap lock for the duration of major
 		   activities which touch all sorts of channels */
-		spin_lock_irqsave(&bigzaplock, flagso);
+		spin_lock_irqsave(&bigzaplock, flags);
+		read_lock(&chan_lock);
 		/* Process any timers */
 		process_timers();
 		/* If we have dynamic stuff, call the ioctl with 0,0 parameters to
@@ -7698,12 +7707,12 @@ int dahdi_receive(struct dahdi_span *span)
 		for (x=1;x<maxchans;x++) {
 			if (chans[x] && chans[x]->confmode && !(chans[x]->flags & DAHDI_FLAG_PSEUDO)) {
 				u_char *data;
-				spin_lock_irqsave(&chans[x]->lock, flags);
+				spin_lock(&chans[x]->lock);
 				data = __buf_peek(&chans[x]->confin);
 				__dahdi_receive_chunk(chans[x], data);
 				if (data)
 					__buf_pull(&chans[x]->confin, NULL,chans[x], "confreceive");
-				spin_unlock_irqrestore(&chans[x]->lock, flags);
+				spin_unlock(&chans[x]->lock);
 			}
 		}
 		/* This is the master channel, so make things switch over */
@@ -7711,9 +7720,9 @@ int dahdi_receive(struct dahdi_span *span)
 		/* do all the pseudo and/or conferenced channel receives (getbuf's) */
 		for (x=1;x<maxchans;x++) {
 			if (chans[x] && (chans[x]->flags & DAHDI_FLAG_PSEUDO)) {
-				spin_lock_irqsave(&chans[x]->lock, flags);
+				spin_lock(&chans[x]->lock);
 				__dahdi_transmit_chunk(chans[x], NULL);
-				spin_unlock_irqrestore(&chans[x]->lock, flags);
+				spin_unlock(&chans[x]->lock);
 			}
 		}
 		if (maxlinks) {
@@ -7736,21 +7745,21 @@ int dahdi_receive(struct dahdi_span *span)
 		for (x=1;x<maxchans;x++) {
 			if (chans[x] && (chans[x]->flags & DAHDI_FLAG_PSEUDO)) {
 				unsigned char tmp[DAHDI_CHUNKSIZE];
-				spin_lock_irqsave(&chans[x]->lock, flags);
+				spin_lock(&chans[x]->lock);
 				__dahdi_getempty(chans[x], tmp);
 				__dahdi_receive_chunk(chans[x], tmp);
-				spin_unlock_irqrestore(&chans[x]->lock, flags);
+				spin_unlock(&chans[x]->lock);
 			}
 		}
 		for (x=1;x<maxchans;x++) {
 			if (chans[x] && chans[x]->confmode && !(chans[x]->flags & DAHDI_FLAG_PSEUDO)) {
 				u_char *data;
-				spin_lock_irqsave(&chans[x]->lock, flags);
+				spin_lock(&chans[x]->lock);
 				data = __buf_pushpeek(&chans[x]->confout);
 				__dahdi_transmit_chunk(chans[x], data);
 				if (data)
 					__buf_push(&chans[x]->confout, NULL, "conftransmit");
-				spin_unlock_irqrestore(&chans[x]->lock, flags);
+				spin_unlock(&chans[x]->lock);
 			}
 		}
 #ifdef	DAHDI_SYNC_TICK
@@ -7761,7 +7770,8 @@ int dahdi_receive(struct dahdi_span *span)
 				s->sync_tick(s, s == master);
 		}
 #endif
-		spin_unlock_irqrestore(&bigzaplock, flagso);
+		read_unlock(&chan_lock);
+		spin_unlock_irqrestore(&bigzaplock, flags);
 	}
 #endif
 	return 0;

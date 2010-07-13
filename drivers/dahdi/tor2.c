@@ -200,7 +200,7 @@ static int tor2_spanconfig(struct dahdi_span *span, struct dahdi_lineconfig *lc)
 	if (debug)
 		printk(KERN_INFO "Tor2: Configuring span %d\n", span->spanno);
 
-	if ((lc->sync < 0) || (lc->sync >= MAX_TOR_CARDS)) {
+	if ((lc->sync < 0) || (lc->sync >= SPANS_PER_CARD)) {
 		printk(KERN_WARNING "%s %d: invalid span timing value %d.\n",
 				THIS_MODULE->name, span->spanno, lc->sync);
 		return -EINVAL;
@@ -314,7 +314,7 @@ static void init_spans(struct tor2 *tor)
 
 static int __devinit tor2_launch(struct tor2 *tor)
 {
-	if (tor->spans[0].flags & DAHDI_FLAG_REGISTERED)
+	if (test_bit(DAHDI_FLAGBIT_REGISTERED, &tor->spans[0].flags))
 		return 0;
 	printk(KERN_INFO "Tor2: Launching card: %d\n", tor->order);
 	if (dahdi_register(&tor->spans[0], 0)) {
@@ -618,6 +618,7 @@ static struct pci_driver tor2_driver;
 static void __devexit tor2_remove(struct pci_dev *pdev)
 {
 	struct tor2 *tor;
+	int i;
 
 	tor = pci_get_drvdata(pdev);
 	if (!tor)
@@ -627,14 +628,10 @@ static void __devexit tor2_remove(struct pci_dev *pdev)
 	tor->mem8[LEDREG] = 0;
 	tor->plx[INTCSR] = cpu_to_le16(0);
 	free_irq(tor->irq, tor);
-	if (tor->spans[0].flags & DAHDI_FLAG_REGISTERED)
-		dahdi_unregister(&tor->spans[0]);
-	if (tor->spans[1].flags & DAHDI_FLAG_REGISTERED)
-		dahdi_unregister(&tor->spans[1]);
-	if (tor->spans[2].flags & DAHDI_FLAG_REGISTERED)
-		dahdi_unregister(&tor->spans[2]);
-	if (tor->spans[3].flags & DAHDI_FLAG_REGISTERED)
-		dahdi_unregister(&tor->spans[3]);
+	for (i = 0; i < SPANS_PER_CARD; ++i) {
+		if (test_bit(DAHDI_FLAGBIT_REGISTERED, &tor->spans[i].flags))
+			dahdi_unregister(&tor->spans[i]);
+	}
 	release_mem_region(tor->plx_region, tor->plx_len);
 	release_mem_region(tor->xilinx32_region, tor->xilinx32_len);
 	release_mem_region(tor->xilinx8_region, tor->xilinx8_len);

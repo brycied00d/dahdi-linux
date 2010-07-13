@@ -624,7 +624,7 @@ static int t1xxp_startup(struct dahdi_span *span)
 		t1xxp_e1_framer_start(wc);
 	else
 		t1xxp_t1_framer_start(wc);
-	printk(KERN_INFO "Calling startup (flags is %d)\n", span->flags);
+	printk(KERN_INFO "Calling startup (flags is %lu)\n", span->flags);
 
 	if (!alreadyrunning) {
 		/* Only if we're not already going */

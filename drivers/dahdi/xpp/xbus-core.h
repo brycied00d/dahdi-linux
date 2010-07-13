@@ -319,7 +319,7 @@ void	xpp_driver_exit(void);
 int	xbus_sysfs_create(xbus_t *xbus);
 void	xbus_sysfs_remove(xbus_t *xbus);
 
-#ifdef	OLD_HOTPLUG_SUPPORT
+#ifdef	OLD_HOTPLUG_SUPPORT_269
 /* Copy from new kernels lib/kobject_uevent.c */
 enum kobject_action {
 	KOBJ_ADD,

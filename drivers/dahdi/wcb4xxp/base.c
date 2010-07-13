@@ -34,7 +34,6 @@
 #include <linux/delay.h>
 #include <asm/io.h>
 #include <linux/spinlock.h>
-#include <linux/mutex.h>
 #include <linux/device.h>	/* dev_err() */
 #include <linux/interrupt.h>
 #include <asm/system.h>		/* cli(), *_flags */
@@ -136,9 +135,8 @@ static inline unsigned char __pci_in8(struct b4xxp *b4, const unsigned int reg)
 	unsigned char ret = ioread8(b4->addr + reg);
 
 #ifdef DEBUG_LOWLEVEL_REGS
-	if (unlikely(DBG_REGS)) {
-		drv_dbg(b4->dev, "read 0x%02x from 0x%08x\n", ret, b4->addr + reg);
-	}
+	if (unlikely(DBG_REGS))
+		drv_dbg(b4->dev, "read 0x%02x from 0x%p\n", ret, b4->addr + reg);
 #endif
 	if (unlikely(pedanticpci)) {
 		udelay(3);
@@ -152,9 +150,8 @@ static inline unsigned short __pci_in16(struct b4xxp *b4, const unsigned int reg
 	unsigned short ret = ioread16(b4->addr + reg);
 
 #ifdef DEBUG_LOWLEVEL_REGS
-	if (unlikely(DBG_REGS)) {
-		drv_dbg(b4->dev, "read 0x%04x from 0x%08x\n", ret, b4->addr + reg);
-	}
+	if (unlikely(DBG_REGS))
+		drv_dbg(b4->dev, "read 0x%04x from 0x%p\n", ret, b4->addr + reg);
 #endif
 	if (unlikely(pedanticpci)) {
 		udelay(3);
@@ -168,9 +165,8 @@ static inline unsigned int __pci_in32(struct b4xxp *b4, const unsigned int reg)
 	unsigned int ret = ioread32(b4->addr + reg);
 
 #ifdef DEBUG_LOWLEVEL_REGS
-	if (unlikely(DBG_REGS)) {
-		drv_dbg(b4->dev, "read 0x%04x from 0x%08x\n", ret, b4->addr + reg);
-	}
+	if (unlikely(DBG_REGS))
+		drv_dbg(b4->dev, "read 0x%04x from 0x%p\n", ret, b4->addr + reg);
 #endif
 	if (unlikely(pedanticpci)) {
 		udelay(3);
@@ -182,9 +178,8 @@ static inline unsigned int __pci_in32(struct b4xxp *b4, const unsigned int reg)
 static inline void __pci_out32(struct b4xxp *b4, const unsigned int reg, const unsigned int val)
 {
 #ifdef DEBUG_LOWLEVEL_REGS
-	if (unlikely(DBG_REGS)) {
-		drv_dbg(b4->dev, "writing 0x%02x to 0x%08x\n", val, b4->addr + reg);
-	}
+	if (unlikely(DBG_REGS))
+		drv_dbg(b4->dev, "writing 0x%02x to 0x%p\n", val, b4->addr + reg);
 #endif
 	iowrite32(val, b4->addr + reg);
 
@@ -197,9 +192,8 @@ static inline void __pci_out32(struct b4xxp *b4, const unsigned int reg, const u
 static inline void __pci_out8(struct b4xxp *b4, const unsigned int reg, const unsigned char val)
 {
 #ifdef DEBUG_LOWLEVEL_REGS
-	if (unlikely(DBG_REGS)) {
-		drv_dbg(b4->dev, "writing 0x%02x to 0x%08x\n", val, b4->addr + reg);
-	}
+	if (unlikely(DBG_REGS)) 
+		drv_dbg(b4->dev, "writing 0x%02x to 0x%p\n", val, b4->addr + reg);
 #endif
 	iowrite8(val, b4->addr + reg);
 
@@ -682,25 +676,33 @@ static void ec_init(struct b4xxp *b4)
 }
 
 /* performs a register write and then waits for the HFC "busy" bit to clear */
-static inline void hfc_setreg_waitbusy(struct b4xxp *b4, const unsigned int reg, const unsigned int val)
+static void hfc_setreg_waitbusy(struct b4xxp *b4, const unsigned int reg, const unsigned int val)
 {
-	unsigned long maxwait;
+	int timeout = 0;
+	unsigned long start;
+	const int TIMEOUT = HZ/4; /* 250ms */
 
-	maxwait = 1048576;
+	start = jiffies;
 	while (unlikely((b4xxp_getreg8(b4, R_STATUS) & V_BUSY))) {
-		maxwait--; /* FIXME: do what? it isn't busy for long */
+		if (time_after(jiffies, start + TIMEOUT)) {
+			timeout = 1;
+			break;
+		}
 	};
 
 	mb();
 	b4xxp_setreg8(b4, reg, val);
 	mb();
 
-	maxwait = 1048576;
+	start = jiffies;
 	while (likely((b4xxp_getreg8(b4, R_STATUS) & V_BUSY))) {
-		maxwait--; /* FIXME: do what? it isn't busy for long */
+		if (time_after(jiffies, start + TIMEOUT)) {
+			timeout = 1;
+			break;
+		}
 	};
 
-	if (!maxwait) {
+	if (timeout) {
 		if (printk_ratelimit())
 			dev_warn(b4->dev, "hfc_setreg_waitbusy(write 0x%02x to 0x%02x) timed out waiting for busy flag to clear!\n", val, reg);
 	}
@@ -1577,7 +1579,8 @@ static int hdlc_rx_frame(struct b4xxp_span *bspan)
 		spin_unlock_irqrestore(&b4->fifolock, irq_flags);
 
 /* don't send STAT byte to DAHDI */
-		dahdi_hdlc_putbuf(bspan->sigchan, buf, (j == WCB4XXP_HDLC_BUF_LEN) ? j : j - 1);
+		if (bspan->sigchan)
+			dahdi_hdlc_putbuf(bspan->sigchan, buf, (j == WCB4XXP_HDLC_BUF_LEN) ? j : j - 1);
 
 		zleft -= j;
 		if (DBG_HDLC && DBG_SPANFILTER) {
@@ -1592,6 +1595,11 @@ static int hdlc_rx_frame(struct b4xxp_span *bspan)
 	hfc_setreg_waitbusy(b4, A_INC_RES_FIFO, V_INC_F);
 	get_F(f1, f2, flen);
 	spin_unlock_irqrestore(&b4->fifolock, irq_flags);
+
+	/* If this channel is not configured with a signalling span we don't
+	 * need to notify the rest of dahdi about this frame. */
+	if (!bspan->sigchan)
+		return flen;
 
 	++bspan->frames_in;
 	if (zlen < 3) {
