@@ -814,14 +814,43 @@ static void xbus_release_xpds(xbus_t *xbus)
 {
 	int			i;
 
-	XBUS_INFO(xbus, "[%s] Release XPDS\n", xbus->label);
+	XBUS_DBG(DEVICES, xbus, "[%s] Release XPDS\n", xbus->label);
 	for(i = 0; i < MAX_XPDS; i++) {
 		xpd_t *xpd = xpd_of(xbus, i);
 
 		if(xpd)
-			/* taken in xpd_device_register() */
 			put_xpd(__func__, xpd);
 	}
+}
+
+static int xbus_aquire_xpds(xbus_t *xbus)
+{
+	unsigned long	flags;
+	int		i;
+	int		ret = 0;
+	xpd_t		*xpd;
+
+	XBUS_DBG(DEVICES, xbus, "[%s] Aquire XPDS\n", xbus->label);
+	spin_lock_irqsave(&xbus->lock, flags);
+	for (i = 0; i < MAX_XPDS; i++) {
+		xpd = xpd_of(xbus, i);
+		if (xpd) {
+			xpd = get_xpd(__func__, xpd);
+			if (!xpd)
+				goto err;
+		}
+	}
+out:
+	spin_unlock_irqrestore(&xbus->lock, flags);
+	return ret;
+err:
+	for (--i ; i >= 0; i--) {
+		xpd = xpd_of(xbus, i);
+		if (xpd)
+			put_xpd(__func__, xpd);
+	}
+	ret = -EBUSY;
+	goto out;
 }
 
 static int xpd_initialize(xpd_t *xpd)
@@ -853,14 +882,24 @@ static int xbus_initialize(xbus_t *xbus)
 	struct timeval	time_start;
 	struct timeval	time_end;
 	unsigned long	timediff;
+	int		res = 0;
 
 	do_gettimeofday(&time_start);
 	XBUS_DBG(DEVICES, xbus, "refcount_xbus=%d\n",
 			refcount_xbus(xbus));
+	if (xbus_aquire_xpds(xbus) < 0)	/* Until end of initialization */
+		return -EBUSY;
 	for(unit = 0; unit < MAX_UNIT; unit++) {
 		xpd = xpd_byaddr(xbus, unit, 0);
 		if(!xpd)
 			continue;
+		if (!XBUS_IS(xbus, RECVD_DESC)) {
+			XBUS_NOTICE(xbus,
+				"Cannot initialize UNIT=%d in state %s\n",
+				unit,
+				xbus_statename(XBUS_STATE(xbus)));
+			goto err;
+		}
 		if(run_initialize_registers(xpd) < 0) {
 			XBUS_ERR(xbus, "Register Initialization of card #%d failed\n", unit);
 			goto err;
@@ -871,15 +910,13 @@ static int xbus_initialize(xbus_t *xbus)
 			xpd = xpd_byaddr(xbus, unit, subunit);
 			if(!xpd)
 				continue;
-			xpd = get_xpd(__FUNCTION__, xpd);
-			if(!xpd) {
+			if (!XBUS_IS(xbus, RECVD_DESC)) {
 				XBUS_ERR(xbus,
-						"Aborting initialization. XPD-%d%d is gone.\n",
-						unit, subunit);
+					"XPD-%d%d Not in 'RECVD_DESC' state\n",
+					unit, subunit);
 				goto err;
 			}
 			ret = xpd_initialize(xpd);
-			put_xpd(__FUNCTION__, xpd);
 			if(ret < 0)
 				goto err;
 		}
@@ -888,10 +925,13 @@ static int xbus_initialize(xbus_t *xbus)
 	timediff = usec_diff(&time_end, &time_start);
 	timediff /= 1000*100;
 	XBUS_INFO(xbus, "Initialized in %ld.%1ld sec\n", timediff/10, timediff%10);
-	return 0;
+out:
+	xbus_release_xpds(xbus);	/* Initialization done/failed */
+	return res;
 err:
 	xbus_setstate(xbus, XBUS_STATE_FAIL);
-	return -EINVAL;
+	res = -EINVAL;
+	goto out;
 }
 
 /*
@@ -915,6 +955,7 @@ void xbus_populate(void *data)
 	int			ret = 0;
 
 	xbus = container_of(worker, xbus_t, worker);
+	xbus = get_xbus(__func__, xbus);	/* return in function end */
 	XBUS_DBG(DEVICES, xbus, "Entering %s\n", __FUNCTION__);
 	spin_lock_irqsave(&worker->worker_lock, flags);
 	list_for_each_safe(card, next_card, &worker->card_list) {
@@ -961,6 +1002,7 @@ out:
 	wake_up_interruptible_all(&worker->wait_for_xpd_initialization);
 	XBUS_DBG(DEVICES, xbus, "populate release\n");
 	up(&worker->running_initialization);
+	put_xbus(__func__, xbus);	/* taken at function entry */
 	return;
 failed:
 	xbus_setstate(xbus, XBUS_STATE_FAIL);
@@ -1258,7 +1300,7 @@ void xbus_deactivate(xbus_t *xbus)
 	xbus_command_queue_waitempty(xbus);
 	xbus_setstate(xbus, XBUS_STATE_DEACTIVATED);
 	worker_reset(xbus);
-	xbus_release_xpds(xbus);
+	xbus_release_xpds(xbus);	/* taken in xpd_device_register() */
 	elect_syncer("deactivate");
 }
 
