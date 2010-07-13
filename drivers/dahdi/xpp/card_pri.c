@@ -471,7 +471,7 @@ static int write_cas_reg(xpd_t *xpd, int rsnum, byte val)
 
 	BUG_ON(!xpd);
 	priv = xpd->priv;
-	if (priv->pri_protocol && !priv->is_esf) {
+	if ((priv->pri_protocol == PRI_PROTO_T1) && !priv->is_esf) {
 		/* same data should be copied to RS7..12 in D4 only */
 		is_d4 = 1;
 	}
