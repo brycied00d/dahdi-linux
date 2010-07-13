@@ -799,7 +799,8 @@ int run_initialize_registers(xpd_t *xpd)
 	xbus = xpd->xbus;
 	if(!initdir || !initdir[0]) {
 		XPD_NOTICE(xpd, "Missing initdir parameter\n");
-		return -EINVAL;
+		ret = -EINVAL;
+		goto err;
 	}
 	if(!xpd_setstate(xpd, XPD_STATE_INIT_REGS)) {
 		ret = -EINVAL;
