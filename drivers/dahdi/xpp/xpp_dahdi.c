@@ -571,8 +571,8 @@ __must_check xpd_t *xpd_alloc(xbus_t *xbus,
 	 * This makes sure the xbus cannot be removed before this xpd
 	 * is removed in xpd_free()
 	 */
-	xbus = get_xbus(__FUNCTION__, xbus);	/* returned in xpd_free() */
-	xproto_get(type);			/* will be returned in xpd_free() */
+	xbus = get_xbus(__func__, xbus->num);	/* returned in xpd_free() */
+	xproto_get(type);		/* will be returned in xpd_free() */
 	return xpd;
 err:
 	if(xpd) {

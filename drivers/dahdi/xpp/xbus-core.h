@@ -158,10 +158,10 @@ void put_xframe(struct xframe_queue *q, xframe_t *xframe);
 #define	FREE_SEND_XFRAME(xbus, xframe)	put_xframe(&(xbus)->send_pool, (xframe))
 #define	FREE_RECV_XFRAME(xbus, xframe)	put_xframe(&(xbus)->receive_pool, (xframe))
 
-xbus_t		*xbus_num(uint num);
-xbus_t		*get_xbus(const char *msg, xbus_t *xbus);
-void		put_xbus(const char *msg, xbus_t *xbus);
-int		refcount_xbus(xbus_t *xbus);
+xbus_t	*xbus_num(uint num);
+xbus_t	*get_xbus(const char *msg, uint num);
+void	put_xbus(const char *msg, xbus_t *xbus);
+int	refcount_xbus(xbus_t *xbus);
 
 /*
  * An xbus is a transport layer for Xorcom Protocol commands
