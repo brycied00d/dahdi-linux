@@ -56,6 +56,7 @@ static struct xpp_ticker	dahdi_ticker;
  */
 static struct xpp_ticker	*ref_ticker = NULL;
 static spinlock_t		ref_ticker_lock = SPIN_LOCK_UNLOCKED;
+static spinlock_t		elect_syncer_lock = SPIN_LOCK_UNLOCKED;
 static bool			force_dahdi_sync = 0;	/* from /sys/bus/astribanks/drivers/xppdrv/sync */
 static xbus_t			*global_ticker;
 static struct xpp_ticker	global_ticks_series;
@@ -305,17 +306,17 @@ const char *sync_mode_name(enum sync_mode mode)
 	return sync_mode_names[mode];
 }
 
+/*
+ * Caller must aquire/release the 'ref_ticker_lock' spinlock
+ */
 static void xpp_set_syncer(xbus_t *xbus, bool on)
 {
-	unsigned long	flags;
-
-	spin_lock_irqsave(&ref_ticker_lock, flags);
 	if(!xbus) {	/* Special case, no more syncers */
 		DBG(SYNC, "No more syncers\n");
 		syncer = NULL;
 		if(ref_ticker != &dahdi_ticker)
 			ref_ticker = NULL;
-		goto out;
+		return;
 	}
 	if(syncer != xbus && on) {
 		XBUS_DBG(SYNC, xbus, "New syncer\n");
@@ -329,8 +330,6 @@ static void xpp_set_syncer(xbus_t *xbus, bool on)
 		XBUS_DBG(SYNC, xbus, "ignore %s (current syncer: %s)\n",
 			(on)?"ON":"OFF",
 			(syncer) ? syncer->busname : "NO-SYNC");
-out:
-	spin_unlock_irqrestore(&ref_ticker_lock, flags);
 }
 
 static void xbus_command_timer(unsigned long param)
@@ -369,11 +368,14 @@ void xbus_set_command_timer(xbus_t *xbus, bool on)
 void got_new_syncer(xbus_t *xbus, enum sync_mode mode, int drift)
 {
 	unsigned long	flags;
+	unsigned long	flags2;
 
 	spin_lock_irqsave(&xbus->lock, flags);
+	spin_lock_irqsave(&ref_ticker_lock, flags2);
 	xbus->sync_adjustment = (signed char)drift;
 	if(xbus->sync_mode == mode) {
-		/* XBUS_DBG(SYNC, xbus, "Already in mode '%s'. Ignored\n", sync_mode_name(mode)); */
+		XBUS_DBG(SYNC, xbus, "Already in mode '%s'. Ignored\n",
+				sync_mode_name(mode));
 		goto out;
 	}
 	XBUS_DBG(SYNC, xbus, "Mode %s (%d), drift=%d (pcm_rx_counter=%d)\n",
@@ -402,15 +404,32 @@ void got_new_syncer(xbus_t *xbus, enum sync_mode mode, int drift)
 		XBUS_ERR(xbus, "%s: unknown mode=0x%X\n", __FUNCTION__, mode);
 	}
 out:
+	spin_unlock_irqrestore(&ref_ticker_lock, flags2);
 	spin_unlock_irqrestore(&xbus->lock, flags);
 }
 
 void xbus_request_sync(xbus_t *xbus, enum sync_mode mode)
 {
+	unsigned long	flags;
+
 	BUG_ON(!xbus);
 	XBUS_DBG(SYNC, xbus, "sent request (mode=%d)\n", mode);
 	CALL_PROTO(GLOBAL, SYNC_SOURCE, xbus, NULL, mode, 0);
 	if(mode == SYNC_MODE_NONE) {
+		/*
+		 * We must deselect the syncer *now* and not wait for the
+		 * reply from the AB. Otherwise, a disconnect of the syncing
+		 * AB would result in a corrupted 'syncer'.
+		 */
+		spin_lock_irqsave(&ref_ticker_lock, flags);
+		xpp_set_syncer(xbus, 0);
+		spin_unlock_irqrestore(&ref_ticker_lock, flags);
+		/*
+		 * We must activate timer now since the commands go to
+		 * the command queue, and we should maintain something to
+		 * "tick" meanwhile until the AB get these commands and
+		 * start being "self_ticking".
+		 */
 		xbus_set_command_timer(xbus, 1);
 	}
 }
@@ -559,6 +578,7 @@ static void update_sync_master(xbus_t *new_syncer, bool force_dahdi)
 		force_dahdi_sync = 0;
 		ref_ticker = &new_syncer->ticker;
 		xbus_drift_clear(new_syncer);	/* Clean new data */
+		xpp_set_syncer(new_syncer, 1);
 		xbus_request_sync(new_syncer, SYNC_MODE_AB);
 	} else if(force_dahdi_sync) {
 		ref_ticker = &dahdi_ticker;
@@ -574,7 +594,8 @@ static void update_sync_master(xbus_t *new_syncer, bool force_dahdi)
 			continue;
 		if(XBUS_FLAGS(xbus, CONNECTED) && xbus != new_syncer) {
 			if(xbus->self_ticking)
-				xbus_request_sync(xbus, SYNC_MODE_PLL);
+				xbus_request_sync(xbus,
+						xbus->sync_mode_default);
 			else
 				XBUS_DBG(SYNC, xbus, "Not self_ticking yet. Ignore\n");
 		}
@@ -588,7 +609,9 @@ void elect_syncer(const char *msg)
 	uint	timing_priority = INT_MAX;
 	xpd_t	*best_xpd = NULL;
 	xbus_t	*the_xbus = NULL;
+	unsigned long	flags;
 
+	spin_lock_irqsave(&elect_syncer_lock, flags);
 	for(i = 0; i < MAX_BUSES; i++) {
 		xbus_t	*xbus = xbus_num(i);
 		if(!xbus)
@@ -598,11 +621,19 @@ void elect_syncer(const char *msg)
 				the_xbus = xbus;	/* First candidate */
 			for(j = 0; j < MAX_XPDS; j++) {
 				xpd_t	*xpd = xpd_of(xbus, j);
+				int	prio;
 
 				if(!xpd || !xpd->card_present)
 					continue;
-				if(xpd->timing_priority > 0 && xpd->timing_priority < timing_priority) {
-					timing_priority = xpd->timing_priority;
+				prio = CALL_XMETHOD(card_timing_priority,
+						xbus, xpd);
+				if (prio < 0) {
+					DBG(SYNC, "%s/%s: skip sync\n",
+						xbus->busname, xpd->xpdname);
+					continue;
+				}
+				if (prio > 0 && prio < timing_priority) {
+					timing_priority = prio;
 					best_xpd = xpd;
 				}
 			}
@@ -614,12 +645,17 @@ void elect_syncer(const char *msg)
 	} else if(the_xbus) {
 		XBUS_DBG(SYNC, the_xbus, "%s: elected\n", msg);
 	} else {
+		unsigned long	flags;
+
 		DBG(SYNC, "%s: No more syncers\n", msg);
+		spin_lock_irqsave(&ref_ticker_lock, flags);
 		xpp_set_syncer(NULL, 0);
+		spin_unlock_irqrestore(&ref_ticker_lock, flags);
 		the_xbus = NULL;
 	}
 	if(the_xbus != syncer)
 		update_sync_master(the_xbus, force_dahdi_sync);
+	spin_unlock_irqrestore(&elect_syncer_lock, flags);
 }
 
 /*
@@ -962,6 +998,11 @@ out:
 	return ret;
 }
 
+int generic_timing_priority(xbus_t *xbus, xpd_t *xpd)
+{
+	return xpd->timing_priority;
+}
+
 static void xbus_tick(xbus_t *xbus)
 {
 	int		i;
@@ -1290,6 +1331,7 @@ EXPORT_SYMBOL(update_wanted_pcm_mask);
 EXPORT_SYMBOL(generic_card_pcm_recompute);
 EXPORT_SYMBOL(generic_card_pcm_tospan);
 EXPORT_SYMBOL(generic_card_pcm_fromspan);
+EXPORT_SYMBOL(generic_timing_priority);
 #ifdef	DEBUG_PCMTX
 EXPORT_SYMBOL(pcmtx);
 EXPORT_SYMBOL(pcmtx_chan);

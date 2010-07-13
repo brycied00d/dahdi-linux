@@ -1409,6 +1409,7 @@ static xproto_table_t PROTO_TABLE(FXS) = {
 		.card_pcm_recompute	= generic_card_pcm_recompute,
 		.card_pcm_fromspan	= generic_card_pcm_fromspan,
 		.card_pcm_tospan	= generic_card_pcm_tospan,
+		.card_timing_priority	= generic_timing_priority,
 		.card_open	= FXS_card_open,
 		.card_close	= FXS_card_close,
 		.card_ioctl	= FXS_card_ioctl,

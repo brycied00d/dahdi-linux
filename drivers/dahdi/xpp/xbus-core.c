@@ -1475,6 +1475,7 @@ xbus_t *xbus_new(struct xbus_ops *ops, ushort max_send_size, struct device *tran
 	worker_init(xbus);
 	atomic_set(&xbus->num_xpds, 0);
 	xbus->sync_mode = SYNC_MODE_NONE;
+	xbus->sync_mode_default = SYNC_MODE_PLL;
 	err = xbus_sysfs_create(xbus);
 	if(err) {
 		XBUS_ERR(xbus, "SYSFS creation failed: %d\n", err);

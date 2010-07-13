@@ -1193,6 +1193,7 @@ static xpd_t *PRI_card_new(xbus_t *xbus, int unit, int subunit, const xproto_tab
 		return NULL;
 	}
 #endif
+	xbus->sync_mode_default = SYNC_MODE_AB;
 	return xpd;
 }
 
@@ -1827,6 +1828,18 @@ static void PRI_card_pcm_tospan(xbus_t *xbus, xpd_t *xpd, xpacket_t *pack)
 	spin_unlock_irqrestore(&xpd->lock, flags);
 }
 
+int PRI_timing_priority(xbus_t *xbus, xpd_t *xpd)
+{
+	struct PRI_priv_data	*priv;
+
+	priv = xpd->priv;
+	BUG_ON(!priv);
+	if (priv->layer1_up)
+		return xpd->timing_priority;
+	XPD_DBG(SYNC, xpd, "No timing priority (no layer1)\n");
+	return -ENOENT;
+}
+
 /*---------------- PRI: HOST COMMANDS -------------------------------------*/
 
 static /* 0x0F */ HOSTCMD(PRI, XPD_STATE, bool on)
@@ -1917,6 +1930,7 @@ static void layer1_state(xpd_t *xpd, byte data_low)
 				send_idlebits(xpd, 1);
 		}
 		xpd->span.alarms = alarms;
+		elect_syncer("LAYER1");
 		dahdi_alarm_notify(&xpd->span);
 		set_clocking(xpd);
 	}
@@ -2140,6 +2154,7 @@ static xproto_table_t PROTO_TABLE(PRI) = {
 		.card_pcm_recompute	= PRI_card_pcm_recompute,
 		.card_pcm_fromspan	= PRI_card_pcm_fromspan,
 		.card_pcm_tospan	= PRI_card_pcm_tospan,
+		.card_timing_priority	= PRI_timing_priority,
 		.card_ioctl	= PRI_card_ioctl,
 		.card_close	= PRI_card_close,
 		.card_register_reply	= PRI_card_register_reply,
