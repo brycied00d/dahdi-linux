@@ -122,30 +122,38 @@ static int proc_xpd_blink_write(struct file *file, const char __user *buffer, un
 
 /*------------------------- XPD Management -------------------------*/
 
+/*
+ * Called by put_xpd() when XPD has no more references.
+ */
+static void xpd_destroy(struct kref *kref)
+{
+	xpd_t	*xpd;
+
+	xpd = kref_to_xpd(kref);
+	XPD_NOTICE(xpd, "%s\n", __func__);
+	xpd_device_unregister(xpd);
+}
+
 int refcount_xpd(xpd_t *xpd)
 {
-	struct kref *kref = &xpd->xpd_dev.kobj.kref;
+	struct kref *kref = &xpd->kref;
 
 	return atomic_read(&kref->refcount);
 }
 
 xpd_t *get_xpd(const char *msg, xpd_t *xpd)
 {
-	struct device	*dev;
-
 	XPD_DBG(DEVICES, xpd, "%s: refcount_xpd=%d\n",
 		msg, refcount_xpd(xpd));
-	dev = get_device(&xpd->xpd_dev);
-	if (!dev)
-		return NULL;
-	return dev_to_xpd(dev);
+	kref_get(&xpd->kref);
+	return xpd;
 }
 
 void put_xpd(const char *msg, xpd_t *xpd)
 {
 	XPD_DBG(DEVICES, xpd, "%s: refcount_xpd=%d\n",
 		msg, refcount_xpd(xpd));
-	put_device(&xpd->xpd_dev);
+	kref_put(&xpd->kref, xpd_destroy);
 }
 
 static void xpd_proc_remove(xbus_t *xbus, xpd_t *xpd)
@@ -539,6 +547,7 @@ __must_check xpd_t *xpd_alloc(xbus_t *xbus,
 
 	atomic_set(&xpd->dahdi_registered, 0);
 	atomic_set(&xpd->open_counter, 0);
+	kref_init(&xpd->kref);
 
 	/* For USB-1 disable some channels */
 	if(MAX_SEND_SIZE(xbus) < RPACKET_SIZE(GLOBAL, PCM_WRITE)) {
@@ -614,7 +623,6 @@ void xbus_request_removal(xbus_t *xbus)
 					dahdi_qevent_lock(XPD_CHAN(xpd, j),DAHDI_EVENT_REMOVED);
 				}
 			}
-			xpd_device_unregister(xpd);
 		}
 	}
 }

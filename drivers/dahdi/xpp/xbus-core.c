@@ -141,28 +141,36 @@ static void finalize_xbuses_array(void)
 	}
 }
 
+/*
+ * Called by put_xbus() when XBUS has no more references.
+ */
+static void xbus_destroy(struct kref *kref)
+{
+	xbus_t	*xbus;
+
+	xbus = kref_to_xbus(kref);
+	XBUS_NOTICE(xbus, "%s\n", __func__);
+	xbus_sysfs_remove(xbus);
+}
+
 xbus_t *get_xbus(const char *msg, xbus_t *xbus)
 {
-	struct device	*dev;
-
 	XBUS_DBG(DEVICES, xbus, "%s: refcount_xbus=%d\n",
 		msg, refcount_xbus(xbus));
-	dev = get_device(&xbus->astribank);
-	if (!dev)
-		return NULL;
-	return dev_to_xbus(dev);
+	kref_get(&xbus->kref);
+	return xbus;
 }
 
 void put_xbus(const char *msg, xbus_t *xbus)
 {
 	XBUS_DBG(DEVICES, xbus, "%s: refcount_xbus=%d\n",
 		msg, refcount_xbus(xbus));
-	put_device(&xbus->astribank);
+	kref_put(&xbus->kref, xbus_destroy);
 }
 
 int refcount_xbus(xbus_t *xbus)
 {
-	struct kref *kref = &xbus->astribank.kobj.kref;
+	struct kref *kref = &xbus->kref;
 
 	return atomic_read(&kref->refcount);
 }
@@ -1049,7 +1057,6 @@ static void worker_reset(xbus_t *xbus)
 
 	BUG_ON(!xbus);
 	worker = &xbus->worker;
-	xbus = container_of(worker, xbus_t, worker);
 	name = (xbus) ? xbus->busname : "detached";
 	DBG(DEVICES, "%s\n", name);
 	if(!worker->xpds_init_done) {
@@ -1300,7 +1307,7 @@ void xbus_deactivate(xbus_t *xbus)
 	xbus_command_queue_waitempty(xbus);
 	xbus_setstate(xbus, XBUS_STATE_DEACTIVATED);
 	worker_reset(xbus);
-	xbus_release_xpds(xbus);	/* taken in xpd_device_register() */
+	xbus_release_xpds(xbus);	/* taken in xpd_alloc() [kref_init] */
 	elect_syncer("deactivate");
 }
 
@@ -1323,7 +1330,8 @@ void xbus_disconnect(xbus_t *xbus)
 	worker_destroy(xbus);
 	XBUS_DBG(DEVICES, xbus, "Deactivated refcount_xbus=%d\n",
 		refcount_xbus(xbus));
-	xbus_sysfs_remove(xbus);	/* Device-Model */
+	xbus_sysfs_transport_remove(xbus);	/* Device-Model */
+	put_xbus(__func__, xbus);	/* from xbus_new() [kref_init()] */
 }
 
 static xbus_t *xbus_alloc(void)
@@ -1427,12 +1435,19 @@ xbus_t *xbus_new(struct xbus_ops *ops, ushort max_send_size, struct device *tran
 	xbus->min_tx_sync = INT_MAX;
 	xbus->min_rx_sync = INT_MAX;
 	
+	kref_init(&xbus->kref);
 	worker_init(xbus);
 	atomic_set(&xbus->num_xpds, 0);
 	xbus->sync_mode = SYNC_MODE_NONE;
 	err = xbus_sysfs_create(xbus);
 	if(err) {
 		XBUS_ERR(xbus, "SYSFS creation failed: %d\n", err);
+		goto nobus;
+	}
+	err = xbus_sysfs_transport_create(xbus);
+	if (err) {
+		XBUS_ERR(xbus, "SYSFS transport link creation failed: %d\n",
+				err);
 		goto nobus;
 	}
 	xbus_reset_counters(xbus);
