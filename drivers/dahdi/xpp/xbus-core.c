@@ -189,11 +189,19 @@ static void xbus_destroy(struct kref *kref)
 	xbus_sysfs_remove(xbus);
 }
 
-xbus_t *get_xbus(const char *msg, xbus_t *xbus)
+xbus_t *get_xbus(const char *msg, uint num)
 {
-	XBUS_DBG(DEVICES, xbus, "%s: refcount_xbus=%d\n",
-		msg, refcount_xbus(xbus));
-	kref_get(&xbus->kref);
+	unsigned long	flags;
+	xbus_t		*xbus;
+
+	spin_lock_irqsave(&xbuses_lock, flags);
+	xbus = xbus_num(num);
+	if (xbus != NULL) {
+		kref_get(&xbus->kref);
+		XBUS_DBG(DEVICES, xbus, "%s: refcount_xbus=%d\n",
+			msg, refcount_xbus(xbus));
+	}
+	spin_unlock_irqrestore(&xbuses_lock, flags);
 	return xbus;
 }
 
@@ -999,7 +1007,7 @@ void xbus_populate(void *data)
 	int			ret = 0;
 
 	xbus = container_of(worker, xbus_t, worker);
-	xbus = get_xbus(__func__, xbus);	/* return in function end */
+	xbus = get_xbus(__func__, xbus->num);	/* return in function end */
 	XBUS_DBG(DEVICES, xbus, "Entering %s\n", __FUNCTION__);
 	spin_lock_irqsave(&worker->worker_lock, flags);
 	list_for_each_safe(card, next_card, &worker->card_list) {
@@ -1169,7 +1177,7 @@ static int worker_run(xbus_t *xbus)
 {
 	struct xbus_workqueue	*worker;
 
-	xbus = get_xbus(__func__, xbus);	/* return in worker_destroy() */
+	xbus = get_xbus(__func__, xbus->num);	/* return in worker_destroy() */
 	BUG_ON(!xbus);
 	BUG_ON(xbus->busname[0] == '\0');	/* No name? */
 	worker = &xbus->worker;
@@ -1337,6 +1345,7 @@ void xbus_deactivate(xbus_t *xbus)
 	if(!xbus_setstate(xbus, XBUS_STATE_DEACTIVATING))
 		return;
 	xbus_request_sync(xbus, SYNC_MODE_NONE);	/* no more ticks */
+	elect_syncer("deactivate");
 	xbus_request_removal(xbus);
 	XBUS_DBG(DEVICES, xbus, "[%s] Waiting for queues\n", xbus->label);
 	xbus_command_queue_clean(xbus);
@@ -1344,7 +1353,6 @@ void xbus_deactivate(xbus_t *xbus)
 	xbus_setstate(xbus, XBUS_STATE_DEACTIVATED);
 	worker_reset(xbus);
 	xbus_release_xpds(xbus);	/* taken in xpd_alloc() [kref_init] */
-	elect_syncer("deactivate");
 }
 
 void xbus_disconnect(xbus_t *xbus)
@@ -1585,7 +1593,8 @@ int waitfor_xpds(xbus_t *xbus, char *buf)
 	 * FIXME: worker is created before ?????
 	 * So by now it exists and initialized.
 	 */
-	xbus = get_xbus(__func__, xbus); /* until end of waitfor_xpds_show() */
+	/* until end of waitfor_xpds_show(): */
+	xbus = get_xbus(__func__, xbus->num);
 	if (!xbus)
 		return -ENODEV;
 	worker = &xbus->worker;
@@ -1663,10 +1672,9 @@ static int xbus_read_proc(char *page, char **start, off_t off, int count, int *e
 	int			len = 0;
 	int			i = (int)((unsigned long)data);
 
-	xbus = xbus_num(i);
+	xbus = get_xbus(__func__, i);	/* until end of xbus_read_proc */
 	if(!xbus)
 		goto out;
-	xbus = get_xbus(__FUNCTION__, xbus);	/* until end of xbus_read_proc */
 	spin_lock_irqsave(&xbus->lock, flags);
 	worker = &xbus->worker;
 
@@ -1734,17 +1742,18 @@ out:
 static int xbus_read_waitfor_xpds(char *page, char **start, off_t off, int count, int *eof, void *data)
 {
 	int			len = 0;
-	xbus_t			*xbus = data;
+	int			i = (int)((unsigned long)data);
+	xbus_t			*xbus;
 
-	if(!xbus)
-		goto out;
-	XBUS_NOTICE(xbus, "%s: DEPRECATED: %s[%d] read from /proc interface instead of /sys\n",
-		__FUNCTION__, current->comm, current->tgid);
-	/* first handle special cases */
-	if(!count || off)
-		goto out;
-	len = waitfor_xpds(xbus, page);
-out:
+	xbus = get_xbus(__func__, i);
+	if (xbus != NULL) {
+		XBUS_NOTICE(xbus, "%s: DEPRECATED: %s[%d] read from /proc interface instead of /sys\n",
+			__func__, current->comm, current->tgid);
+		/* first handle special cases */
+		if (count && !off)
+			len = waitfor_xpds(xbus, page);
+		put_xbus(__func__, xbus);
+	}
 	if (len <= off+count)
 		*eof = 1;
 	*start = page + off;
@@ -1841,12 +1850,10 @@ out:
 static int read_proc_xbuses(char *page, char **start, off_t off, int count, int *eof, void *data)
 {
 	int len = 0;
-	unsigned long flags;
 	int i;
 
-	spin_lock_irqsave(&xbuses_lock, flags);
 	for(i = 0; i < MAX_BUSES; i++) {
-		xbus_t *xbus = xbus_num(i);
+		xbus_t *xbus = get_xbus(__func__, i);
 
 		if(xbus) {
 			len += sprintf(page + len, "%s: CONNECTOR=%s LABEL=[%s] STATUS=%s\n",
@@ -1855,12 +1862,12 @@ static int read_proc_xbuses(char *page, char **start, off_t off, int count, int 
 					xbus->label,
 					(XBUS_FLAGS(xbus, CONNECTED)) ? "connected" : "missing"
 				      );
+			put_xbus(__func__, xbus);
 		}
 	}
 #if 0
 	len += sprintf(page + len, "<-- len=%d\n", len);
 #endif
-	spin_unlock_irqrestore(&xbuses_lock, flags);
 	if (len <= off+count)
 		*eof = 1;
 	*start = page + off;

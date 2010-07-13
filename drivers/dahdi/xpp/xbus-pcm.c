@@ -440,9 +440,9 @@ static void reset_sync_counters(void)
 
 	//DBG(SYNC, "%d\n", atomic_read(&xpp_tick_counter));
 	for(i = 0; i < MAX_BUSES; i++) {
-		xbus_t	*xbus = xbus_num(i);
+		xbus_t	*xbus = get_xbus(__func__, i);
 
-		if(!xbus)
+		if (xbus == NULL)
 			continue;
 		/*
 		 * Don't send to non self_ticking Astribanks:
@@ -459,6 +459,7 @@ static void reset_sync_counters(void)
 				CALL_PROTO(GLOBAL, RESET_SYNC_COUNTERS, xbus, NULL);
 			}
 		}
+		put_xbus(__func__, xbus);
 	}
 }
 
@@ -589,8 +590,8 @@ static void update_sync_master(xbus_t *new_syncer, bool force_dahdi)
 	DBG(SYNC, "stop unwanted syncers\n");
 	/* Shut all down except the wanted sync master */
 	for(i = 0; i < MAX_BUSES; i++) {
-		xbus_t	*xbus = xbus_num(i);
-		if(!xbus)
+		xbus_t	*xbus = get_xbus(__func__, i);
+		if (xbus == NULL)
 			continue;
 		if(XBUS_FLAGS(xbus, CONNECTED) && xbus != new_syncer) {
 			if(xbus->self_ticking)
@@ -599,6 +600,7 @@ static void update_sync_master(xbus_t *new_syncer, bool force_dahdi)
 			else
 				XBUS_DBG(SYNC, xbus, "Not self_ticking yet. Ignore\n");
 		}
+		put_xbus(__func__, xbus);
 	}
 }
 
@@ -612,9 +614,12 @@ void elect_syncer(const char *msg)
 	unsigned long	flags;
 
 	spin_lock_irqsave(&elect_syncer_lock, flags);
+	DBG(SYNC, "%s: %s syncer=%s\n", __func__, msg,
+			(syncer) ? syncer->busname : "NULL");
 	for(i = 0; i < MAX_BUSES; i++) {
-		xbus_t	*xbus = xbus_num(i);
-		if(!xbus)
+		xbus_t	*xbus = get_xbus(__func__, i);
+
+		if (xbus == NULL)
 			continue;
 		if(XBUS_IS(xbus, READY)) {
 			if(!the_xbus)
@@ -638,6 +643,7 @@ void elect_syncer(const char *msg)
 				}
 			}
 		}
+		put_xbus(__func__, xbus);
 	}
 	if(best_xpd) {
 		the_xbus = best_xpd->xbus;
@@ -1177,18 +1183,22 @@ int exec_sync_command(const char *buf, size_t count)
 		update_sync_master(NULL, 1);
 	} else if(sscanf(buf, "SYNC=%d", &xbusno) == 1) {
 		DBG(SYNC, "SYNC=%d\n", xbusno);
-		if((xbus = xbus_num(xbusno)) == NULL) {
+		xbus = get_xbus(__func__, xbusno);
+		if (xbus == NULL) {
 			ERR("No bus %d exists\n", xbusno);
 			return -ENXIO;
 		}
 		update_sync_master(xbus, 0);
+		put_xbus(__func__, xbus);
 	} else if(sscanf(buf, "QUERY=%d", &xbusno) == 1) {
 		DBG(SYNC, "QUERY=%d\n", xbusno);
-		if((xbus = xbus_num(xbusno)) == NULL) {
+		xbus = get_xbus(__func__, xbusno);
+		if (xbus == NULL) {
 			ERR("No bus %d exists\n", xbusno);
 			return -ENXIO;
 		}
 		CALL_PROTO(GLOBAL, SYNC_SOURCE, xbus, NULL, SYNC_MODE_QUERY, 0);
+		put_xbus(__func__, xbus);
 	} else {
 		ERR("%s: cannot parse '%s'\n", __FUNCTION__, buf);
 		ret = -EINVAL;
