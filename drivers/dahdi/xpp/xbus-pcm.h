@@ -99,7 +99,7 @@ static inline long usec_diff(const struct timeval *tv1, const struct timeval *tv
 }
 
 
-int		xbus_pcm_init(struct proc_dir_entry *top);
+int		xbus_pcm_init(void *top);
 void		xbus_pcm_shutdown(void);
 int		send_pcm_frame(xbus_t *xbus, xframe_t *xframe);
 void		pcm_recompute(xpd_t *xpd, xpp_line_t tmp_pcm_mask);

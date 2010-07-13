@@ -87,9 +87,11 @@ static /* 0x0F */ DECLARE_CMD(FXO, XPD_STATE, bool on);
 
 static bool fxo_packet_is_valid(xpacket_t *pack);
 static void fxo_packet_dump(const char *msg, xpacket_t *pack);
+#ifdef CONFIG_PROC_FS
 static int proc_fxo_info_read(char *page, char **start, off_t off, int count, int *eof, void *data);
 #ifdef	WITH_METERING
 static int proc_xpd_metering_read(char *page, char **start, off_t off, int count, int *eof, void *data);
+#endif
 #endif
 static void dahdi_report_battery(xpd_t *xpd, lineno_t chan);
 
@@ -403,7 +405,8 @@ static int fxo_proc_create(xbus_t *xbus, xpd_t *xpd)
 	priv->fxo_info = create_proc_read_entry(PROC_FXO_INFO_FNAME, 0444, xpd->proc_xpd_dir, proc_fxo_info_read, xpd);
 	if(!priv->fxo_info) {
 		XPD_ERR(xpd, "Failed to create proc file '%s'\n", PROC_FXO_INFO_FNAME);
-		goto err;
+		fxo_proc_remove(xbus, xpd);
+		return -EINVAL;
 	}
 	SET_PROC_DIRENTRY_OWNER(priv->fxo_info);
 #ifdef	WITH_METERING
@@ -412,14 +415,13 @@ static int fxo_proc_create(xbus_t *xbus, xpd_t *xpd)
 			proc_xpd_metering_read, xpd);
 	if(!priv->meteringfile) {
 		XPD_ERR(xpd, "Failed to create proc file '%s'\n", PROC_METERING_FNAME);
-		goto err;
+		fxo_proc_remove(xbus, xpd);
+		return -EINVAL;
 	}
 	SET_PROC_DIRENTRY_OWNER(priv->meteringfile);
 #endif
 #endif
 	return 0;
-err:
-	return -EINVAL;
 }
 
 static xpd_t *FXO_card_new(xbus_t *xbus, int unit, int subunit, const xproto_table_t *proto_table,
@@ -1157,6 +1159,7 @@ static void fxo_packet_dump(const char *msg, xpacket_t *pack)
 
 /*------------------------- DAA Handling --------------------------*/
 
+#ifdef	CONFIG_PROC_FS
 static int proc_fxo_info_read(char *page, char **start, off_t off, int count, int *eof, void *data)
 {
 	int			len = 0;
@@ -1273,6 +1276,7 @@ static int proc_fxo_info_read(char *page, char **start, off_t off, int count, in
 		len = 0;
 	return len;
 }
+#endif
 
 #ifdef	WITH_METERING
 static int proc_xpd_metering_read(char *page, char **start, off_t off, int count, int *eof, void *data)

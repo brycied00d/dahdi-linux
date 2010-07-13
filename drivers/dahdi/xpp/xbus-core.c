@@ -56,8 +56,10 @@ static const char rcsid[] = "$Id$";
 #endif
 
 #ifdef	PROTOCOL_DEBUG
+#ifdef	CONFIG_PROC_FS
 #define	PROC_XBUS_COMMAND	"command"
 static int proc_xbus_command_write(struct file *file, const char __user *buffer, unsigned long count, void *data);
+#endif
 #endif
 
 /* Command line parameters */
@@ -66,16 +68,20 @@ static DEF_PARM(uint, command_queue_length, 800, 0444, "Maximal command queue le
 static DEF_PARM(uint, poll_timeout, 1000, 0644, "Timeout (in jiffies) waiting for units to reply");
 static DEF_PARM_BOOL(rx_tasklet, 0, 0644, "Use receive tasklets");
 
+#ifdef	CONFIG_PROC_FS
 static int xbus_read_proc(char *page, char **start, off_t off, int count, int *eof, void *data);
 #ifdef	OLD_PROC
 static int xbus_read_waitfor_xpds(char *page, char **start, off_t off, int count, int *eof, void *data);
+#endif
 #endif
 static void transport_init(xbus_t *xbus, struct xbus_ops *ops, ushort max_send_size, struct device *transport_device, void *priv);
 static void transport_destroy(xbus_t *xbus);
 
 /* Data structures */
 static spinlock_t		xbuses_lock = SPIN_LOCK_UNLOCKED;
+#ifdef	CONFIG_PROC_FS
 static struct proc_dir_entry	*proc_xbuses = NULL;
+#endif
 
 static struct xbus_desc {
 	xbus_t			*xbus;
@@ -1457,7 +1463,73 @@ void xbus_reset_counters(xbus_t *xbus)
 	}
 }
 
-#if CONFIG_PROC_FS
+static bool xpds_done(xbus_t *xbus)
+{
+	struct xbus_workqueue	*worker;
+
+	if (XBUS_IS(xbus, FAIL))
+		return 1;	/* Nothing to wait for */
+	if (!XBUS_IS(xbus, RECVD_DESC))
+		return 1;	/* We are not in the initialization phase */
+	worker = xbus->worker;
+	if (worker->xpds_init_done)
+		return 1;	/* All good */
+	/* Keep waiting */
+	return 0;
+}
+
+int waitfor_xpds(xbus_t *xbus, char *buf)
+{
+	struct xbus_workqueue	*worker;
+	unsigned long		flags;
+	int			ret;
+	int			len = 0;
+
+	/*
+	 * FIXME: worker is created before ?????
+	 * So by now it exists and initialized.
+	 */
+	xbus = get_xbus(__func__, xbus); /* until end of waitfor_xpds_show() */
+	if (!xbus)
+		return -ENODEV;
+	worker = xbus->worker;
+	BUG_ON(!worker);
+	XBUS_DBG(DEVICES, xbus,
+		"Waiting for card initialization of %d XPD's max %d seconds\n",
+		worker->num_units,
+		INITIALIZATION_TIMEOUT/HZ);
+	ret = wait_event_interruptible_timeout(
+		worker->wait_for_xpd_initialization,
+		xpds_done(xbus),
+		INITIALIZATION_TIMEOUT);
+	if (ret == 0) {
+		XBUS_ERR(xbus, "Card Initialization Timeout\n");
+		len = -ETIMEDOUT;
+		goto out;
+	} else if (ret < 0) {
+		XBUS_ERR(xbus, "Card Initialization Interrupted %d\n", ret);
+		len = ret;
+		goto out;
+	} else
+		XBUS_DBG(DEVICES, xbus,
+			"Finished initialization of %d XPD's in %d seconds.\n",
+			worker->num_units_initialized,
+			(INITIALIZATION_TIMEOUT - ret)/HZ);
+	if (XBUS_IS(xbus, FAIL)) {
+		len += sprintf(buf, "FAILED: %s\n", xbus->busname);
+	} else {
+		spin_lock_irqsave(&xbus->lock, flags);
+		len += sprintf(buf, "XPDS_READY: %s: %d/%d\n",
+			xbus->busname,
+			worker->num_units_initialized, worker->num_units);
+		spin_unlock_irqrestore(&xbus->lock, flags);
+	}
+out:
+	put_xbus(__func__, xbus);	/* from start of waitfor_xpds_show() */
+	return len;
+}
+
+#ifdef CONFIG_PROC_FS
 
 static int xbus_fill_proc_queue(char *p, struct xframe_queue *q)
 {
@@ -1550,72 +1622,6 @@ out:
 		len = 0;
 	return len;
 
-}
-
-static bool xpds_done(xbus_t *xbus)
-{
-	struct xbus_workqueue	*worker;
-
-	if(XBUS_IS(xbus, FAIL))
-		return 1;	/* Nothing to wait for */
-	if(!XBUS_IS(xbus, RECVD_DESC))
-		return 1;	/* We are not in the initialization phase */
-	worker = xbus->worker;
-	if(worker->xpds_init_done)
-		return 1;	/* All good */
-	/* Keep waiting */
-	return 0;
-}
-
-int waitfor_xpds(xbus_t *xbus, char *buf)
-{
-	struct xbus_workqueue	*worker;
-	unsigned long		flags;
-	int			ret;
-	int			len = 0;
-
-	/*
-	 * FIXME: worker is created before ?????
-	 * So by now it exists and initialized.
-	 */
-	xbus = get_xbus(__FUNCTION__, xbus);	/* until end of waitfor_xpds_show() */
-	if(!xbus)
-		return -ENODEV;
-	worker = xbus->worker;
-	BUG_ON(!worker);
-	XBUS_DBG(DEVICES, xbus,
-		"Waiting for card initialization of %d XPD's max %d seconds\n",
-		worker->num_units,
-		INITIALIZATION_TIMEOUT/HZ);
-	ret = wait_event_interruptible_timeout(
-		worker->wait_for_xpd_initialization,
-		xpds_done(xbus),
-		INITIALIZATION_TIMEOUT);
-	if(ret == 0) {
-		XBUS_ERR(xbus, "Card Initialization Timeout\n");
-		len = -ETIMEDOUT;
-		goto out;
-	} else if(ret < 0) {
-		XBUS_ERR(xbus, "Card Initialization Interrupted %d\n", ret);
-		len = ret;
-		goto out;
-	} else
-		XBUS_DBG(DEVICES, xbus,
-			"Finished initialization of %d XPD's in %d seconds.\n",
-			worker->num_units_initialized,
-			(INITIALIZATION_TIMEOUT - ret)/HZ);
-	if(XBUS_IS(xbus, FAIL)) {
-		len += sprintf(buf, "FAILED: %s\n", xbus->busname);
-	} else {
-		spin_lock_irqsave(&xbus->lock, flags);
-		len += sprintf(buf, "XPDS_READY: %s: %d/%d\n",
-			xbus->busname,
-			worker->num_units_initialized, worker->num_units);
-		spin_unlock_irqrestore(&xbus->lock, flags);
-	}
-out:
-	put_xbus(__FUNCTION__, xbus);	/* from start of waitfor_xpds_show() */
-	return len;
 }
 
 #ifdef	OLD_PROC

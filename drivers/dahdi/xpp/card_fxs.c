@@ -109,9 +109,11 @@ static /* 0x0F */ DECLARE_CMD(FXS, XPD_STATE, bool on);
 
 static bool fxs_packet_is_valid(xpacket_t *pack);
 static void fxs_packet_dump(const char *msg, xpacket_t *pack);
+#ifdef CONFIG_PROC_FS
 static int proc_fxs_info_read(char *page, char **start, off_t off, int count, int *eof, void *data);
 #ifdef	WITH_METERING
 static int proc_xpd_metering_write(struct file *file, const char __user *buffer, unsigned long count, void *data);
+#endif
 #endif
 static void start_stop_vm_led(xbus_t *xbus, xpd_t *xpd, lineno_t pos);
 
@@ -356,7 +358,8 @@ static int fxs_proc_create(xbus_t *xbus, xpd_t *xpd)
 	priv->fxs_info = create_proc_read_entry(PROC_FXS_INFO_FNAME, 0444, xpd->proc_xpd_dir, proc_fxs_info_read, xpd);
 	if(!priv->fxs_info) {
 		XPD_ERR(xpd, "Failed to create proc file '%s'\n", PROC_FXS_INFO_FNAME);
-		goto err;
+		fxs_proc_remove(xbus, xpd);
+		return -EINVAL;
 	}
 	SET_PROC_DIRENTRY_OWNER(priv->fxs_info);
 #ifdef	WITH_METERING
@@ -364,7 +367,8 @@ static int fxs_proc_create(xbus_t *xbus, xpd_t *xpd)
 	priv->meteringfile = create_proc_entry(PROC_METERING_FNAME, 0200, xpd->proc_xpd_dir);
 	if(!priv->meteringfile) {
 		XPD_ERR(xpd, "Failed to create proc file '%s'\n", PROC_METERING_FNAME);
-		goto err;
+		fxs_proc_remove(xbus, xpd);
+		return -EINVAL;
 	}
 	SET_PROC_DIRENTRY_OWNER(priv->meteringfile);
 	priv->meteringfile->write_proc = proc_xpd_metering_write;
@@ -373,8 +377,6 @@ static int fxs_proc_create(xbus_t *xbus, xpd_t *xpd)
 #endif
 #endif
 	return 0;
-err:
-	return -EINVAL;
 }
 
 static xpd_t *FXS_card_new(xbus_t *xbus, int unit, int subunit, const xproto_table_t *proto_table,
@@ -1390,6 +1392,7 @@ static void fxs_packet_dump(const char *msg, xpacket_t *pack)
 
 /*------------------------- SLIC Handling --------------------------*/
 
+#ifdef	CONFIG_PROC_FS
 static int proc_fxs_info_read(char *page, char **start, off_t off, int count, int *eof, void *data)
 {
 	int			len = 0;
@@ -1458,6 +1461,7 @@ static int proc_fxs_info_read(char *page, char **start, off_t off, int count, in
 		len = 0;
 	return len;
 }
+#endif
 
 #ifdef	WITH_METERING
 static int proc_xpd_metering_write(struct file *file, const char __user *buffer, unsigned long count, void *data)
