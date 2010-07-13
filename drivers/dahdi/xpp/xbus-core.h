@@ -308,6 +308,7 @@ xpacket_t *xframe_next_packet(xframe_t *xframe, int len);
 
 xpd_t	*xpd_of(const xbus_t *xbus, int xpd_num);
 xpd_t	*xpd_byaddr(const xbus_t *xbus, uint unit, uint subunit);
+int	xbus_check_unique(xbus_t *xbus);
 bool	xbus_setstate(xbus_t *xbus, enum xbus_state newstate);
 bool	xbus_setflags(xbus_t *xbus, int flagbit, bool on);
 xbus_t	*xbus_new(struct xbus_ops *ops, ushort max_send_size, struct device *transport_device, void *priv);
