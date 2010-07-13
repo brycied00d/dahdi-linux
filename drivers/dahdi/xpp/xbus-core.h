@@ -24,6 +24,7 @@
 
 #include <linux/wait.h>
 #include <linux/interrupt.h>	/* for tasklets */
+#include <linux/kref.h>
 #include "xpd.h"
 #include "xframe_queue.h"
 #include "xbus-pcm.h"
@@ -206,6 +207,8 @@ struct xbus {
 	/* Device-Model */
 	struct device		astribank;
 #define	dev_to_xbus(dev)	container_of(dev, struct xbus, astribank)
+	struct kref		kref;
+#define kref_to_xbus(k) container_of(k, struct xbus, kref)
 
 	spinlock_t		lock;
 
@@ -326,6 +329,8 @@ void	xpd_device_unregister(xpd_t *xpd);
 
 int	xpp_driver_init(void);
 void	xpp_driver_exit(void);
+int	xbus_sysfs_transport_create(xbus_t *xbus);
+void	xbus_sysfs_transport_remove(xbus_t *xbus);
 int	xbus_sysfs_create(xbus_t *xbus);
 void	xbus_sysfs_remove(xbus_t *xbus);
 

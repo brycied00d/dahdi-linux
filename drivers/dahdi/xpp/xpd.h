@@ -177,6 +177,8 @@ struct xpd {
 	enum xpd_state	xpd_state;
 	struct device	xpd_dev;
 #define	dev_to_xpd(dev)	container_of(dev, struct xpd, xpd_dev)
+	struct kref		kref;
+#define kref_to_xpd(k) container_of(k, struct xpd, kref)
 
 	/* Assure atomicity of changes to pcm_len and wanted_pcm_mask */
 	spinlock_t	lock_recompute_pcm;
