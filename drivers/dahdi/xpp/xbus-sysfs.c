@@ -441,6 +441,16 @@ static void astribank_release(struct device *dev)
 	xbus_free(xbus);
 }
 
+static void toplevel_release(struct device *dev)
+{
+	NOTICE("%s\n", __func__);
+}
+
+static struct device toplevel_device = {
+	.release	= toplevel_release,
+	/* No Parent */
+};
+
 static struct bus_type toplevel_bus_type = {
 	.name           = "astribanks",
 	.match          = astribank_match,
@@ -815,12 +825,19 @@ void xbus_sysfs_transport_remove(xbus_t *xbus)
 int xbus_sysfs_transport_create(xbus_t *xbus)
 {
 	struct device	*astribank;
+	struct device	*transport_device;
 	int		ret = 0;
 
 	BUG_ON(!xbus);
 	XBUS_DBG(DEVICES, xbus, "\n");
 	astribank = &xbus->astribank;
-	ret = sysfs_create_link(&astribank->kobj, &astribank->parent->kobj,
+	BUG_ON(!astribank);
+	transport_device = xbus->transport.transport_device;
+	if (!transport_device) {
+		XBUS_ERR(xbus, "%s: Missing transport_device\n", __func__);
+		return -ENODEV;
+	}
+	ret = sysfs_create_link(&astribank->kobj, &transport_device->kobj,
 			"transport");
 	if (ret < 0) {
 		XBUS_ERR(xbus, "%s: sysfs_create_link failed: %d\n",
@@ -853,7 +870,7 @@ int xbus_sysfs_create(xbus_t *xbus)
 	astribank = &xbus->astribank;
 	XBUS_DBG(DEVICES, xbus, "\n");
 	astribank->bus = &toplevel_bus_type;
-	astribank->parent = xbus->transport.transport_device;
+	astribank->parent = &toplevel_device;
 	dev_set_name(astribank, "xbus-%02d", xbus->num);
 	dev_set_drvdata(astribank, xbus);
 	astribank->release = astribank_release;
@@ -870,6 +887,12 @@ int __init xpp_driver_init(void)
 	int	ret;
 
 	DBG(DEVICES, "SYSFS\n");
+	dev_set_name(&toplevel_device, "astribanks");
+	ret = device_register(&toplevel_device);
+	if (ret) {
+		ERR("%s: toplevel device_register failed: %d\n", __func__, ret);
+		goto failed_toplevel;
+	}
 	if((ret = bus_register(&toplevel_bus_type)) < 0) {
 		ERR("%s: bus_register(%s) failed. Error number %d",
 			__FUNCTION__, toplevel_bus_type.name, ret);
@@ -891,6 +914,8 @@ failed_xpd_bus:
 failed_xpp_driver:
 	bus_unregister(&toplevel_bus_type);
 failed_bus:
+	device_unregister(&toplevel_device);
+failed_toplevel:
 	return ret;
 }
 
@@ -900,6 +925,7 @@ void xpp_driver_exit(void)
 	bus_unregister(&xpd_type);
 	driver_unregister(&xpp_driver);
 	bus_unregister(&toplevel_bus_type);
+	device_unregister(&toplevel_device);
 }
 
 EXPORT_SYMBOL(xpd_driver_register);
