@@ -148,6 +148,8 @@ xbus_t *get_xbus(const char *msg, xbus_t *xbus)
 	XBUS_DBG(DEVICES, xbus, "%s: refcount_xbus=%d\n",
 		msg, refcount_xbus(xbus));
 	dev = get_device(&xbus->astribank);
+	if (!dev)
+		return NULL;
 	return dev_to_xbus(dev);
 }
 

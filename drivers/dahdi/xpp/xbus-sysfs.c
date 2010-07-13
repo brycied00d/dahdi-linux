@@ -205,6 +205,16 @@ static DEVICE_ATTR_READER(waitfor_xpds_show, dev, buf)
 	return len;
 }
 
+static DEVICE_ATTR_READER(refcount_xbus_show, dev, buf)
+{
+	xbus_t			*xbus;
+	int			len;
+
+	xbus = dev_to_xbus(dev);
+	len = sprintf(buf, "%d\n", refcount_xbus(xbus));
+	return len;
+}
+
 static DEVICE_ATTR_READER(driftinfo_show, dev, buf)
 {
 	xbus_t			*xbus;
@@ -290,6 +300,7 @@ static struct device_attribute xbus_dev_attrs[] = {
         __ATTR_RO(label),
 	__ATTR_RO(status),
 	__ATTR_RO(timing),
+	__ATTR_RO(refcount_xbus),
 	__ATTR_RO(waitfor_xpds),
 	__ATTR_RO(driftinfo),
 	__ATTR(cls,		S_IWUSR, NULL, cls_store),
@@ -677,6 +688,19 @@ static DEVICE_ATTR_READER(timing_priority_show, dev, buf)
 	return len;
 }
 
+static DEVICE_ATTR_READER(refcount_xpd_show, dev, buf)
+{
+	xpd_t			*xpd;
+	int			len = 0;
+
+	BUG_ON(!dev);
+	xpd = dev_to_xpd(dev);
+	if (!xpd)
+		return -ENODEV;
+	len += sprintf(buf + len, "%d\n", refcount_xpd(xpd));
+	return len;
+}
+
 static int xpd_match(struct device *dev, struct device_driver *driver)
 {
 	struct xpd_driver	*xpd_driver;
@@ -701,6 +725,7 @@ static struct device_attribute xpd_dev_attrs[] = {
         __ATTR_RO(type),
         __ATTR_RO(offhook),
         __ATTR_RO(timing_priority),
+	__ATTR_RO(refcount_xpd),
         __ATTR_NULL,
 };
 

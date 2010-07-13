@@ -257,6 +257,7 @@ int	xpd_driver_register(struct device_driver *driver);
 void	xpd_driver_unregister(struct device_driver *driver);
 xpd_t	*get_xpd(const char *msg, xpd_t *xpd);
 void	put_xpd(const char *msg, xpd_t *xpd);
+int	refcount_xpd(xpd_t *xpd);
 
 #endif
 

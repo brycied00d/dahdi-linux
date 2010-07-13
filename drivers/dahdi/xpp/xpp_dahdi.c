@@ -122,11 +122,11 @@ static int proc_xpd_blink_write(struct file *file, const char __user *buffer, un
 
 /*------------------------- XPD Management -------------------------*/
 
-static atomic_t *refcount_xpd(xpd_t *xpd)
+int refcount_xpd(xpd_t *xpd)
 {
 	struct kref *kref = &xpd->xpd_dev.kobj.kref;
 
-	return &kref->refcount;
+	return atomic_read(&kref->refcount);
 }
 
 xpd_t *get_xpd(const char *msg, xpd_t *xpd)
@@ -134,15 +134,17 @@ xpd_t *get_xpd(const char *msg, xpd_t *xpd)
 	struct device	*dev;
 
 	XPD_DBG(DEVICES, xpd, "%s: refcount_xpd=%d\n",
-		msg, atomic_read(refcount_xpd(xpd)));
+		msg, refcount_xpd(xpd));
 	dev = get_device(&xpd->xpd_dev);
+	if (!dev)
+		return NULL;
 	return dev_to_xpd(dev);
 }
 
 void put_xpd(const char *msg, xpd_t *xpd)
 {
 	XPD_DBG(DEVICES, xpd, "%s: refcount_xpd=%d\n",
-		msg, atomic_read(refcount_xpd(xpd)));
+		msg, refcount_xpd(xpd));
 	put_device(&xpd->xpd_dev);
 }
 
@@ -331,7 +333,7 @@ static int xpd_read_proc(char *page, char **start, off_t off, int count, int *eo
 	len += sprintf(page + len, "xpd_state: %s (%d)\n",
 		xpd_statename(xpd->xpd_state), xpd->xpd_state);
 	len += sprintf(page + len, "open_counter=%d refcount=%d\n",
-		atomic_read(&xpd->open_counter), atomic_read(refcount_xpd(xpd)));
+		atomic_read(&xpd->open_counter), refcount_xpd(xpd));
 	len += sprintf(page + len, "Address: U=%d S=%d\n", xpd->addr.unit, xpd->addr.subunit);
 	len += sprintf(page + len, "Subunits: %d\n", xpd->subunits);
 	len += sprintf(page + len, "Type: %d.%d\n\n", xpd->type, xpd->subtype);
