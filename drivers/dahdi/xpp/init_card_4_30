@@ -240,13 +240,14 @@ sub port_setup($) {
 	my $portno = $port->{PORT_NUM};
 	my $pri_protocol = $port->get_pri_protocol;
 
+	PRI::gen "$portno WD 28 40"; 	# XPM2.XLT Tristate
+
 	my $cmr5 = sprintf("%x", ($portno << 5));
 
 	PRI::gen "$portno WD 42 $cmr5"; # CMR5.DRSS=portno
 
 	PRI::gen "$portno WD 26 F6"; 	# XPM0: Pulse Shape Programming for R1=18Ohms 
 	PRI::gen "$portno WD 27 02"; 	# XPM1: ...3V Pulse Level at the line (Vp-p=6v)
-	PRI::gen "$portno WD 28 00"; 	# XPM2: ~XLT (transmit line is not in the high impedance state)
 
 					# if (unchannelized)
 	#PRI::gen "$portno WD 1F 22";	# LOOP (Channel Looback): 
