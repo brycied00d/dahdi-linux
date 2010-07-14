@@ -194,7 +194,7 @@ static int lastdtmfthreshold = VPM_DEFAULT_DTMFTHRESHOLD;
    can also cause PCI bus starvation, especially in combination with other
    aggressive cards.  Please note that burst mode has no effect on CPU
    utilization / max number of calls / etc. */
-static int noburst = 1;
+static int noburst = 0;
 /* For 56kbps links, set this module parameter to 0x7f */
 static int hardhdlcmode = 0xff;
 
@@ -2431,7 +2431,7 @@ static int t4_startup(struct dahdi_span *span)
 #endif
 		/* Seed interrupt register */
 		__t4_pci_out(wc, WC_INTR, 0x0c);
-		if (noburst && !(ts->spanflags & FLAG_BURST))
+		if (noburst || !(ts->spanflags & FLAG_BURST))
 			wc->dmactrl |= (1 << 26);
 		__t4_pci_out(wc, WC_DMACTRL, wc->dmactrl);
 
