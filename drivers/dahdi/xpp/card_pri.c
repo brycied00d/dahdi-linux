@@ -302,6 +302,8 @@ struct pri_leds {
 #define	REG_PC3		0x82	/* Port Configuration 3	*/
 #define	REG_PC4		0x83	/* Port Configuration 4	*/
 
+#define	REG_XPM2	0x28	/* Transmit Pulse Mask 2 */
+
 #define	VAL_PC_SYPR	0x00	/* Synchronous Pulse Receive (Input, low active) */
 #define	VAL_PC_GPI	0x90	/* General purpose input */
 #define	VAL_PC_GPOH	0x0A	/* General Purpose Output, high level */
@@ -1522,6 +1524,7 @@ static int pri_startup(struct dahdi_span *span)
 	// Turn on all channels
 	CALL_XMETHOD(XPD_STATE, xpd->xbus, xpd, 1);
 	set_rbslines(xpd, 0);
+	write_subunit(xpd, REG_XPM2, 0x00);
 	return 0;
 }
 
