@@ -94,6 +94,7 @@ static int alarmdebounce = 500;
 static int vpmsupport = 1;
 static int timer_1_ms = 2000;
 static int timer_3_ms = 30000;
+static int alawoverride = 1;
 
 #if !defined(mmiowb)
 #define mmiowb() barrier()
@@ -690,7 +691,10 @@ static void ec_init(struct b4xxp *b4)
 
 		b = ec_read(b4, i, 0x20);
 		b &= 0xe0;
-		b |= 0x13;
+		b |= 0x12;
+		if (alawoverride) {
+			b |= 0x01;
+		}
 		ec_write(b4, i, 0x20, b);
 		if (DBG)
 			dev_info(b4->dev, "reg 0x20 is 0x%02x\n", b);
@@ -2950,6 +2954,7 @@ module_param(alarmdebounce, int, S_IRUGO | S_IWUSR);
 module_param(vpmsupport, int, S_IRUGO);
 module_param(timer_1_ms, int, S_IRUGO | S_IWUSR);
 module_param(timer_3_ms, int, S_IRUGO | S_IWUSR);
+module_param(alawoverride, int, S_IRUGO | S_IWUSR);
 
 MODULE_PARM_DESC(debug, "bitmap: 1=general 2=dtmf 4=regops 8=fops 16=ec 32=st state 64=hdlc 128=alarm");
 MODULE_PARM_DESC(spanfilter, "debug filter for spans. bitmap: 1=port 1, 2=port 2, 4=port 3, 8=port 4");
