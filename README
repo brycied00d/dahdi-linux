@@ -75,7 +75,37 @@ gcc and friends. Generally you will need to install the package gcc.
 There may be cases where you will need a specific version of gcc to build
 kernel modules.
 
-TODO: copy build requirement from Zaptel README.
+Kernel Source / "Headers"
+^^^^^^^^^^^^^^^^^^^^^^^^^
+- Building DAHDI-linux requires a kernel build tree.
+- This should basically be at least a partial kernel source tree and
+  most importantly, the exact kernel .config file used for the build as
+  well as several files generated at kernel build time.
+- KERNEL_VERSION is the output of the command `uname -r`
+- If you build your own kernel, you need to point to the exact kernel
+  build tree. Luckily for you, this will typically be pointed by the
+  symbolic link /lib/modules/KERNEL_VERSION/build which is the location
+  zaptel checks by default.
+- If you use a kernel from your distribution you will typically have a
+  package with all the files required to build a kernel modules for your
+  kernel image.
+  * On Debian Etch and Ubuntu this is
+    +++ linux-headers-`uname -r` +++
+  * On Fedora, RHEL and compatibles (e.g. CentOS) and in SUSE this is
+    the kernel-devel package. Or if you run kernel-smp or kernel-xen,
+    you need kernel-smp-devel or kernel-xen-devel, respectively.
+  * In some distributions (e.g.: in RHEL/CentOS, Fedora, Ubuntu) the 
+    installation of the kernel-devel / kernel-headers package will 
+    be of a version that is newer than the one you currently run. In 
+    such a case you may need to upgrade the kernel package itself as 
+    well and reboot.
+- To point explicitly to a different build tree: set KSRC to the kernel 
+  source tree or KVERS to the exact kernel version (if "headers" are
+  available for a different version). This parameter must be run on
+  every calls to 'make' (e.g.: 'make clean', 'make install').
+
+  make KVERS=2.6.18.Custom
+  make KSRC=/home/tzafrir/kernels/linus
 
 
 Installing to a Subtree
