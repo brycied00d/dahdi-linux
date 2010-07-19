@@ -50,7 +50,7 @@ static DEF_PARM_BOOL(vmwi_ioctl, 1, 0644, "Asterisk support VMWI notification vi
 #endif
 
 #define	VMWI_TYPE(priv, pos, type)	\
-	((priv)->vmwisetting[pos].vmwi_type & DAHDI_VMWI_HVAC)
+	((priv)->vmwisetting[pos].vmwi_type & DAHDI_VMWI_ ## type)
 #define	VMWI_NEON(priv, pos)		VMWI_TYPE(priv, pos, HVAC)
 
 #define	LINES_DIGI_OUT	2
@@ -515,6 +515,10 @@ static int FXS_card_dahdi_preregistration(xpd_t *xpd, bool on)
 		cur_chan->chanpos = i + 1;
 		cur_chan->pvt = xpd;
 		cur_chan->sigcap = FXS_DEFAULT_SIGCAP;
+		if (!vmwi_ioctl) {
+			/* Old asterisk, assume default VMWI type */
+			priv->vmwisetting[i].vmwi_type = DAHDI_VMWI_HVAC;
+		}
 	}
 	for_each_line(xpd, i) {
 		MARK_ON(priv, i, LED_GREEN);
@@ -797,10 +801,12 @@ static int set_vmwi(xpd_t *xpd, int pos, unsigned long arg)
 			"%s: VMWI(hvdc) is not implemented yet. Ignored.\n",
 			__func__);
 	}
-	if (VMWI_TYPE(priv, pos, HVAC))
-		/* VMWI_NEON */
-	if (priv->vmwisetting[pos].vmwi_type == 0)
-		/* Disable VMWI */
+	if (VMWI_TYPE(priv, pos, HVAC)) {
+		;	/* VMWI_NEON */
+	}
+	if (priv->vmwisetting[pos].vmwi_type == 0) {
+		;	/* Disable VMWI */
+	}
 	priv->vmwisetting[pos] = vmwisetting;
 	set_vm_led_mode(xpd->xbus, xpd, pos, xpd->msg_waiting[pos]);
 	return 0;
