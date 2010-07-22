@@ -4272,6 +4272,11 @@ static int __devinit t4_init_one(struct pci_dev *pdev, const struct pci_device_i
 		else
 			init_latency = 2;
 	}
+
+	if (max_latency < init_latency) {
+		printk(KERN_INFO "maxlatency must be set to something greater than %d ms, increasing it to %d\n", init_latency, init_latency);
+		max_latency = init_latency;
+	}
 	
 	if (t4_allocate_buffers(wc, init_latency, NULL, NULL)) {
 		return -ENOMEM;
