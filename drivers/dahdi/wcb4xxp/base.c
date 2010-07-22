@@ -2328,7 +2328,10 @@ static void init_spans(struct b4xxp *b4)
 		bspan->span.channels = WCB4XXP_CHANNELS_PER_SPAN;
 		bspan->span.flags = 0;
 
-		bspan->span.deflaw = DAHDI_LAW_ALAW;
+		if (alawoverride)	
+			bspan->span.deflaw = DAHDI_LAW_ALAW;
+		else
+			bspan->span.deflaw = DAHDI_LAW_MULAW;
 		/* For simplicty, we'll accept all line modes since BRI
 		 * ignores this setting anyway.*/
 		bspan->span.linecompat = DAHDI_CONFIG_AMI | 
