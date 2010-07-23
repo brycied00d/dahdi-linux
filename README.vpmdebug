@@ -1,0 +1,2 @@
+This is a branch that allows testing an unencrypted firmware file for the
+VPMADT032.  It was setup to allow ADT to test firmware updates.
