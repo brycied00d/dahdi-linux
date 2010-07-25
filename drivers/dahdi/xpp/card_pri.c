@@ -2062,6 +2062,8 @@ static void process_cas_dchan(xpd_t *xpd, byte regnum, byte data_low)
 		return;
 	}
 	if(priv->pri_protocol == PRI_PROTO_E1) {
+		if(regnum == REG_RS1_E)
+			return; /* Time slot 0: Ignored for E1 */
 		if(regnum < REG_RS2_E) {
 			XPD_NOTICE(xpd,
 				"%s: received register 0x%X in protocol %s. Ignore\n",
