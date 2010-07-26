@@ -96,6 +96,15 @@
 #define FRMR_SIS_XFW 0x40
 #define FRMR_TXFIFO 0x00
 
+#define FRS0 0x4c
+#define FRS0_LOS (1<<7)
+#define FRS0_LFA (1<<5)
+#define FRS0_LMFA (1<<1)
+
+#define FRS1 0x4d
+#define FRS1_XLS (1<<1)
+#define FRS1_XLO (1<<0)
+
 #define NUM_REGS 0xa9
 #define NUM_PCI 12
 

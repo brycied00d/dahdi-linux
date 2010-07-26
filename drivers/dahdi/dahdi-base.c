@@ -3483,6 +3483,7 @@ void dahdi_alarm_notify(struct dahdi_span *span)
 	int x;
 
 	span->alarms &= ~DAHDI_ALARM_LOOPBACK;
+	span->alarms &= ~DAHDI_ALARM_SYNC;
 	/* Determine maint status */
 	if (span->maintstat || span->mainttimer)
 		span->alarms |= DAHDI_ALARM_LOOPBACK;
@@ -3497,12 +3498,28 @@ void dahdi_alarm_notify(struct dahdi_span *span)
 		/* Switch to other master if current master in alarm */
 		for (x=1; x<maxspans; x++) {
 			if (spans[x] && !spans[x]->alarms && (spans[x]->flags & DAHDI_FLAG_RUNNING)) {
-				if(master != spans[x])
+				if (master != spans[x]) {
 					module_printk(KERN_NOTICE, "Master changed to %s\n", spans[x]->name);
+					span->alarms |= DAHDI_ALARM_SYNC;
+				}
 				master = spans[x];
 				break;
 			}
 		}
+
+		/* XXX: Remove - Report more detailed alarms */
+		if (span->alarms & DAHDI_ALARM_LOS)
+			module_printk(KERN_NOTICE, "Span %d: Loss of signal\n", span->spanno);
+		if (span->alarms & DAHDI_ALARM_LFA)
+			module_printk(KERN_NOTICE, "Span %d: Loss of Frame Alignment\n", span->spanno);
+		if (span->alarms & DAHDI_ALARM_LMFA)
+			module_printk(KERN_NOTICE, "Span %d: Loss of Multi-Frame Alignment\n", span->spanno);
+		if (span->alarms & DAHDI_ALARM_XLS)
+			module_printk(KERN_NOTICE, "Span %d: Transmit Line Short\n", span->spanno);
+		if (span->alarms & DAHDI_ALARM_XLO)
+			module_printk(KERN_NOTICE, "Span %d: Transmit Line Open\n", span->spanno);
+		if (span->alarms & DAHDI_ALARM_SYNC)
+			module_printk(KERN_NOTICE, "Span %d: Change of syncronization signal\n", span->spanno);
 	}
 }
 
@@ -4552,6 +4569,7 @@ static int dahdi_ctl_ioctl(struct file *file, unsigned int cmd, unsigned long da
 		case DAHDI_MAINT_BIPOLAR_DEFECT:
 		case DAHDI_MAINT_PRBS:
 		case DAHDI_RESET_COUNTERS:
+		case DAHDI_MAINT_ALARM_SIM:
 			/* Prevent notifying an alarm state for generic
 			   maintenance functions, unless the driver is
 			   already in a maint state */

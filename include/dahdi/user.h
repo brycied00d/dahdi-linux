@@ -314,13 +314,20 @@ enum {
 #define DAHDI_CONF_PSEUDO_TALKER	0x800		/* pseudo is a talker on the conference */
 
 /* Alarm Condition bits */
-#define DAHDI_ALARM_NONE		0	/* No alarms */
-#define DAHDI_ALARM_RECOVER		1	/* Recovering from alarm */
-#define DAHDI_ALARM_LOOPBACK		2	/* In loopback */
-#define DAHDI_ALARM_YELLOW		4	/* Yellow Alarm */
-#define DAHDI_ALARM_RED			8	/* Red Alarm */
-#define DAHDI_ALARM_BLUE		16	/* Blue Alarm */
-#define DAHDI_ALARM_NOTOPEN		32
+#define DAHDI_ALARM_NONE		0		/* No alarms */
+#define DAHDI_ALARM_RECOVER		(1 << 0)	/* Recovering from alarm */
+#define DAHDI_ALARM_LOOPBACK		(1 << 1)	/* In loopback */
+#define DAHDI_ALARM_YELLOW		(1 << 2)	/* Yellow Alarm */
+#define DAHDI_ALARM_RED			(1 << 3)	/* Red Alarm */
+#define DAHDI_ALARM_BLUE		(1 << 4)	/* Blue Alarm */
+#define DAHDI_ALARM_NOTOPEN		(1 << 5)	
+/* Verbose alarm states (upper byte) */
+#define DAHDI_ALARM_LOS			(1 << 8)	/* Loss of Signal */
+#define DAHDI_ALARM_LFA			(1 << 9)	/* Loss of Frame Alignment */
+#define DAHDI_ALARM_LMFA		(1 << 10)	/* Loss of Multi-Frame Alignment */
+#define DAHDI_ALARM_XLS			(1 << 11)	/* Transmit line Short */
+#define DAHDI_ALARM_XLO			(1 << 12)	/* Transmit line Open */
+#define DAHDI_ALARM_SYNC		(1 << 13)	/* Loss of Sync source */
 
 /* Maintenance modes */
 #define DAHDI_MAINT_NONE		0	/* Normal Mode */
@@ -338,7 +345,8 @@ enum {
 #define DAHDI_MAINT_BIPOLAR_DEFECT	11	/* insert a FAS defect */
 #define DAHDI_MAINT_PRBS		12	/* enable the PRBS gen/mon */
 #define DAHDI_MAINT_NETWORKPAYLOADLOOP	13	/* Remote Loopback */
-#define DAHDI_RESET_COUNTERS		14	/* clear the error counters */
+#define DAHDI_RESET_COUNTERS		14	/* Clear the error counters */
+#define DAHDI_MAINT_ALARM_SIM		15	/* Simulate alarms */
 
 /* Flag Value for IOMUX, read avail */
 #define DAHDI_IOMUX_READ	1
