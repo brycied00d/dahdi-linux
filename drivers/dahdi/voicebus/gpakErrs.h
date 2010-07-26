@@ -97,8 +97,10 @@ typedef enum
 
 	Cc_InvalidMuteToneA = 51,        /* invalid MuteToneA set, no detector */
 	Cc_InvalidMuteToneB = 52,         /* invalid MuteToneB set, no detector */
-    Cc_InsuffFaxCngDetResources = 53     /* insufficient tdm block resources avail. */
-
+	Cc_InsuffFaxCngDetResources = 53,    /* insufficient tdm block resources avail. */
+	Cc_PortDmaNotStarted = 54,	/* SerialPort not ready  */
+	Cc_ChannelDebugActive = 55,	/* Debug Channel is not active  */
+	Cc_ChannelDebugEnabled = 56	/* Channel already been debugged  */
 } GPAK_ChannelConfigStat_t;
 
 /* Tear Down Channel reply status codes. */
