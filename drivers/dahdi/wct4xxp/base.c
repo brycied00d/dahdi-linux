@@ -426,6 +426,7 @@ static void t4_tsi_assign(struct t4 *wc, int fromspan, int fromchan, int tospan,
 static void t4_tsi_unassign(struct t4 *wc, int tospan, int tochan);
 static void __t4_set_rclk_src(struct t4 *wc, int span);
 static void __t4_set_sclk_src(struct t4 *wc, int mode, int master, int slave);
+static void t4_card_event(struct t4 *wc, int event);
 static void t4_check_alarms(struct t4 *wc, int span);
 static void t4_check_sigbits(struct t4 *wc, int span);
 
@@ -1554,23 +1555,29 @@ static int t4_maint(struct dahdi_span *span, int cmd)
 			t4_reset_counters(span);
 			break;
 		case DAHDI_MAINT_ALARM_SIM:
-//			dev_info(&wc->dev->dev, "Invoking alarm state\n");
 			reg = t4_framer_in(wc, span->offset, FMR0);
-			//dev_info(&wc->dev->dev, "FMR0: %X\n", reg);
 
-			// The alarm simulation state machine requires us to bring this bit
-			// up and down for at least 1 clock cycle
-			// lock register writes to ensure nobody else tries to write to FMR0, while we delay
-			spin_lock_irqsave(&wc->reglock, flags);	
-			__t4_framer_out(wc, span->offset, FMR0, (reg|FMR0_SIM));
+			/*
+			 * The alarm simulation state machine requires us to
+			 * bring this bit up and down for at least 1 clock cycle
+			 * lock register writes to ensure nobody else tries to
+			 * write to FMR0, while we delay
+			 */
+			spin_lock_irqsave(&wc->reglock, flags);
+			__t4_framer_out(wc, span->offset,
+					FMR0, (reg | FMR0_SIM));
 			udelay(1);
-			__t4_framer_out(wc, span->offset, FMR0, (reg&~FMR0_SIM));
+			__t4_framer_out(wc, span->offset,
+					FMR0, (reg & ~FMR0_SIM));
 			udelay(1);
 			spin_unlock_irqrestore(&wc->reglock, flags);
 
-			//dev_info(&wc->dev->dev, "FMR0: %X\n", reg|FMR0_SIM);
 			reg = t4_framer_in(wc, span->offset, 0x4e);
-			dev_info(&wc->dev->dev, "FRS2(alarm state): %d\n", ((reg&0xe0)>> 5));
+			if (debug & DEBUG_MAIN) {
+				dev_info(&wc->dev->dev,
+					"FRS2(alarm state): %d\n",
+					((reg & 0xe0) >> 5));
+			}
 			break;
 		default:
 			dev_info(&wc->dev->dev, "Unknown T1 maint command:%d\n",
@@ -2067,6 +2074,8 @@ static void __t4_set_rclk_src(struct t4 *wc, int span)
 	cmr1 |= (span << 6);
 	__t4_framer_out(wc, 0, 0x44, cmr1);
 
+	t4_card_event(wc, DAHDI_EVENT_SYNC);
+
 	dev_info(&wc->dev->dev, "RCLK source set to span %d\n", span+1);
 }
 
@@ -2093,6 +2102,32 @@ static void __t4_set_sclk_src(struct t4 *wc, int mode, int master, int slave)
 		wc->dmactrl &= ~(1 << 29);/* Provide timing from MCLK */
 
 	__t4_pci_out(wc, WC_DMACTRL, wc->dmactrl);
+}
+
+/*
+ * We do not have a per-span or per-card event system. In
+ * order to create a global event, we send that event to
+ * every channel on the card
+ */
+void t4_card_event(struct t4 *wc, int event)
+{
+	unsigned long flags;
+	struct dahdi_span *span;
+	struct dahdi_chan *chan;
+	int x, y;
+
+	/* Loop through every channel on this card and
+	 * set the global event that occured
+	 */
+	for (x = 0; x < wc->numspans; x++) {
+		span = &wc->tspans[x]->span;
+		for (y = 0; y < span->channels; y++) {
+			chan = span->chans[y];
+			spin_lock_irqsave(&chan->lock, flags);
+			dahdi_qevent_nolock(chan, event);
+			spin_unlock_irqrestore(&chan->lock, flags);
+		}
+	}
 }
 
 static inline void __t4_update_timing(struct t4 *wc)
@@ -2967,13 +3002,13 @@ static void t4_check_alarms(struct t4 *wc, int span)
 	/* Add detailed alarm status information to a red alarm state */
 	if (alarms & DAHDI_ALARM_RED) {
 		if (c & FRS0_LOS)
-		         alarms |= DAHDI_ALARM_LOS;
+			alarms |= DAHDI_ALARM_LOS;
 		if (c & FRS0_LFA)
-		         alarms |= DAHDI_ALARM_LFA;
+			alarms |= DAHDI_ALARM_LFA;
 		if (c & FRS0_LMFA)
-		         alarms |= DAHDI_ALARM_LMFA;
+			alarms |= DAHDI_ALARM_LMFA;
 		if (d & FRS1_XLS)
-		         alarms |= DAHDI_ALARM_XLS;
+			alarms |= DAHDI_ALARM_XLS;
 		if (d & FRS1_XLO)
 			alarms |= DAHDI_ALARM_XLO;
 	}
@@ -3188,8 +3223,9 @@ static inline void t4_framer_interrupt(struct t4 *wc, int span)
 		/* T1 checks */
 		if (isr2 || (isr3 & 0x08)) {
 			if (debug & DEBUG_MAIN) {
-				printk("card %d span %d: isr2=%x isr3=%x\n",
-						wc->num, span, isr2, isr3);
+				dev_info(&wc->dev->dev,
+					"span %d: isr2=%x isr3=%x\n",
+					span, isr2, isr3);
 			}
 			t4_check_alarms(wc, span);		
 		}
