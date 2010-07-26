@@ -314,20 +314,19 @@ enum {
 #define DAHDI_CONF_PSEUDO_TALKER	0x800		/* pseudo is a talker on the conference */
 
 /* Alarm Condition bits */
-#define DAHDI_ALARM_NONE		0		/* No alarms */
-#define DAHDI_ALARM_RECOVER		(1 << 0)	/* Recovering from alarm */
-#define DAHDI_ALARM_LOOPBACK		(1 << 1)	/* In loopback */
-#define DAHDI_ALARM_YELLOW		(1 << 2)	/* Yellow Alarm */
-#define DAHDI_ALARM_RED			(1 << 3)	/* Red Alarm */
-#define DAHDI_ALARM_BLUE		(1 << 4)	/* Blue Alarm */
-#define DAHDI_ALARM_NOTOPEN		(1 << 5)	
+#define DAHDI_ALARM_NONE		0	 /* No alarms */
+#define DAHDI_ALARM_RECOVER		(1 << 0) /* Recovering from alarm */
+#define DAHDI_ALARM_LOOPBACK		(1 << 1) /* In loopback */
+#define DAHDI_ALARM_YELLOW		(1 << 2) /* Yellow Alarm */
+#define DAHDI_ALARM_RED			(1 << 3) /* Red Alarm */
+#define DAHDI_ALARM_BLUE		(1 << 4) /* Blue Alarm */
+#define DAHDI_ALARM_NOTOPEN		(1 << 5)
 /* Verbose alarm states (upper byte) */
-#define DAHDI_ALARM_LOS			(1 << 8)	/* Loss of Signal */
-#define DAHDI_ALARM_LFA			(1 << 9)	/* Loss of Frame Alignment */
-#define DAHDI_ALARM_LMFA		(1 << 10)	/* Loss of Multi-Frame Alignment */
-#define DAHDI_ALARM_XLS			(1 << 11)	/* Transmit line Short */
-#define DAHDI_ALARM_XLO			(1 << 12)	/* Transmit line Open */
-#define DAHDI_ALARM_SYNC		(1 << 13)	/* Loss of Sync source */
+#define DAHDI_ALARM_LOS			(1 << 8) /* Loss of Signal */
+#define DAHDI_ALARM_LFA			(1 << 9) /* Loss of Frame Alignment */
+#define DAHDI_ALARM_LMFA		(1 << 10)/* Loss of Multi-Frame Align */
+#define DAHDI_ALARM_XLS			(1 << 11)/* Transmit line Short */
+#define DAHDI_ALARM_XLO			(1 << 12)/* Transmit line Open */
 
 /* Maintenance modes */
 #define DAHDI_MAINT_NONE		0	/* Normal Mode */
@@ -453,6 +452,9 @@ enum {
 #define DAHDI_EVENT_PULSEDIGIT		(1 << 16)	/* This is OR'd with the digit received */
 #define DAHDI_EVENT_DTMFDOWN		(1 << 17)	/* Ditto for DTMF key down event */
 #define DAHDI_EVENT_DTMFUP		(1 << 18)	/* Ditto for DTMF key up event */
+
+/* If the source of timing changes */
+#define DAHDI_EVENT_SYNC		29
 
 /* Transcoder related definitions */
 
