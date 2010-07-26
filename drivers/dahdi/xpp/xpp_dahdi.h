@@ -39,6 +39,7 @@ void hookstate_changed(xpd_t *xpd, int pos, bool good);
 int xpp_open(struct dahdi_chan *chan);
 int xpp_close(struct dahdi_chan *chan);
 int xpp_ioctl(struct dahdi_chan *chan, unsigned int cmd, unsigned long arg);
+int xpp_hooksig(struct dahdi_chan *chan, enum dahdi_txsig txsig);
 int xpp_maint(struct dahdi_span *span, int cmd);
 void report_bad_ioctl(const char *msg, xpd_t *xpd, int pos, unsigned int cmd);
 int total_registered_spans(void);

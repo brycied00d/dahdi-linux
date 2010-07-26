@@ -2334,6 +2334,14 @@ static int wctdm_hooksig(struct dahdi_chan *chan, enum dahdi_txsig txsig)
 	return 0;
 }
 
+static const struct dahdi_span_ops wctdm_span_ops = {
+	.hooksig = wctdm_hooksig,
+	.open = wctdm_open,
+	.close = wctdm_close,
+	.ioctl = wctdm_ioctl,
+	.watchdog = wctdm_watchdog,
+};
+
 static int wctdm_initialize(struct wctdm *wc)
 {
 	int x;
@@ -2361,14 +2369,10 @@ static int wctdm_initialize(struct wctdm *wc)
 	wc->span.owner = THIS_MODULE;
 	wc->span.chans = wc->chans;
 	wc->span.channels = NUM_CARDS;
-	wc->span.hooksig = wctdm_hooksig;
 	wc->span.irq = wc->dev->irq;
-	wc->span.open = wctdm_open;
-	wc->span.close = wctdm_close;
 	wc->span.flags = DAHDI_FLAG_RBS;
-	wc->span.ioctl = wctdm_ioctl;
-	wc->span.watchdog = wctdm_watchdog;
 	init_waitqueue_head(&wc->span.maintq);
+	wc->span.ops = &wctdm_span_ops;
 
 	if (dahdi_register(&wc->span, 0)) {
 		printk(KERN_NOTICE "Unable to register span with DAHDI\n");

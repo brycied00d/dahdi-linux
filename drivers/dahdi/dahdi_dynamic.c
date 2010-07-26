@@ -527,6 +527,13 @@ static int ztd_close(struct dahdi_chan *chan)
 	return 0;
 }
 
+static const struct dahdi_span_ops dynamic_ops = {
+	.rbsbits = ztd_rbsbits,
+	.open = ztd_open,
+	.close = ztd_close,
+	.chanconfig = ztd_chanconfig,
+};
+
 static int create_dynamic(struct dahdi_dynamic_span *zds)
 {
 	struct dahdi_dynamic *z;
@@ -590,10 +597,7 @@ static int create_dynamic(struct dahdi_dynamic_span *zds)
 	z->span.deflaw = DAHDI_LAW_MULAW;
 	z->span.flags |= DAHDI_FLAG_RBS;
 	z->span.chans = z->chans;
-	z->span.rbsbits = ztd_rbsbits;
-	z->span.open = ztd_open;
-	z->span.close = ztd_close;
-	z->span.chanconfig = ztd_chanconfig;
+	z->span.ops = &dynamic_ops;
 	for (x=0; x < z->span.channels; x++) {
 		sprintf(z->chans[x]->name, "DYN/%s/%s/%d", zds->driver, zds->addr, x+1);
 		z->chans[x]->sigcap = DAHDI_SIG_EM | DAHDI_SIG_CLEAR | DAHDI_SIG_FXSLS |

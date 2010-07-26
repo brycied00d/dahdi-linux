@@ -861,6 +861,27 @@ static int BRI_card_remove(xbus_t *xbus, xpd_t *xpd)
 	return 0;
 }
 
+static const struct dahdi_span_ops BRI_span_ops = {
+	.spanconfig = bri_spanconfig,
+	.chanconfig = bri_chanconfig,
+	.startup = bri_startup,
+	.shutdown = bri_shutdown,
+#ifndef	CONFIG_DAHDI_BRI_DCHANS
+	.hdlc_hard_xmit = bri_hdlc_hard_xmit,
+#endif
+	.open = xpp_open,
+	.close = xpp_close,
+	.hooksig = xpp_hooksig,	/* Only with RBS bits */
+	.ioctl = xpp_ioctl,
+	.maint = xpp_maint,
+#ifdef	DAHDI_SYNC_TICK
+	.sync_tick = dahdi_sync_tick,
+#endif
+#ifdef	CONFIG_DAHDI_WATCHDOG
+	.watchdog = xpp_watchdog,
+#endif
+};
+
 static int BRI_card_dahdi_preregistration(xpd_t *xpd, bool on)
 {
 	xbus_t			*xbus;
@@ -912,13 +933,7 @@ static int BRI_card_dahdi_preregistration(xpd_t *xpd, bool on)
 		}
 	}
 	CALL_XMETHOD(card_pcm_recompute, xbus, xpd, 0);
-	xpd->span.spanconfig = bri_spanconfig;
-	xpd->span.chanconfig = bri_chanconfig;
-	xpd->span.startup = bri_startup;
-	xpd->span.shutdown = bri_shutdown;
-#ifndef	CONFIG_DAHDI_BRI_DCHANS
-	xpd->span.hdlc_hard_xmit = bri_hdlc_hard_xmit;
-#endif
+	xpd->span.ops = &BRI_span_ops;
 	return 0;
 }
 

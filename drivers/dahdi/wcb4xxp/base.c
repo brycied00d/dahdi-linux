@@ -143,8 +143,6 @@ static struct devtype hfc4s_EV = {"CCD HFC-4S Eval. Board", .ports = 4,
  
 #define CARD_HAS_EC(card) ((card)->card_type == B410P)
 
-static int echocan_create(struct dahdi_chan *chan, struct dahdi_echocanparams *ecp,
-			   struct dahdi_echocanparam *p, struct dahdi_echocan_state **ec);
 static void echocan_free(struct dahdi_chan *chan, struct dahdi_echocan_state *ec);
 
 static const struct dahdi_echocan_features my_ec_features = {
@@ -2085,11 +2083,16 @@ static void b4xxp_update_leds(struct b4xxp *b4)
 	}
 }
 
-static int echocan_create(struct dahdi_chan *chan, struct dahdi_echocanparams *ecp,
-			  struct dahdi_echocanparam *p, struct dahdi_echocan_state **ec)
+static int b4xxp_echocan_create(struct dahdi_chan *chan,
+				struct dahdi_echocanparams *ecp,
+				struct dahdi_echocanparam *p,
+				struct dahdi_echocan_state **ec)
 {
 	struct b4xxp_span *bspan = container_of(chan->span, struct b4xxp_span, span);
 	int channel;
+
+	if (!vpmsupport || !CARD_HAS_EC(bspan->parent))
+		return -ENODEV;
 
 	if (chan->chanpos == 3) {
 		printk(KERN_WARNING "Cannot enable echo canceller on D channel of span %d; failing request\n", chan->span->offset);
@@ -2309,6 +2312,18 @@ static void b4xxp_hdlc_hard_xmit(struct dahdi_chan *chan)
 
 /* internal functions, not specific to the hardware or DAHDI */
 
+static const struct dahdi_span_ops b4xxp_span_ops = {
+	.spanconfig = b4xxp_spanconfig,
+	.chanconfig = b4xxp_chanconfig,
+	.startup = b4xxp_startup,
+	.shutdown = b4xxp_shutdown,
+	.open = b4xxp_open,
+	.close  = b4xxp_close,
+	.ioctl = b4xxp_ioctl,
+	.hdlc_hard_xmit = b4xxp_hdlc_hard_xmit,
+	.echocan_create = b4xxp_echocan_create,
+};
+
 /* initialize the span/chan structures. Doesn't touch hardware, although the callbacks might. */
 static void init_spans(struct b4xxp *b4)
 {
@@ -2346,17 +2361,7 @@ static void init_spans(struct b4xxp *b4)
 			b4->pdev->bus->number, PCI_SLOT(b4->pdev->devfn) + 1);
 
 		bspan->span.owner = THIS_MODULE;
-		bspan->span.spanconfig = b4xxp_spanconfig;
-		bspan->span.chanconfig = b4xxp_chanconfig;
-		bspan->span.startup = b4xxp_startup;
-		bspan->span.shutdown = b4xxp_shutdown;
-		bspan->span.open = b4xxp_open;
-		bspan->span.close  = b4xxp_close;
-		bspan->span.ioctl = b4xxp_ioctl;
-		bspan->span.hdlc_hard_xmit = b4xxp_hdlc_hard_xmit;
-		if (vpmsupport && CARD_HAS_EC(b4))
-			bspan->span.echocan_create = echocan_create;
-
+		bspan->span.ops = &b4xxp_span_ops;
 /* HDLC stuff */
 		bspan->sigchan = NULL;
 		bspan->sigactive = 0;

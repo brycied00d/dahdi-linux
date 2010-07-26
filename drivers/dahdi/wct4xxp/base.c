@@ -385,8 +385,6 @@ static void t4_vpm400_init(struct t4 *wc);
 static void t4_vpm450_init(struct t4 *wc);
 static void t4_vpm_set_dtmf_threshold(struct t4 *wc, unsigned int threshold);
 
-static int echocan_create(struct dahdi_chan *chan, struct dahdi_echocanparams *ecp,
-			   struct dahdi_echocanparam *p, struct dahdi_echocan_state **ec);
 static void echocan_free(struct dahdi_chan *chan, struct dahdi_echocan_state *ec);
 
 static const struct dahdi_echocan_features vpm400m_ec_features = {
@@ -1232,8 +1230,10 @@ static int t4_vpm_unit(int span, int channel)
 	return unit;
 }
 
-static int echocan_create(struct dahdi_chan *chan, struct dahdi_echocanparams *ecp,
-			  struct dahdi_echocanparam *p, struct dahdi_echocan_state **ec)
+static int t4_echocan_create(struct dahdi_chan *chan,
+			     struct dahdi_echocanparams *ecp,
+			     struct dahdi_echocanparam *p,
+			     struct dahdi_echocan_state **ec)
 {
 	struct t4 *wc = chan->pvt;
 	struct t4_span *tspan = container_of(chan->span, struct t4_span, span);
@@ -1241,7 +1241,7 @@ static int echocan_create(struct dahdi_chan *chan, struct dahdi_echocanparams *e
 	const struct dahdi_echocan_ops *ops;
 	const struct dahdi_echocan_features *features;
 
-	if (!wc->vpm)
+	if (!vpmsupport || !wc->vpm)
 		return -ENODEV;
 
 	if (chan->span->offset >= vpmspans)
@@ -1846,6 +1846,36 @@ void setup_chunks(struct t4 *wc, int which)
 	}
 }
 
+static const struct dahdi_span_ops t4_gen1_span_ops = {
+	.spanconfig = t4_spanconfig,
+	.chanconfig = t4_chanconfig,
+	.startup = t4_startup,
+	.shutdown = t4_shutdown,
+	.rbsbits = t4_rbsbits,
+	.maint = t4_maint,
+	.open = t4_open,
+	.close  = t4_close,
+	.ioctl = t4_ioctl,
+	.hdlc_hard_xmit = t4_hdlc_hard_xmit,
+};
+
+static const struct dahdi_span_ops t4_gen2_span_ops = {
+	.spanconfig = t4_spanconfig,
+	.chanconfig = t4_chanconfig,
+	.startup = t4_startup,
+	.shutdown = t4_shutdown,
+	.rbsbits = t4_rbsbits,
+	.maint = t4_maint,
+	.open = t4_open,
+	.close  = t4_close,
+	.ioctl = t4_ioctl,
+	.hdlc_hard_xmit = t4_hdlc_hard_xmit,
+	.dacs = t4_dacs,
+#ifdef VPM_SUPPORT
+	.echocan_create = t4_echocan_create,
+#endif
+};
+
 static void init_spans(struct t4 *wc)
 {
 	int x,y;
@@ -1878,15 +1908,7 @@ static void init_spans(struct t4 *wc)
 			break;
 		}
 		ts->span.owner = THIS_MODULE;
-		ts->span.spanconfig = t4_spanconfig;
-		ts->span.chanconfig = t4_chanconfig;
 		ts->span.irq = wc->dev->irq;
-		ts->span.startup = t4_startup;
-		ts->span.shutdown = t4_shutdown;
-		ts->span.rbsbits = t4_rbsbits;
-		ts->span.maint = t4_maint;
-		ts->span.open = t4_open;
-		ts->span.close  = t4_close;
 
 		/* HDLC Specific init */
 		ts->sigchan = NULL;
@@ -1904,18 +1926,19 @@ static void init_spans(struct t4 *wc)
 		}
 		ts->span.chans = ts->chans;
 		ts->span.flags = DAHDI_FLAG_RBS;
-		ts->span.ioctl = t4_ioctl;
-		ts->span.hdlc_hard_xmit = t4_hdlc_hard_xmit;
-		if (gen2) {
-#ifdef VPM_SUPPORT
-			if (vpmsupport)
-				ts->span.echocan_create = echocan_create;
-#endif			
-			ts->span.dacs = t4_dacs;
-		}
+
 		ts->owner = wc;
 		ts->span.offset = x;
+		ts->writechunk = (void *)(wc->writechunk + x * 32 * 2);
+		ts->readchunk = (void *)(wc->readchunk + x * 32 * 2);
 		init_waitqueue_head(&ts->span.maintq);
+
+		if (gen2) {
+			ts->span.ops = &t4_gen2_span_ops;
+		} else {
+			ts->span.ops = &t4_gen1_span_ops;
+		}
+
 		for (y=0;y<wc->tspans[x]->span.channels;y++) {
 			struct dahdi_chan *mychans = ts->chans[y];
 			sprintf(mychans->name, "TE%d/%d/%d/%d", wc->numspans, wc->num, x + 1, y + 1);

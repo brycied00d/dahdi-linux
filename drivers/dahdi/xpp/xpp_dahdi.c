@@ -944,7 +944,7 @@ int xpp_ioctl(struct dahdi_chan *chan, unsigned int cmd, unsigned long arg)
 	return 0;
 }
 
-static int xpp_hooksig(struct dahdi_chan *chan, enum dahdi_txsig txsig)
+int xpp_hooksig(struct dahdi_chan *chan, enum dahdi_txsig txsig)
 {
 	xpd_t	*xpd = chan->pvt;
 	xbus_t	*xbus;
@@ -966,6 +966,7 @@ static int xpp_hooksig(struct dahdi_chan *chan, enum dahdi_txsig txsig)
 	DBG(SIGNAL, "Setting %s to %s (%d)\n", chan->name, txsig2str(txsig), txsig);
 	return CALL_XMETHOD(card_hooksig, xbus, xpd, pos, txsig);
 }
+EXPORT_SYMBOL(xpp_hooksig);
 
 /* Req: Set the requested chunk size.  This is the unit in which you must
    report results for conferencing, etc */
@@ -1068,6 +1069,21 @@ int dahdi_unregister_xpd(xpd_t *xpd)
 	return 0;
 }
 
+static const struct dahdi_span_ops xpp_span_ops = {
+	.open = xpp_open,
+	.close = xpp_close,
+	.ioctl = xpp_ioctl,
+	.maint = xpp_maint,
+};
+
+static const struct dahdi_span_ops xpp_rbs_span_ops = {
+	.hooksig = xpp_hooksig,
+	.open = xpp_open,
+	.close = xpp_close,
+	.ioctl = xpp_ioctl,
+	.maint = xpp_maint,
+};
+
 int dahdi_register_xpd(xpd_t *xpd)
 {
 	struct dahdi_span	*span;
@@ -1099,13 +1115,12 @@ int dahdi_register_xpd(xpd_t *xpd)
 	span->channels = cn;
 	span->chans = xpd->chans;
 
-	span->open = xpp_open;
-	span->close = xpp_close;
 	span->flags = DAHDI_FLAG_RBS;
 	if(xops->card_hooksig)
-		span->hooksig = xpp_hooksig;	/* Only with RBS bits */
-	span->ioctl = xpp_ioctl;
-	span->maint = xpp_maint;
+		span->ops = &xpp_rbs_span_ops;	/* Only with RBS bits */
+	else
+		span->ops = &xpp_span_ops;
+
 	/*
 	 * This actually describe the dahdi_spaninfo version 3
 	 * A bunch of unrelated data exported via a modified ioctl()
@@ -1138,12 +1153,6 @@ int dahdi_register_xpd(xpd_t *xpd)
 	 * No irq's for you today!
 	 */
 	span->irq = 0;
-#ifdef	DAHDI_SYNC_TICK
-	span->sync_tick = dahdi_sync_tick;
-#endif
-#ifdef	CONFIG_DAHDI_WATCHDOG
-	span->watchdog = xpp_watchdog;
-#endif
 
 	snprintf(xpd->span.desc, MAX_SPANDESC, "Xorcom XPD #%02d/%1d%1d: %s",
 			xbus->num, xpd->addr.unit, xpd->addr.subunit, xpd->type_name);

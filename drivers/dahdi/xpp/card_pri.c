@@ -1273,6 +1273,29 @@ static int pri_audio_notify(struct dahdi_chan *chan, int on)
 }
 #endif
 
+static const struct dahdi_span_ops PRI_span_ops = {
+	.spanconfig = pri_spanconfig,
+	.chanconfig = pri_chanconfig,
+	.startup = pri_startup,
+	.shutdown = pri_shutdown,
+	.rbsbits = pri_rbsbits,
+	.open = xpp_open,
+	.close = xpp_close,
+	.hooksig = xpp_hooksig,	/* Only with RBS bits */
+	.ioctl = xpp_ioctl,
+	.maint = xpp_maint,
+#ifdef	DAHDI_SYNC_TICK
+	.sync_tick = dahdi_sync_tick,
+#endif
+#ifdef	CONFIG_DAHDI_WATCHDOG
+	.watchdog = xpp_watchdog,
+#endif
+
+#ifdef	DAHDI_AUDIO_NOTIFY
+	.audio_notify = pri_audio_notify,
+#endif
+};
+
 static int PRI_card_dahdi_preregistration(xpd_t *xpd, bool on)
 {
 	xbus_t			*xbus;
@@ -1312,14 +1335,8 @@ static int PRI_card_dahdi_preregistration(xpd_t *xpd, bool on)
 			cur_chan->flags &= ~DAHDI_FLAG_HDLC;
 		}
 	}
-	xpd->span.spanconfig = pri_spanconfig;
-	xpd->span.chanconfig = pri_chanconfig;
-	xpd->span.startup = pri_startup;
-	xpd->span.shutdown = pri_shutdown;
-	xpd->span.rbsbits = pri_rbsbits;
-#ifdef	DAHDI_AUDIO_NOTIFY
-	xpd->span.audio_notify = pri_audio_notify;
-#endif
+	xpd->offhook_state = xpd->wanted_pcm_mask;
+	xpd->span.ops = &PRI_span_ops;
 	return 0;
 }
 
