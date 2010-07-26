@@ -3524,16 +3524,6 @@ void dahdi_alarm_notify(struct dahdi_span *span)
 					"Span %d: Loss of Multi-Frame "\
 					"Alignment\n", span->spanno);
 			}
-			if (span->alarms & DAHDI_ALARM_XLS) {
-				module_printk(KERN_NOTICE,
-					"Span %d: Transmit Line Short\n",
-					span->spanno);
-			}
-			if (span->alarms & DAHDI_ALARM_XLO) {
-				module_printk(KERN_NOTICE,
-					"Span %d: Transmit Line Open\n",
-					span->spanno);
-			}
 		}
 	}
 }
