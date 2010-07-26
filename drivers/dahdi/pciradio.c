@@ -1459,6 +1459,7 @@ static int pciradio_hooksig(struct dahdi_chan *chan, enum dahdi_txsig txsig)
 }
 
 static const struct dahdi_span_ops pciradio_span_ops = {
+	.owner = THIS_MODULE,
 	.hooksig = pciradio_hooksig,
 	.open = pciradio_open,
 	.close = pciradio_close,
@@ -1471,7 +1472,6 @@ static int pciradio_initialize(struct pciradio *rad)
 	int x;
 
 	/* DAHDI stuff */
-	rad->span.owner = THIS_MODULE;
 	sprintf(rad->span.name, "PCIRADIO/%d", rad->pos);
 	sprintf(rad->span.desc, "Board %d", rad->pos + 1);
 	rad->span.deflaw = DAHDI_LAW_MULAW;

@@ -1847,6 +1847,7 @@ void setup_chunks(struct t4 *wc, int which)
 }
 
 static const struct dahdi_span_ops t4_gen1_span_ops = {
+	.owner = THIS_MODULE,
 	.spanconfig = t4_spanconfig,
 	.chanconfig = t4_chanconfig,
 	.startup = t4_startup,
@@ -1860,6 +1861,7 @@ static const struct dahdi_span_ops t4_gen1_span_ops = {
 };
 
 static const struct dahdi_span_ops t4_gen2_span_ops = {
+	.owner = THIS_MODULE,
 	.spanconfig = t4_spanconfig,
 	.chanconfig = t4_chanconfig,
 	.startup = t4_startup,
@@ -1907,7 +1909,6 @@ static void init_spans(struct t4 *wc)
 			ts->span.spantype = "J1";
 			break;
 		}
-		ts->span.owner = THIS_MODULE;
 		ts->span.irq = wc->dev->irq;
 
 		/* HDLC Specific init */

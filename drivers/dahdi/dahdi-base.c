@@ -2734,7 +2734,7 @@ static int dahdi_specchan_open(struct file *file, int unit)
 			if (chan->flags & DAHDI_FLAG_PSEUDO)
 				chan->flags |= DAHDI_FLAG_AUDIO;
 			if (chan->span) {
-				if (!try_module_get(chan->span->owner))
+				if (!try_module_get(chan->span->ops->owner))
 					res = -ENXIO;
 				else if (chan->span->ops->open)
 					res = chan->span->ops->open(chan);
@@ -2771,7 +2771,7 @@ static int dahdi_specchan_release(struct file *file, int unit)
 		if (chan->span) {
 			if (chan->span->ops->close)
 				res = chan->span->ops->close(chan);
-			module_put(chan->span->owner);
+			module_put(chan->span->ops->owner);
 		}
 		/* The channel might be destroyed by low-level driver span->close() */
 		if (chans[unit])
@@ -5877,7 +5877,12 @@ int dahdi_register(struct dahdi_span *span, int prefmaster)
 	if (!span)
 		return -EINVAL;
 
-	WARN_ON(!span->owner);
+	if (!span->ops)
+		return -EINVAL;
+
+	if (!span->ops->owner)
+		return -EINVAL;
+
 
 	if (test_bit(DAHDI_FLAGBIT_REGISTERED, &span->flags)) {
 		module_printk(KERN_ERR, "Span %s already appears to be registered\n", span->name);

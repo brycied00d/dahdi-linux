@@ -751,6 +751,8 @@ struct dahdi_count {
 #define DAHDI_FLAG_HDLC56	DAHDI_FLAG(HDLC56)
 
 struct dahdi_span_ops {
+	struct module *owner;		/*!< Which module is exporting this span. */
+
 	/*   ==== Span Callback Operations ====   */
 	/*! Req: Set the requested chunk size.  This is the unit in which you must
 	   report results for conferencing, etc */
@@ -829,7 +831,6 @@ struct dahdi_span_ops {
 
 struct dahdi_span {
 	spinlock_t lock;
-	struct module *owner;		/*!< Which module is exporting this span. */
 	char name[40];			/*!< Span name */
 	char desc[80];			/*!< Span description */
 	const char *spantype;		/*!< span type in text form */

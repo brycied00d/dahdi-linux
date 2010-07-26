@@ -2335,6 +2335,7 @@ static int wctdm_hooksig(struct dahdi_chan *chan, enum dahdi_txsig txsig)
 }
 
 static const struct dahdi_span_ops wctdm_span_ops = {
+	.owner = THIS_MODULE,
 	.hooksig = wctdm_hooksig,
 	.open = wctdm_open,
 	.close = wctdm_close,
@@ -2366,7 +2367,6 @@ static int wctdm_initialize(struct wctdm *wc)
 		wc->chans[x]->chanpos = x+1;
 		wc->chans[x]->pvt = wc;
 	}
-	wc->span.owner = THIS_MODULE;
 	wc->span.chans = wc->chans;
 	wc->span.channels = NUM_CARDS;
 	wc->span.irq = wc->dev->irq;

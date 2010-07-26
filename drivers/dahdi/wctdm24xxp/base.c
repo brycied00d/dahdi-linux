@@ -3559,6 +3559,7 @@ static int wctdm_dacs(struct dahdi_chan *dst, struct dahdi_chan *src)
 }
 
 static const struct dahdi_span_ops wctdm24xxp_analog_span_ops = {
+	.owner = THIS_MODULE,
 	.hooksig = wctdm_hooksig,
 	.open = wctdm_open,
 	.close = wctdm_close,
@@ -3571,6 +3572,7 @@ static const struct dahdi_span_ops wctdm24xxp_analog_span_ops = {
 };
 
 static const struct dahdi_span_ops wctdm24xxp_digital_span_ops = {
+	.owner = THIS_MODULE,
 	.open = wctdm_open,
 	.close = wctdm_close,
 	.ioctl = wctdm_ioctl,
@@ -3641,7 +3643,6 @@ static struct wctdm_span *wctdm_init_span(struct wctdm *wc, int spanno, int chan
 		return NULL;
 
 	/* DAHDI stuff */
-	s->span.owner = THIS_MODULE;
 	s->span.offset = spanno;
 
 	s->spanno = spancount++;

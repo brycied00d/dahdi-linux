@@ -528,6 +528,7 @@ static int ztd_close(struct dahdi_chan *chan)
 }
 
 static const struct dahdi_span_ops dynamic_ops = {
+	.owner = THIS_MODULE,
 	.rbsbits = ztd_rbsbits,
 	.open = ztd_open,
 	.close = ztd_close,
@@ -592,7 +593,6 @@ static int create_dynamic(struct dahdi_dynamic_span *zds)
 	z->timing = zds->timing;
 	sprintf(z->span.name, "DYN/%s/%s", zds->driver, zds->addr);
 	sprintf(z->span.desc, "Dynamic '%s' span at '%s'", zds->driver, zds->addr);
-	z->span.owner = THIS_MODULE;
 	z->span.channels = zds->numchans;
 	z->span.deflaw = DAHDI_LAW_MULAW;
 	z->span.flags |= DAHDI_FLAG_RBS;

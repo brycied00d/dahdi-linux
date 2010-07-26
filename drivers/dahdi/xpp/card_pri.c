@@ -1274,6 +1274,7 @@ static int pri_audio_notify(struct dahdi_chan *chan, int on)
 #endif
 
 static const struct dahdi_span_ops PRI_span_ops = {
+	.owner = THIS_MODULE,
 	.spanconfig = pri_spanconfig,
 	.chanconfig = pri_chanconfig,
 	.startup = pri_startup,
@@ -1315,7 +1316,6 @@ static int PRI_card_dahdi_preregistration(xpd_t *xpd, bool on)
 		/* Nothing to do yet */
 		return 0;
 	}
-	xpd->span.owner = THIS_MODULE;
 	xpd->span.spantype = pri_protocol_name(priv->pri_protocol);
 	xpd->span.linecompat = pri_linecompat(priv->pri_protocol);
 	xpd->span.deflaw = priv->deflaw;
