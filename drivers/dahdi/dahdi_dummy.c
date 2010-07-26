@@ -213,7 +213,6 @@ static int dahdi_dummy_initialize(struct dahdi_dummy *ztd)
 	ztd->span.channels = 0;		/* no channels on our span */
 	ztd->span.deflaw = DAHDI_LAW_MULAW;
 	init_waitqueue_head(&ztd->span.maintq);
-	ztd->span.pvt = ztd;
 	ztd->chan->pvt = ztd;
 	if (dahdi_register(&ztd->span, 0)) {
 		return -1;

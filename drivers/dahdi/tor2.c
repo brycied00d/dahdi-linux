@@ -71,6 +71,7 @@ struct tor2_span {
 	   span number and pointer to the tor device */
 	struct tor2 *tor;
 	int span;	/* Index from 0 */
+	struct dahdi_span dahdi_span;
 };
 
 struct tor2 {
@@ -96,7 +97,6 @@ struct tor2 {
 	unsigned long xilinx8_region;	/* 8 bit Region allocated to Xilinx */
 	unsigned long xilinx8_len;	/* Length of 8 bit Xilinx region */
 	__iomem volatile unsigned char *mem8;	/* Virtual representation of 8 bit Xilinx memory area */
-	struct dahdi_span spans[SPANS_PER_CARD];		/* Spans */
 	struct tor2_span tspans[SPANS_PER_CARD];	/* Span data */
 	struct dahdi_chan **chans[SPANS_PER_CARD]; /* Pointers to card channels */
 	struct tor2_chan tchans[32 * SPANS_PER_CARD];	/* Channel user data */
@@ -195,7 +195,7 @@ static unsigned datxlt_e1[] = {
 static int tor2_spanconfig(struct dahdi_span *span, struct dahdi_lineconfig *lc)
 {
 	int i;
-	struct tor2_span *p = span->pvt;
+	struct tor2_span *p = container_of(span, struct tor2_span, dahdi_span);
 
 	if (debug)
 		printk(KERN_INFO "Tor2: Configuring span %d\n", span->spanno);
@@ -264,47 +264,47 @@ static void init_spans(struct tor2 *tor)
 	int x, y, c;
 	/* TODO: a debug printk macro */
 	for (x = 0; x < SPANS_PER_CARD; x++) {
-		sprintf(tor->spans[x].name, "Tor2/%d/%d", tor->num, x + 1);
-		snprintf(tor->spans[x].desc, sizeof(tor->spans[x].desc) - 1,
+		struct dahdi_span *const s = &tor->tspans[x].dahdi_span;
+		sprintf(s->name, "Tor2/%d/%d", tor->num, x + 1);
+		snprintf(s->desc, sizeof(s->desc) - 1,
 			 "Tormenta 2 (PCI) Quad %s Card %d Span %d",
 			 (tor->cardtype == TYPE_T1)  ?  "T1"  :  "E1", tor->num, x + 1);
-		tor->spans[x].manufacturer = "Digium";
-		dahdi_copy_string(tor->spans[x].devicetype, tor->type, sizeof(tor->spans[x].devicetype));
-		snprintf(tor->spans[x].location, sizeof(tor->spans[x].location) - 1,
+		s->manufacturer = "Digium";
+		dahdi_copy_string(s->devicetype, tor->type, sizeof(s->devicetype));
+		snprintf(s->location, sizeof(s->location) - 1,
 			 "PCI Bus %02d Slot %02d", tor->pci->bus->number, PCI_SLOT(tor->pci->devfn) + 1);
-		tor->spans[x].owner = THIS_MODULE;
-		tor->spans[x].spanconfig = tor2_spanconfig;
-		tor->spans[x].chanconfig = tor2_chanconfig;
-		tor->spans[x].startup = tor2_startup;
-		tor->spans[x].shutdown = tor2_shutdown;
-		tor->spans[x].rbsbits = tor2_rbsbits;
-		tor->spans[x].maint = tor2_maint;
-		tor->spans[x].open = tor2_open;
-		tor->spans[x].close  = tor2_close;
+		s->owner = THIS_MODULE;
+		s->spanconfig = tor2_spanconfig;
+		s->chanconfig = tor2_chanconfig;
+		s->startup = tor2_startup;
+		s->shutdown = tor2_shutdown;
+		s->rbsbits = tor2_rbsbits;
+		s->maint = tor2_maint;
+		s->open = tor2_open;
+		s->close  = tor2_close;
 		if (tor->cardtype == TYPE_T1) {
-			tor->spans[x].channels = 24;
-			tor->spans[x].deflaw = DAHDI_LAW_MULAW;
-			tor->spans[x].linecompat = DAHDI_CONFIG_AMI | DAHDI_CONFIG_B8ZS | DAHDI_CONFIG_D4 | DAHDI_CONFIG_ESF;
-			tor->spans[x].spantype = "T1";
+			s->channels = 24;
+			s->deflaw = DAHDI_LAW_MULAW;
+			s->linecompat = DAHDI_CONFIG_AMI | DAHDI_CONFIG_B8ZS | DAHDI_CONFIG_D4 | DAHDI_CONFIG_ESF;
+			s->spantype = "T1";
 		} else {
-			tor->spans[x].channels = 31;
-			tor->spans[x].deflaw = DAHDI_LAW_ALAW;
-			tor->spans[x].linecompat = DAHDI_CONFIG_HDB3 | DAHDI_CONFIG_CCS | DAHDI_CONFIG_CRC4;
-			tor->spans[x].spantype = "E1";
+			s->channels = 31;
+			s->deflaw = DAHDI_LAW_ALAW;
+			s->linecompat = DAHDI_CONFIG_HDB3 | DAHDI_CONFIG_CCS | DAHDI_CONFIG_CRC4;
+			s->spantype = "E1";
 		}
-		tor->spans[x].chans = tor->chans[x];
-		tor->spans[x].flags = DAHDI_FLAG_RBS;
-		tor->spans[x].ioctl = tor2_ioctl;
-		tor->spans[x].pvt = &tor->tspans[x];
+		s->chans = tor->chans[x];
+		s->flags = DAHDI_FLAG_RBS;
+		s->ioctl = tor2_ioctl;
 		tor->tspans[x].tor = tor;
 		tor->tspans[x].span = x;
-		init_waitqueue_head(&tor->spans[x].maintq);
-		for (y=0;y<tor->spans[x].channels;y++) {
+		init_waitqueue_head(&s->maintq);
+		for (y = 0; y < s->channels; y++) {
 			struct dahdi_chan *mychans = tor->chans[x][y];
 			sprintf(mychans->name, "Tor2/%d/%d/%d", tor->num, x + 1, y + 1);
 			mychans->sigcap = DAHDI_SIG_EM | DAHDI_SIG_CLEAR | DAHDI_SIG_FXSLS | DAHDI_SIG_FXSGS | DAHDI_SIG_FXSKS |
  									 DAHDI_SIG_FXOLS | DAHDI_SIG_FXOGS | DAHDI_SIG_FXOKS | DAHDI_SIG_CAS | DAHDI_SIG_SF | DAHDI_SIG_EM_E1;
-			c = (x * tor->spans[x].channels) + y;
+			c = (x * s->channels) + y;
 			mychans->pvt = &tor->tchans[c];
 			mychans->chanpos = y + 1;
 			tor->tchans[c].span = x;
@@ -315,36 +315,34 @@ static void init_spans(struct tor2 *tor)
 
 static int __devinit tor2_launch(struct tor2 *tor)
 {
-	if (test_bit(DAHDI_FLAGBIT_REGISTERED, &tor->spans[0].flags))
+	struct dahdi_span *s;
+	int i;
+
+	if (test_bit(DAHDI_FLAGBIT_REGISTERED, &tor->tspans[0].dahdi_span.flags))
 		return 0;
+
 	printk(KERN_INFO "Tor2: Launching card: %d\n", tor->order);
-	if (dahdi_register(&tor->spans[0], 0)) {
-		printk(KERN_ERR "Unable to register span %s\n", tor->spans[0].name);
-		return -1;
-	}
-	if (dahdi_register(&tor->spans[1], 0)) {
-		printk(KERN_ERR "Unable to register span %s\n", tor->spans[1].name);
-		dahdi_unregister(&tor->spans[0]);
-		return -1;
-	}
-	if (dahdi_register(&tor->spans[2], 0)) {
-		printk(KERN_ERR "Unable to register span %s\n", tor->spans[2].name);
-		dahdi_unregister(&tor->spans[0]);
-		dahdi_unregister(&tor->spans[1]);
-		return -1;
-	}
-	if (dahdi_register(&tor->spans[3], 0)) {
-		printk(KERN_ERR "Unable to register span %s\n", tor->spans[3].name);
-		dahdi_unregister(&tor->spans[0]);
-		dahdi_unregister(&tor->spans[1]);
-		dahdi_unregister(&tor->spans[2]);
-		return -1;
+	for (i = 0; i < SPANS_PER_CARD; ++i) {
+		s = &tor->tspans[i].dahdi_span;
+		if (dahdi_register(s, 0)) {
+			printk(KERN_ERR "Unable to register span %s\n", s->name);
+			goto error_exit;
+		}
 	}
 	tor->plx[INTCSR] = cpu_to_le16(PLX_INTENA); /* enable PLX interrupt */
+
 #ifdef ENABLE_TASKLETS
 	tasklet_init(&tor->tor2_tlet, tor2_tasklet, (unsigned long)tor);
 #endif
 	return 0;
+
+error_exit:
+	for (i = 0; i < SPANS_PER_CARD; ++i) {
+		s = &tor->tspans[i].dahdi_span;
+		if (test_bit(DAHDI_FLAGBIT_REGISTERED, &s->flags))
+			dahdi_unregister(s);
+	}
+	return -1;
 }
 
 static void free_tor(struct tor2 *tor)
@@ -630,8 +628,9 @@ static void __devexit tor2_remove(struct pci_dev *pdev)
 	tor->plx[INTCSR] = cpu_to_le16(0);
 	free_irq(tor->irq, tor);
 	for (i = 0; i < SPANS_PER_CARD; ++i) {
-		if (test_bit(DAHDI_FLAGBIT_REGISTERED, &tor->spans[i].flags))
-			dahdi_unregister(&tor->spans[i]);
+		struct dahdi_span *s = &tor->tspans[i].dahdi_span;
+		if (test_bit(DAHDI_FLAGBIT_REGISTERED, &s->flags))
+			dahdi_unregister(s);
 	}
 	release_mem_region(tor->plx_region, tor->plx_len);
 	release_mem_region(tor->xilinx32_region, tor->xilinx32_len);
@@ -669,9 +668,10 @@ static void set_clear(struct tor2 *tor)
 	int i,j,s;
 	unsigned short val=0;
 	for (s = 0; s < SPANS_PER_CARD; s++) {
+		struct dahdi_span *span = &tor->tspans[s].dahdi_span;
 		for (i = 0; i < 24; i++) {
 			j = (i/8);
-			if (tor->spans[s].chans[i]->flags & DAHDI_FLAG_CLEAR) 
+			if (span->chans[i]->flags & DAHDI_FLAG_CLEAR)
 				val |= 1 << (i % 8);
 
 			if ((i % 8)==7) {
@@ -763,7 +763,8 @@ static int tor2_shutdown(struct dahdi_span *span)
 	int tspan;
 	int wasrunning;
 	unsigned long flags;
-	struct tor2_span *p = span->pvt;
+	struct tor2_span *const p = container_of(span, struct tor2_span, dahdi_span);
+	struct tor2 *const tor = p->tor;
 
 	tspan = p->span + 1;
 	if (tspan < 0) {
@@ -771,27 +772,27 @@ static int tor2_shutdown(struct dahdi_span *span)
 		return -1;
 	}
 
-	spin_lock_irqsave(&p->tor->lock, flags);
+	spin_lock_irqsave(&tor->lock, flags);
 	wasrunning = span->flags & DAHDI_FLAG_RUNNING;
 
 	span->flags &= ~DAHDI_FLAG_RUNNING;
 	/* Zero out all registers */
-	if (p->tor->cardtype == TYPE_E1) {
+	if (tor->cardtype == TYPE_E1) {
 		for (i = 0; i < 192; i++)
-			t1out(p->tor,tspan, i, 0);
+			t1out(tor, tspan, i, 0);
 	} else {
 		for (i = 0; i < 160; i++)
-			t1out(p->tor,tspan, i, 0);
+			t1out(tor, tspan, i, 0);
 	}
 	if (wasrunning)
-		p->tor->spansstarted--;
-	spin_unlock_irqrestore(&p->tor->lock, flags);	
-	if (!(p->tor->spans[0].flags & DAHDI_FLAG_RUNNING) &&
-	    !(p->tor->spans[1].flags & DAHDI_FLAG_RUNNING) &&
-	    !(p->tor->spans[2].flags & DAHDI_FLAG_RUNNING) &&
-	    !(p->tor->spans[3].flags & DAHDI_FLAG_RUNNING))
+		tor->spansstarted--;
+	spin_unlock_irqrestore(&tor->lock, flags);
+	if (!(tor->tspans[0].dahdi_span.flags & DAHDI_FLAG_RUNNING) &&
+	    !(tor->tspans[1].dahdi_span.flags & DAHDI_FLAG_RUNNING) &&
+	    !(tor->tspans[2].dahdi_span.flags & DAHDI_FLAG_RUNNING) &&
+	    !(tor->tspans[3].dahdi_span.flags & DAHDI_FLAG_RUNNING))
 		/* No longer in use, disable interrupts */
-		p->tor->mem8[CTLREG] = 0;
+		tor->mem8[CTLREG] = 0;
 	if (debug)
 		printk(KERN_DEBUG"Span %d (%s) shutdown\n", span->spanno, span->name);
 	return 0;
@@ -808,7 +809,7 @@ static int tor2_startup(struct dahdi_span *span)
 	char *framing;
 	char *crcing;
 	int alreadyrunning;
-	struct tor2_span *p = span->pvt;
+	struct tor2_span *p = container_of(span, struct tor2_span, dahdi_span);
 
 	tspan = p->span + 1;
 	if (tspan < 0) {
@@ -1011,7 +1012,7 @@ static int tor2_startup(struct dahdi_span *span)
 
 static int tor2_maint(struct dahdi_span *span, int cmd)
 {
-	struct tor2_span *p = span->pvt;
+	struct tor2_span *p = container_of(span, struct tor2_span, dahdi_span);
 
 	int tspan = p->span + 1;
 
@@ -1074,26 +1075,28 @@ static inline void tor2_run(struct tor2 *tor)
 {
 	int x,y;
 	for (x = 0; x < SPANS_PER_CARD; x++) {
-		if (tor->spans[x].flags & DAHDI_FLAG_RUNNING) {
+		struct dahdi_span *const s = &tor->tspans[x].dahdi_span;
+		if (s->flags & DAHDI_FLAG_RUNNING) {
 			/* since the Tormenta 2 PCI is double-buffered, you
 			   need to delay the transmit data 2 entire chunks so
 			   that the transmit will be in sync with the receive */
-			for (y=0;y<tor->spans[x].channels;y++) {
-				dahdi_ec_chunk(tor->spans[x].chans[y], 
-				    tor->spans[x].chans[y]->readchunk, 
-					tor->ec_chunk2[x][y]);
+			for (y = 0; y < s->channels; y++) {
+				dahdi_ec_chunk(s->chans[y],
+					       s->chans[y]->readchunk,
+					       tor->ec_chunk2[x][y]);
 				memcpy(tor->ec_chunk2[x][y],tor->ec_chunk1[x][y],
 					DAHDI_CHUNKSIZE);
 				memcpy(tor->ec_chunk1[x][y],
-					tor->spans[x].chans[y]->writechunk,
+					s->chans[y]->writechunk,
 						DAHDI_CHUNKSIZE);
 			}
-			dahdi_receive(&tor->spans[x]);
+			dahdi_receive(s);
 		}
 	}
 	for (x = 0; x < SPANS_PER_CARD; x++) {
-		if (tor->spans[x].flags & DAHDI_FLAG_RUNNING)
-			dahdi_transmit(&tor->spans[x]);
+		struct dahdi_span *const s = &tor->tspans[x].dahdi_span;
+		if (s->flags & DAHDI_FLAG_RUNNING)
+			dahdi_transmit(s);
 	}
 }
 
@@ -1142,10 +1145,10 @@ static int tor2_findsync(struct tor2 *tor)
 					if (cards[x]->syncpos[i]) {
 						nonzero = 1;
 						if ((cards[x]->syncpos[i] == p) &&
-						    !(cards[x]->spans[i].alarms & (DAHDI_ALARM_RED | DAHDI_ALARM_BLUE | DAHDI_ALARM_LOOPBACK)) &&
-							(cards[x]->spans[i].flags & DAHDI_FLAG_RUNNING)) {
+						    !(cards[x]->tspans[i].dahdi_span.alarms & (DAHDI_ALARM_RED | DAHDI_ALARM_BLUE | DAHDI_ALARM_LOOPBACK)) &&
+							(cards[x]->tspans[i].dahdi_span.flags & DAHDI_FLAG_RUNNING)) {
 								/* This makes a good sync source */
-								newsyncsrc = cards[x]->spans[i].spanno;
+								newsyncsrc = cards[x]->tspans[i].dahdi_span.spanno;
 								newsyncnum = x;
 								newsyncspan = i + 1;
 								/* Jump out */
@@ -1173,7 +1176,7 @@ found:
 		tor->syncsrc = syncsrc;
 		/* Update sync sources */
 		for (i = 0; i < SPANS_PER_CARD; i++) {
-			tor->spans[i].syncsrc = tor->syncsrc;
+			tor->tspans[i].dahdi_span.syncsrc = tor->syncsrc;
 		}
 		if (syncnum == tor->num) {
 #if 1
@@ -1223,16 +1226,16 @@ DAHDI_IRQ_HANDLER(tor2_intr)
 #endif
 
 	/* do the transmit output */
-	for (n = 0; n < tor->spans[0].channels; n++) {
+	for (n = 0; n < tor->tspans[0].dahdi_span.channels; n++) {
 		for (i = 0; i < DAHDI_CHUNKSIZE; i++) {
 			/* span 1 */
-			txword = tor->spans[0].chans[n]->writechunk[i] << 24;
+			txword = tor->tspans[0].dahdi_span.chans[n]->writechunk[i] << 24;
 			/* span 2 */
-			txword |= tor->spans[1].chans[n]->writechunk[i] << 16;
+			txword |= tor->tspans[1].dahdi_span.chans[n]->writechunk[i] << 16;
 			/* span 3 */
-			txword |= tor->spans[2].chans[n]->writechunk[i] << 8;
+			txword |= tor->tspans[2].dahdi_span.chans[n]->writechunk[i] << 8;
 			/* span 4 */
-			txword |= tor->spans[3].chans[n]->writechunk[i];
+			txword |= tor->tspans[3].dahdi_span.chans[n]->writechunk[i];
 			/* write to part */
 #ifdef FIXTHISFOR64
 			tor->mem32[tor->datxlt[n] + (32 * i)] = txword;
@@ -1243,7 +1246,7 @@ DAHDI_IRQ_HANDLER(tor2_intr)
 	}
 
 	/* Do the receive input */
-	for (n = 0; n < tor->spans[0].channels; n++) {
+	for (n = 0; n < tor->tspans[0].dahdi_span.channels; n++) {
 		for (i = 0; i < DAHDI_CHUNKSIZE; i++) {
 			/* read from */
 #ifdef FIXTHISFOR64
@@ -1252,13 +1255,13 @@ DAHDI_IRQ_HANDLER(tor2_intr)
 			rxword = le32_to_cpu(tor->mem32[tor->datxlt[n] + (32 * i)]);
 #endif
 			/* span 1 */
-			tor->spans[0].chans[n]->readchunk[i] = rxword >> 24;
+			tor->tspans[0].dahdi_span.chans[n]->readchunk[i] = rxword >> 24;
 			/* span 2 */
-			tor->spans[1].chans[n]->readchunk[i] = (rxword & 0xff0000) >> 16;
+			tor->tspans[1].dahdi_span.chans[n]->readchunk[i] = (rxword & 0xff0000) >> 16;
 			/* span 3 */
-			tor->spans[2].chans[n]->readchunk[i] = (rxword & 0xff00) >> 8;
+			tor->tspans[2].dahdi_span.chans[n]->readchunk[i] = (rxword & 0xff00) >> 8;
 			/* span 4 */
-			tor->spans[3].chans[n]->readchunk[i] = rxword & 0xff;
+			tor->tspans[3].dahdi_span.chans[n]->readchunk[i] = rxword & 0xff;
 		}
 	}
 
@@ -1269,16 +1272,16 @@ DAHDI_IRQ_HANDLER(tor2_intr)
 			for (k = 1; k <= SPANS_PER_CARD; k++) {
 				c = t1in(tor,k,0x31 + j);
 				rxc = c & 15;
-				if (rxc != tor->spans[k - 1].chans[j + 16]->rxsig) {
+				if (rxc != tor->tspans[k - 1].dahdi_span.chans[j + 16]->rxsig) {
 					/* Check for changes in received bits */
-					if (!(tor->spans[k - 1].chans[j + 16]->sig & DAHDI_SIG_CLEAR))
-						dahdi_rbsbits(tor->spans[k - 1].chans[j + 16], rxc);
+					if (!(tor->tspans[k - 1].dahdi_span.chans[j + 16]->sig & DAHDI_SIG_CLEAR))
+						dahdi_rbsbits(tor->tspans[k - 1].dahdi_span.chans[j + 16], rxc);
 				}
 				rxc = c >> 4;
-				if (rxc != tor->spans[k - 1].chans[j]->rxsig) {
+				if (rxc != tor->tspans[k - 1].dahdi_span.chans[j]->rxsig) {
 					/* Check for changes in received bits */
-					if (!(tor->spans[k - 1].chans[j]->sig & DAHDI_SIG_CLEAR))
-						dahdi_rbsbits(tor->spans[k - 1].chans[j], rxc);
+					if (!(tor->tspans[k - 1].dahdi_span.chans[j]->sig & DAHDI_SIG_CLEAR))
+						dahdi_rbsbits(tor->tspans[k - 1].dahdi_span.chans[j], rxc);
 				}
 			}
 		}
@@ -1296,11 +1299,10 @@ DAHDI_IRQ_HANDLER(tor2_intr)
 			rxc = 0;
 			if (abits & (1 << j)) rxc |= DAHDI_ABIT;
 			if (bbits & (1 << j)) rxc |= DAHDI_BBIT;
-			if (tor->spans[k].chans[i]->rxsig != rxc) {
+			if (tor->tspans[k].dahdi_span.chans[i]->rxsig != rxc) {
 				/* Check for changes in received bits */
-				if (!(tor->spans[k].chans[i]->sig & DAHDI_SIG_CLEAR)) {
-					dahdi_rbsbits(tor->spans[k].chans[i], rxc);
-				}
+				if (!(tor->tspans[k].dahdi_span.chans[i]->sig & DAHDI_SIG_CLEAR))
+					dahdi_rbsbits(tor->tspans[k].dahdi_span.chans[i], rxc);
 			}
 		}
 	}
@@ -1310,12 +1312,12 @@ DAHDI_IRQ_HANDLER(tor2_intr)
 		if (tor->alarmtimer[i]) {
 			if (!--tor->alarmtimer[i]) {
 				  /* clear recover status */
-				tor->spans[i].alarms &= ~DAHDI_ALARM_RECOVER;
+				tor->tspans[i].dahdi_span.alarms &= ~DAHDI_ALARM_RECOVER;
 				if (tor->cardtype == TYPE_E1)
 					t1out(tor,i + 1,0x21,0x5f); /* turn off yel */
 				else 
 					t1out(tor,i + 1,0x35,0x10); /* turn off yel */
-				dahdi_alarm_notify(&tor->spans[i]);  /* let them know */
+				dahdi_alarm_notify(&tor->tspans[i].dahdi_span);  /* let them know */
 			   }
 		}
 	}
@@ -1327,31 +1329,31 @@ DAHDI_IRQ_HANDLER(tor2_intr)
 		i -= 10;
 		if (tor->cardtype == TYPE_T1) {
 			c = t1in(tor,i + 1,0x31); /* get RIR2 */
-			tor->spans[i].rxlevel = c >> 6;  /* get rx level */
+			tor->tspans[i].dahdi_span.rxlevel = c >> 6;  /* get rx level */
 			t1out(tor,i + 1,0x20,0xff); 
 			c = t1in(tor,i + 1,0x20);  /* get the status */
 			  /* detect the code, only if we are not sending one */
-			if ((!tor->spans[i].mainttimer) && (c & 0x80))  /* if loop-up code detected */
+			if ((!tor->tspans[i].dahdi_span.mainttimer) && (c & 0x80))  /* if loop-up code detected */
 			   {
 				  /* set into remote loop, if not there already */
 				if ((tor->loopupcnt[i]++ > 80) && 
-					(tor->spans[i].maintstat != DAHDI_MAINT_REMOTELOOP))
+					(tor->tspans[i].dahdi_span.maintstat != DAHDI_MAINT_REMOTELOOP))
 				   {
 					t1out(tor,i + 1,0x1e,(japan ? 0x80 : 0x00)); /* no local loop */
 					t1out(tor,i + 1,0x0a,0x40); /* remote loop */
-					tor->spans[i].maintstat = DAHDI_MAINT_REMOTELOOP;
+					tor->tspans[i].dahdi_span.maintstat = DAHDI_MAINT_REMOTELOOP;
 				   }
 			   } else tor->loopupcnt[i] = 0;
 			  /* detect the code, only if we are not sending one */
-			if ((!tor->spans[i].mainttimer) && (c & 0x40))  /* if loop-down code detected */
+			if ((!tor->tspans[i].dahdi_span.mainttimer) && (c & 0x40))  /* if loop-down code detected */
 			   {
 				  /* if in remote loop, get out of it */
 				if ((tor->loopdowncnt[i]++ > 80) &&
-					(tor->spans[i].maintstat == DAHDI_MAINT_REMOTELOOP))
+					(tor->tspans[i].dahdi_span.maintstat == DAHDI_MAINT_REMOTELOOP))
 				   {
 					t1out(tor,i + 1,0x1e,(japan ? 0x80 : 0x00)); /* no local loop */
 					t1out(tor,i + 1,0x0a,0); /* no remote loop */
-					tor->spans[i].maintstat = DAHDI_MAINT_NONE;
+					tor->tspans[i].dahdi_span.maintstat = DAHDI_MAINT_NONE;
 				   }
 			   } else tor->loopdowncnt[i] = 0;
 			if (c & 3) /* if red alarm */
@@ -1375,29 +1377,27 @@ DAHDI_IRQ_HANDLER(tor2_intr)
 			   }
 		}
 		  /* only consider previous carrier alarm state */
-		tor->spans[i].alarms &= (DAHDI_ALARM_RED | DAHDI_ALARM_BLUE | DAHDI_ALARM_NOTOPEN);
+		tor->tspans[i].dahdi_span.alarms &= (DAHDI_ALARM_RED | DAHDI_ALARM_BLUE | DAHDI_ALARM_NOTOPEN);
 		n = 1; /* set to 1 so will not be in yellow alarm if we dont
 			care about open channels */
-		  /* if to have yellow alarm if nothing open */
-		if (tor->spans[i].lineconfig & DAHDI_CONFIG_NOTOPEN)
-		   {
-			  /* go thru all chans, and count # open */
-			for (n = 0,k = 0; k < tor->spans[i].channels; k++) 
-			   {
+		/* if to have yellow alarm if nothing open */
+		if (tor->tspans[i].dahdi_span.lineconfig & DAHDI_CONFIG_NOTOPEN) {
+			/* go thru all chans, and count # open */
+			for (n = 0, k = 0; k < tor->tspans[i].dahdi_span.channels; k++) {
 				if (((tor->chans[i][k])->flags & DAHDI_FLAG_OPEN) ||
-				    ((tor->chans[i][k])->flags & DAHDI_FLAG_NETDEV)) n++;
-			   }
-			  /* if none open, set alarm condition */
-			if (!n) j |= DAHDI_ALARM_NOTOPEN; 
-		   }
+				    ((tor->chans[i][k])->flags & DAHDI_FLAG_NETDEV))
+					n++;
+			}
+			/* if none open, set alarm condition */
+			if (!n)
+				j |= DAHDI_ALARM_NOTOPEN;
+		}
 		  /* if no more alarms, and we had some */
-		if ((!j) && tor->spans[i].alarms)
-		   {
+		if ((!j) && tor->tspans[i].dahdi_span.alarms)
 			tor->alarmtimer[i] = DAHDI_ALARMSETTLE_TIME; 
-		   }
 		if (tor->alarmtimer[i]) j |= DAHDI_ALARM_RECOVER;
 		  /* if going into alarm state, set yellow alarm */
-		if ((j) && (!tor->spans[i].alarms)) {
+		if ((j) && (!tor->tspans[i].dahdi_span.alarms)) {
 			if (tor->cardtype == TYPE_E1)
 				t1out(tor,i + 1,0x21,0x7f);
 			else
@@ -1405,18 +1405,19 @@ DAHDI_IRQ_HANDLER(tor2_intr)
 		}
 		if (c & 4) /* if yellow alarm */
 			j |= DAHDI_ALARM_YELLOW;
-		if (tor->spans[i].maintstat || tor->spans[i].mainttimer) j |= DAHDI_ALARM_LOOPBACK;
-		tor->spans[i].alarms = j;
+		if (tor->tspans[i].dahdi_span.maintstat || tor->tspans[i].dahdi_span.mainttimer)
+			j |= DAHDI_ALARM_LOOPBACK;
+		tor->tspans[i].dahdi_span.alarms = j;
 		c = (LEDRED | LEDGREEN) << (2 * i);
 		tor->leds &= ~c;  /* mask out bits for this span */
 		/* light LED's if span configured and running */
-		if (tor->spans[i].flags & DAHDI_FLAG_RUNNING) {
+		if (tor->tspans[i].dahdi_span.flags & DAHDI_FLAG_RUNNING) {
 			if (j & DAHDI_ALARM_RED) tor->leds |= LEDRED << (2 * i);
 			else if (j & DAHDI_ALARM_YELLOW) tor->leds |= (LEDRED | LEDGREEN) << (2 * i);
 			else tor->leds |= LEDGREEN << (2 * i);
 		}
 		tor->mem8[LEDREG] = tor->leds;
-		dahdi_alarm_notify(&tor->spans[i]);
+		dahdi_alarm_notify(&tor->tspans[i].dahdi_span);
 	   }
 	if (!(tor->passno % 1000)) /* even second boundary */
 	   {
@@ -1426,26 +1427,26 @@ DAHDI_IRQ_HANDLER(tor2_intr)
 			if (tor->cardtype == TYPE_E1)
 			{
 				   /* add this second's BPV count to total one */
-				tor->spans[i - 1].count.bpv +=
+				tor->tspans[i - 1].dahdi_span.count.bpv +=
 					t1in(tor, i, 1) + (t1in(tor, i, 0)<<8);
 
-				if (tor->spans[i - 1].lineconfig & DAHDI_CONFIG_CRC4)
+				if (tor->tspans[i - 1].dahdi_span.lineconfig & DAHDI_CONFIG_CRC4)
 				{
-					tor->spans[i - 1].count.crc4 +=
+					tor->tspans[i - 1].dahdi_span.count.crc4 +=
 						t1in(tor, i, 3) +
 						((t1in(tor, i, 2) & 3) << 8);
-					tor->spans[i - 1].count.ebit +=
+					tor->tspans[i - 1].dahdi_span.count.ebit +=
 						t1in(tor, i, 5) +
 						((t1in(tor, i, 4) & 3) << 8);
 				}
-				tor->spans[i - 1].count.fas +=
+				tor->tspans[i - 1].dahdi_span.count.fas +=
 					(t1in(tor, i, 4) >> 2) +
 					((t1in(tor, i, 2) & 0x3F) << 6);
 			}
 			else
 			{
 				   /* add this second's BPV count to total one */
-				tor->spans[i - 1].count.bpv +=
+				tor->tspans[i - 1].dahdi_span.count.bpv +=
 					t1in(tor, i, 0x24) +
 					(t1in(tor, i, 0x23) << 8);
 			}
@@ -1459,7 +1460,7 @@ DAHDI_IRQ_HANDLER(tor2_intr)
 		if (tor->psyncs[0])
 		   {
 			  /* if no alarms, use it */
-			if (!(tor->spans[tor->psyncs[0] - 1].alarms & (DAHDI_ALARM_RED | DAHDI_ALARM_BLUE | 
+			if (!(tor->tspans[tor->psyncs[0] - 1].dahdi_span.alarms & (DAHDI_ALARM_RED | DAHDI_ALARM_BLUE |
 				DAHDI_ALARM_LOOPBACK))) {
 					tor->syncsrc = tor->psyncs[0];
 					newsyncsrc = tor->syncs[0];
@@ -1470,7 +1471,7 @@ DAHDI_IRQ_HANDLER(tor2_intr)
 			   /* if we dont have one yet, and there is one specified at this level, see if we can use it */
 			if ((!tor->syncsrc) && (tor->psyncs[i])) {
 				  /* if no alarms, use it */
-				if (!(tor->spans[tor->psyncs[i] - 1].alarms & (DAHDI_ALARM_RED | DAHDI_ALARM_BLUE | 
+				if (!(tor->tspans[tor->psyncs[i] - 1].dahdi_span.alarms & (DAHDI_ALARM_RED | DAHDI_ALARM_BLUE |
 					DAHDI_ALARM_LOOPBACK))) {
 						tor->syncsrc = tor->psyncs[i];
 						newsyncsrc = tor->syncs[i];
@@ -1478,7 +1479,8 @@ DAHDI_IRQ_HANDLER(tor2_intr)
 			}
 		}
 		/* update sync src info */
-		for (i = 0; i < SPANS_PER_CARD; i++) tor->spans[i].syncsrc = newsyncsrc;
+		for (i = 0; i < SPANS_PER_CARD; i++)
+			tor->tspans[i].dahdi_span.syncsrc = newsyncsrc;
 
 		/* actually set the sync register */
 		tor->mem8[SYNCREG] = tor->syncsrc;

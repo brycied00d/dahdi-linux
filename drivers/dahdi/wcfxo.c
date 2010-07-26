@@ -564,6 +564,11 @@ static int wcfxo_setreg(struct wcfxo *wc, unsigned char reg, unsigned char value
 	return -1;
 }
 
+static inline struct wcfxo *wcfxo_from_span(struct dahdi_span *span)
+{
+	return container_of(span, struct wcfxo, span);
+}
+
 static int wcfxo_open(struct dahdi_chan *chan)
 {
 	struct wcfxo *wc = chan->pvt;
@@ -576,7 +581,7 @@ static int wcfxo_open(struct dahdi_chan *chan)
 static int wcfxo_watchdog(struct dahdi_span *span, int event)
 {
 	printk(KERN_INFO "FXO: Restarting DMA\n");
-	wcfxo_restart_dma(span->pvt);
+	wcfxo_restart_dma(wcfxo_from_span(span));
 	return 0;
 }
 
@@ -660,7 +665,6 @@ static int wcfxo_initialize(struct wcfxo *wc)
 #endif
 	init_waitqueue_head(&wc->span.maintq);
 
-	wc->span.pvt = wc;
 	wc->chan->pvt = wc;
 	if (dahdi_register(&wc->span, 0)) {
 		printk(KERN_NOTICE "Unable to register span with DAHDI\n");

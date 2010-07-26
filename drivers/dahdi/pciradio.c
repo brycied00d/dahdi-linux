@@ -1423,7 +1423,7 @@ static int pciradio_open(struct dahdi_chan *chan)
 static int pciradio_watchdog(struct dahdi_span *span, int event)
 {
 	printk(KERN_INFO "PCI RADIO: Restarting DMA\n");
-	pciradio_restart_dma(span->pvt);
+	pciradio_restart_dma(container_of(span, struct pciradio, span));
 	return 0;
 }
 
@@ -1486,7 +1486,6 @@ static int pciradio_initialize(struct pciradio *rad)
 	rad->span.watchdog = pciradio_watchdog;
 	init_waitqueue_head(&rad->span.maintq);
 
-	rad->span.pvt = rad;
 	if (dahdi_register(&rad->span, 0)) {
 		printk(KERN_NOTICE "Unable to register span with DAHDI\n");
 		return -1;

@@ -550,7 +550,7 @@ struct b400m_span {
 	int fifos[B400M_CHANNELS_PER_SPAN];			/* B1, B2, D <--> host fifo numbers */
 
 	/* HDLC controller fields */
-	struct dahdi_span *span;		/* pointer to the actual dahdi_span */
+	struct dahdi_span span;			/* The actual dahdi_span */
 	struct dahdi_chan *sigchan;		/* pointer to the signalling channel for this span */
 	int sigactive;				/* nonzero means we're in the middle of sending an HDLC frame */
 	atomic_t hdlc_pending;			/* hdlc_hard_xmit() increments, hdlc_tx_frame() decrements */
@@ -602,13 +602,6 @@ struct b400m {
 
 static void hfc_start_st(struct b400m_span *s);
 static void hfc_stop_st(struct b400m_span *s);
-
-void b400m_set_dahdi_span(struct b400m *b4, int spanno,
-			  struct dahdi_span *span)
-{
-	span->pvt = &b4->spans[spanno];
-	b4->spans[spanno].span = span;
-}
 
 static inline void flush_hw(void)
 {
@@ -1446,11 +1439,11 @@ static void hfc_update_st_timers(struct b400m *b4)
 				hfc_timer_expire(s, j);
 		}
 
-		if (s->span && s->newalarm != s->span->alarms &&
+		if (s->newalarm != s->span.alarms &&
 		    time_after_eq(b4->ticks, s->alarmtimer)) {
-			s->span->alarms = s->newalarm;
+			s->span.alarms = s->newalarm;
 			if ((!s->newalarm && bri_teignorered) || (!bri_teignorered))
-				dahdi_alarm_notify(s->span);
+				dahdi_alarm_notify(&s->span);
 
 			if (DBG_ALARM) {
 				dev_info(&b4->wc->vb.pdev->dev, "span %d: alarm " \
@@ -1610,9 +1603,9 @@ static void hfc_reset_st(struct b400m_span *s)
 	b400m_setreg_ra(b4, R_SU_SEL, s->port, A_SU_WR_STA, V_SU_LD_STA);
 	flush_hw();			/* make sure write hit hardware */
 
-	s->span->alarms = DAHDI_ALARM_RED;
+	s->span.alarms = DAHDI_ALARM_RED;
 	s->newalarm = DAHDI_ALARM_RED;
-	dahdi_alarm_notify(s->span);
+	dahdi_alarm_notify(&s->span);
 
 	/* set up the clock control register.  Must be done before we activate
 	 * the interface. */
@@ -2060,7 +2053,7 @@ static void xhfc_init_stage2(struct b400m *b4)
 
 static int xhfc_startup(struct dahdi_span *span)
 {
-	struct b400m_span *bspan = span->pvt;
+	struct b400m_span *bspan = container_of(span, struct b400m_span, span);
 	struct b400m *b4 = bspan->parent;
 	if (!b4->running)
 		hfc_enable_interrupts(bspan->parent);
@@ -2177,7 +2170,7 @@ int b400m_spanconfig(struct dahdi_span *span, struct dahdi_lineconfig *lc)
 	int te_mode, term;
 	int pos;
 
-	bspan = span->pvt;
+	bspan = container_of(span, struct b400m_span, span);
 	b4 = bspan->parent;
 	wc = b4->wc;
 
@@ -2218,7 +2211,6 @@ int b400m_spanconfig(struct dahdi_span *span, struct dahdi_lineconfig *lc)
 
 	wc->spans[pos]->timing_priority = lc->sync;
 
-	bspan->span = span;
 	xhfc_reset_span(bspan);
 
 	/* call startup() manually here, because DAHDI won't call the startup
@@ -2247,11 +2239,11 @@ int b400m_spanconfig(struct dahdi_span *span, struct dahdi_lineconfig *lc)
 int b400m_chanconfig(struct dahdi_chan *chan, int sigtype)
 {
 	int alreadyrunning;
-	struct b400m_span *bspan = chan->span->pvt;
+	struct b400m_span *bspan = container_of(chan->span, struct b400m_span, span);
 	struct b400m *b4 = bspan->parent;
 	int res;
 
-	alreadyrunning = bspan->span->flags & DAHDI_FLAG_RUNNING;
+	alreadyrunning = bspan->span.flags & DAHDI_FLAG_RUNNING;
 
 	if (DBG_FOPS) {
 		b4_info(b4, "%s channel %d (%s) sigtype %08x\n",
@@ -2294,7 +2286,7 @@ int b400m_dchan(struct dahdi_span *span)
 	int res;
 	int i;
 
-	bspan = span->pvt;
+	bspan = container_of(span, struct b400m_span, span);
 	b4 = bspan->parent;
 #ifdef HARDHDLC_RX
 	return 0;
@@ -2518,7 +2510,7 @@ void wctdm_hdlc_hard_xmit(struct dahdi_chan *chan)
 	int span;
 
 	dspan = chan->span;
-	bspan = dspan->pvt;
+	bspan = container_of(dspan, struct b400m_span, span);
 	b4 = bspan->parent;
 	wc = b4->wc;
 	span = bspan->port;
@@ -2719,7 +2711,7 @@ void wctdm_unload_b400m(struct wctdm *wc, int card)
 		}
 
 		for (i = 0; i < 4; i++)
-			b4->spans[i].span->flags &= ~DAHDI_FLAG_RUNNING;
+			b4->spans[i].span.flags &= ~DAHDI_FLAG_RUNNING;
 
 		wctdm_change_card_sync_src(b4->wc, 0, 0);
 

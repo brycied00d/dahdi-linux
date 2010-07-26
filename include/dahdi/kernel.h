@@ -753,7 +753,6 @@ struct dahdi_count {
 struct dahdi_span {
 	spinlock_t lock;
 	struct module *owner;		/*!< Which module is exporting this span. */
-	void *pvt;			/*!< Private stuff */
 	char name[40];			/*!< Span name */
 	char desc[80];			/*!< Span description */
 	const char *spantype;		/*!< span type in text form */

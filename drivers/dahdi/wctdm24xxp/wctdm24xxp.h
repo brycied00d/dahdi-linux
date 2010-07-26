@@ -155,6 +155,7 @@ struct wctdm_span {
 	struct dahdi_span span;
 	int timing_priority;
 	int spanno;
+	struct wctdm *wc;
 };
 
 struct wctdm_chan {
