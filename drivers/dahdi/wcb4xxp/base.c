@@ -2088,7 +2088,7 @@ static void b4xxp_update_leds(struct b4xxp *b4)
 static int echocan_create(struct dahdi_chan *chan, struct dahdi_echocanparams *ecp,
 			  struct dahdi_echocanparam *p, struct dahdi_echocan_state **ec)
 {
-	struct b4xxp_span *bspan = chan->span->pvt;
+	struct b4xxp_span *bspan = container_of(chan->span, struct b4xxp_span, span);
 	int channel;
 
 	if (chan->chanpos == 3) {
@@ -2117,7 +2117,7 @@ static int echocan_create(struct dahdi_chan *chan, struct dahdi_echocanparams *e
 
 static void echocan_free(struct dahdi_chan *chan, struct dahdi_echocan_state *ec)
 {
-	struct b4xxp_span *bspan = chan->span->pvt;
+	struct b4xxp_span *bspan = container_of(chan->span, struct b4xxp_span, span);
 	int channel;
 
 	memset(ec, 0, sizeof(*ec));
@@ -2145,7 +2145,7 @@ static int b4xxp_ioctl(struct dahdi_chan *chan, unsigned int cmd, unsigned long 
 
 static int b4xxp_startup(struct dahdi_span *span)
 {
-	struct b4xxp_span *bspan = span->pvt;
+	struct b4xxp_span *bspan = container_of(span, struct b4xxp_span, span);
 	struct b4xxp *b4 = bspan->parent;
 
 	if (!b4->running)
@@ -2156,7 +2156,7 @@ static int b4xxp_startup(struct dahdi_span *span)
 
 static int b4xxp_shutdown(struct dahdi_span *span)
 {
-	struct b4xxp_span *bspan = span->pvt;
+	struct b4xxp_span *bspan = container_of(span, struct b4xxp_span, span);
 
 	hfc_disable_interrupts(bspan->parent);
 	return 0;
@@ -2179,7 +2179,7 @@ static void b4xxp_reset_span(struct b4xxp_span *bspan)
 static int b4xxp_spanconfig(struct dahdi_span *span, struct dahdi_lineconfig *lc)
 {
 	int i;
-	struct b4xxp_span *bspan = span->pvt;
+	struct b4xxp_span *bspan = container_of(span, struct b4xxp_span, span);
 	struct b4xxp *b4 = bspan->parent;
 
 	if (DBG)
@@ -2322,7 +2322,6 @@ static void init_spans(struct b4xxp *b4)
 		bspan->parent = b4;
 
 		bspan->span.irq = b4->pdev->irq;
-		bspan->span.pvt = bspan;
 		bspan->span.spantype = (bspan->te_mode) ? "TE" : "NT";
 		bspan->span.offset = i;
 		bspan->span.channels = WCB4XXP_CHANNELS_PER_SPAN;

@@ -974,7 +974,7 @@ int xpp_setchunksize(struct dahdi_span *span, int chunksize);
 /* Enable maintenance modes */
 int xpp_maint(struct dahdi_span *span, int cmd)
 {
-	xpd_t		*xpd = span->pvt;
+	xpd_t		*xpd = container_of(span, struct xpd, span);
 	int		ret = 0;
 #if 0
 	char		loopback_data[] = "THE-QUICK-BROWN-FOX-JUMPED-OVER-THE-LAZY-DOG";
@@ -1096,7 +1096,6 @@ int dahdi_register_xpd(xpd_t *xpd)
 	snprintf(span->name, MAX_SPANNAME, "%s/%s", xbus->busname, xpd->xpdname);
 	span->deflaw = DAHDI_LAW_MULAW;	/* default, may be overriden by card_* drivers */
 	init_waitqueue_head(&span->maintq);
-	span->pvt = xpd;
 	span->channels = cn;
 	span->chans = xpd->chans;
 

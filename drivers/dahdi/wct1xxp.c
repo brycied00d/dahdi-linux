@@ -604,9 +604,14 @@ static int t1xxp_ioctl(struct dahdi_chan *chan, unsigned int cmd, unsigned long 
 	}
 }
 
+static inline struct t1xxp *t1xxp_from_span(struct dahdi_span *span)
+{
+	return container_of(span, struct t1xxp, span);
+}
+
 static int t1xxp_startup(struct dahdi_span *span)
 {
-	struct t1xxp *wc = span->pvt;
+	struct t1xxp *wc = t1xxp_from_span(span);
 
 	int i,alreadyrunning = span->flags & DAHDI_FLAG_RUNNING;
 
@@ -637,7 +642,7 @@ static int t1xxp_startup(struct dahdi_span *span)
 
 static int t1xxp_shutdown(struct dahdi_span *span)
 {
-	struct t1xxp *wc = span->pvt;
+	struct t1xxp *wc = t1xxp_from_span(span);
 	unsigned long flags;
 
 	spin_lock_irqsave(&wc->lock, flags);
@@ -652,7 +657,7 @@ static int t1xxp_shutdown(struct dahdi_span *span)
 
 static int t1xxp_maint(struct dahdi_span *span, int cmd)
 {
-	struct t1xxp *wc = span->pvt;
+	struct t1xxp *wc = t1xxp_from_span(span);
 	int res = 0;
 	unsigned long flags;
 	spin_lock_irqsave(&wc->lock, flags);
@@ -730,7 +735,7 @@ static int t1xxp_chanconfig(struct dahdi_chan *chan, int sigtype)
 
 static int t1xxp_spanconfig(struct dahdi_span *span, struct dahdi_lineconfig *lc)
 {
-	struct t1xxp *wc = span->pvt;
+	struct t1xxp *wc = t1xxp_from_span(span);
 
 	/* Do we want to SYNC on receive or not */
 	wc->sync = (lc->sync) ? 1 : 0;
@@ -772,7 +777,6 @@ static int t1xxp_software_init(struct t1xxp *wc)
 	wc->span.chans = wc->chans;
 	wc->span.flags = DAHDI_FLAG_RBS;
 	wc->span.ioctl = t1xxp_ioctl;
-	wc->span.pvt = wc;
 	if (wc->ise1) {
 		wc->span.channels = 31;
 		wc->span.deflaw = DAHDI_LAW_ALAW;

@@ -3312,9 +3312,15 @@ static int wctdm_open(struct dahdi_chan *chan)
 	return 0;
 }
 
+static inline struct wctdm *span_to_wctdm(struct dahdi_span *span)
+{
+	struct wctdm_span *s = container_of(span, struct wctdm_span, span);
+	return s->wc;
+}
+
 static int wctdm_watchdog(struct dahdi_span *span, int event)
 {
-	struct wctdm *wc = span->pvt;
+	struct wctdm *wc = span_to_wctdm(span);
 	dev_info(&wc->vb.pdev->dev, "TDM: Called watchdog\n");
 	return 0;
 }
@@ -3609,6 +3615,7 @@ static struct wctdm_span *wctdm_init_span(struct wctdm *wc, int spanno, int chan
 	s->span.offset = spanno;
 
 	s->spanno = spancount++;
+	s->wc = wc;
 
 	/* Do not change the procfs representation for non-hx8 cards. */
 	if (digital_span)
@@ -4787,7 +4794,6 @@ __wctdm_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 				return -EIO;
 			}
 			b4 = wc->mods[i].bri;
-			b400m_set_dahdi_span(b4, i & 0x03, &wc->spans[curspan]->span);
 
 			++curspan;
 			curchan += 3;
@@ -4822,7 +4828,6 @@ __wctdm_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 		wctdm_init_span(wc, curspan, curchan, wc->desc->ports, 0);
 		wctdm_fixup_analog_span(wc, curspan);
 		wc->aspan = wc->spans[curspan];
-		wc->aspan->span.pvt = wc;
 		curchan += wc->desc->ports;
 		++curspan;
 	}

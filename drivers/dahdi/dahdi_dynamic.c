@@ -267,9 +267,14 @@ static void ztdynamic_run(void)
 #define ztdynamic_run __ztdynamic_run
 #endif
 
+static inline struct dahdi_dynamic *dynamic_from_span(struct dahdi_span *span)
+{
+	return container_of(span, struct dahdi_dynamic, span);
+}
+
 void dahdi_dynamic_receive(struct dahdi_span *span, unsigned char *msg, int msglen)
 {
-	struct dahdi_dynamic *ztd = span->pvt;
+	struct dahdi_dynamic *ztd = dynamic_from_span(span);
 	int newerr=0;
 	int sflags;
 	int xlen;
@@ -497,8 +502,7 @@ static int ztd_rbsbits(struct dahdi_chan *chan, int bits)
 
 static int ztd_open(struct dahdi_chan *chan)
 {
-	struct dahdi_dynamic *z;
-	z = chan->span->pvt;
+	struct dahdi_dynamic *z = dynamic_from_span(chan->span);
 	if (likely(z)) {
 		if (unlikely(z->dead))
 			return -ENODEV;
@@ -514,8 +518,7 @@ static int ztd_chanconfig(struct dahdi_chan *chan, int sigtype)
 
 static int ztd_close(struct dahdi_chan *chan)
 {
-	struct dahdi_dynamic *z;
-	z = chan->span->pvt;
+	struct dahdi_dynamic *z = dynamic_from_span(chan->span);
 	if (z) {
 		z->usecount--;
 		if (z->dead && !z->usecount)
@@ -584,7 +587,6 @@ static int create_dynamic(struct dahdi_dynamic_span *zds)
 	sprintf(z->span.desc, "Dynamic '%s' span at '%s'", zds->driver, zds->addr);
 	z->span.owner = THIS_MODULE;
 	z->span.channels = zds->numchans;
-	z->span.pvt = z;
 	z->span.deflaw = DAHDI_LAW_MULAW;
 	z->span.flags |= DAHDI_FLAG_RBS;
 	z->span.chans = z->chans;

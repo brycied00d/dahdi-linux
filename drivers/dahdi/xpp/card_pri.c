@@ -1093,7 +1093,7 @@ bad_lineconfig:
 
 static int pri_spanconfig(struct dahdi_span *span, struct dahdi_lineconfig *lc)
 {
-	xpd_t			*xpd = span->pvt;
+	xpd_t			*xpd = container_of(span, struct xpd, span);
 	struct PRI_priv_data	*priv;
 	int			ret;
 
@@ -1127,10 +1127,9 @@ static int pri_spanconfig(struct dahdi_span *span, struct dahdi_lineconfig *lc)
  */
 static int pri_chanconfig(struct dahdi_chan *chan, int sigtype)
 {
-	xpd_t			*xpd;
+	xpd_t			*xpd = container_of(chan->span, struct xpd, span);
 	struct PRI_priv_data	*priv;
 
-	xpd = chan->span->pvt;
 	BUG_ON(!xpd);
 	priv = xpd->priv;
 	DBG(GENERAL, "channel %d (%s) -> %s\n", chan->channo, chan->name, sig2str(sigtype));
@@ -1510,7 +1509,7 @@ static int PRI_card_close(xpd_t *xpd, lineno_t pos)
  */
 static int pri_startup(struct dahdi_span *span)
 {
-	xpd_t			*xpd = span->pvt;
+	xpd_t			*xpd = container_of(span, struct xpd, span);
 	struct PRI_priv_data	*priv;
 
 	BUG_ON(!xpd);
@@ -1533,7 +1532,7 @@ static int pri_startup(struct dahdi_span *span)
  */
 static int pri_shutdown(struct dahdi_span *span)
 {
-	xpd_t			*xpd = span->pvt;
+	xpd_t			*xpd = container_of(span, struct xpd, span);
 	struct PRI_priv_data	*priv;
 
 	BUG_ON(!xpd);

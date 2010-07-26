@@ -958,7 +958,7 @@ static void set_span_devicetype(struct t1 *wc)
 
 static int t1xxp_startup(struct dahdi_span *span)
 {
-	struct t1 *wc = span->pvt;
+	struct t1 *wc = container_of(span, struct t1, span);
 	int i;
 
 	check_and_load_vpm(wc);
@@ -979,7 +979,7 @@ static int t1xxp_startup(struct dahdi_span *span)
 
 static int t1xxp_shutdown(struct dahdi_span *span)
 {
-	struct t1 *wc = span->pvt;
+	struct t1 *wc = container_of(span, struct t1, span);
 	t1_setreg(wc, 0x46, 0x41);	/* GCR: Interrupt on Activation/Deactivation of AIX, LOS */
 	clear_bit(DAHDI_FLAGBIT_RUNNING, &span->flags);
 	return 0;
@@ -1227,7 +1227,7 @@ cleanup:
 static int t1xxp_maint(struct dahdi_span *span, int cmd)
 {
 	struct maint_work_struct *work;
-	struct t1 *wc = span->pvt;
+	struct t1 *wc = container_of(span, struct t1, span);
 
 	if (wc->spantype == TYPE_E1) {
 		switch (cmd) {
@@ -1282,7 +1282,7 @@ static int t1xxp_maint(struct dahdi_span *span, int cmd)
 
 static int t1xxp_clear_maint(struct dahdi_span *span)
 {
-	struct t1 *wc = span->pvt;
+	struct t1 *wc = container_of(span, struct t1, span);
 	int reg = 0;
 
 	/* Turn off local loop */
@@ -1488,7 +1488,7 @@ static inline int check_and_load_vpm(const struct t1 *wc)
 static int
 t1xxp_spanconfig(struct dahdi_span *span, struct dahdi_lineconfig *lc)
 {
-	struct t1 *wc = span->pvt;
+	struct t1 *wc = container_of(span, struct t1, span);
 
 	/* Do we want to SYNC on receive or not */
 	if (lc->sync) {
@@ -1568,7 +1568,6 @@ static int t1_software_init(struct t1 *wc)
 	}
 	wc->span.chans = wc->chans;
 	set_bit(DAHDI_FLAGBIT_RBS, &wc->span.flags);
-	wc->span.pvt = wc;
 	init_waitqueue_head(&wc->span.maintq);
 	for (x = 0; x < wc->span.channels; x++) {
 		sprintf(wc->chans[x]->name, "WCT1/%d/%d", num, x + 1);

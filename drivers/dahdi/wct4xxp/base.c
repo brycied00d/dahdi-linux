@@ -1236,7 +1236,7 @@ static int echocan_create(struct dahdi_chan *chan, struct dahdi_echocanparams *e
 			  struct dahdi_echocanparam *p, struct dahdi_echocan_state **ec)
 {
 	struct t4 *wc = chan->pvt;
-	struct t4_span *tspan = chan->span->pvt;
+	struct t4_span *tspan = container_of(chan->span, struct t4_span, span);
 	int channel;
 	const struct dahdi_echocan_ops *ops;
 	const struct dahdi_echocan_features *features;
@@ -1434,7 +1434,7 @@ static void t4_hdlc_hard_xmit(struct dahdi_chan *chan)
 
 static int t4_maint(struct dahdi_span *span, int cmd)
 {
-	struct t4_span *ts = span->pvt;
+	struct t4_span *ts = container_of(span, struct t4_span, span);
 	struct t4 *wc = ts->owner;
 	unsigned int reg;
 
@@ -1556,7 +1556,7 @@ static int t4_maint(struct dahdi_span *span, int cmd)
 
 static int t4_clear_maint(struct dahdi_span *span)
 {
-	struct t4_span *ts = span->pvt;
+	struct t4_span *ts = container_of(span, struct t4_span, span);
 	struct t4 *wc = ts->owner;
 	unsigned int reg;
 
@@ -1583,7 +1583,7 @@ static int t4_clear_maint(struct dahdi_span *span)
 
 static int t4_reset_counters(struct dahdi_span *span)
 {
-	struct t4_span *ts = span->pvt;
+	struct t4_span *ts = container_of(span, struct t4_span, span);
 	memset(&ts->span.count, 0, sizeof(ts->span.count));
 	return 0;
 }
@@ -1647,7 +1647,7 @@ static int t4_shutdown(struct dahdi_span *span)
 	int tspan;
 	int wasrunning;
 	unsigned long flags;
-	struct t4_span *ts = span->pvt;
+	struct t4_span *ts = container_of(span, struct t4_span, span);
 	struct t4 *wc = ts->owner;
 
 	tspan = span->offset + 1;
@@ -1697,7 +1697,7 @@ static int t4_shutdown(struct dahdi_span *span)
 static int t4_spanconfig(struct dahdi_span *span, struct dahdi_lineconfig *lc)
 {
 	int i;
-	struct t4_span *ts = span->pvt;
+	struct t4_span *ts = container_of(span, struct t4_span, span);
 	struct t4 *wc = ts->owner;
 
 	printk(KERN_INFO "About to enter spanconfig!\n");
@@ -1913,7 +1913,6 @@ static void init_spans(struct t4 *wc)
 #endif			
 			ts->span.dacs = t4_dacs;
 		}
-		ts->span.pvt = ts;
 		ts->owner = wc;
 		ts->span.offset = x;
 		init_waitqueue_head(&ts->span.maintq);
@@ -2374,7 +2373,7 @@ static int t4_startup(struct dahdi_span *span)
 	int tspan;
 	unsigned long flags;
 	int alreadyrunning;
-	struct t4_span *ts = span->pvt;
+	struct t4_span *ts = container_of(span, struct t4_span, span);
 	struct t4 *wc = ts->owner;
 
 	set_bit(T4_IGNORE_LATENCY, &wc->checkflag);

@@ -2088,10 +2088,15 @@ static int wctdm_open(struct dahdi_chan *chan)
 	return 0;
 }
 
+static inline struct wctdm *wctdm_from_span(struct dahdi_span *span)
+{
+	return container_of(span, struct wctdm, span);
+}
+
 static int wctdm_watchdog(struct dahdi_span *span, int event)
 {
 	printk(KERN_INFO "TDM: Restarting DMA\n");
-	wctdm_restart_dma(span->pvt);
+	wctdm_restart_dma(wctdm_from_span(span));
 	return 0;
 }
 
@@ -2365,7 +2370,6 @@ static int wctdm_initialize(struct wctdm *wc)
 	wc->span.watchdog = wctdm_watchdog;
 	init_waitqueue_head(&wc->span.maintq);
 
-	wc->span.pvt = wc;
 	if (dahdi_register(&wc->span, 0)) {
 		printk(KERN_NOTICE "Unable to register span with DAHDI\n");
 		return -1;

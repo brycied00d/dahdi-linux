@@ -496,7 +496,7 @@ static void global_tick(void)
 #ifdef	DAHDI_SYNC_TICK
 int dahdi_sync_tick(struct dahdi_span *span, int is_master)
 {
-	xpd_t		*xpd = span->pvt;
+	xpd_t		*xpd = container_of(span, struct xpd, span);
 	static int	redundant_ticks;	/* for extra spans */
 	struct timeval	now;
 

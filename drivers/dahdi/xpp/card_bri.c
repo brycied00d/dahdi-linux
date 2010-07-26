@@ -1171,7 +1171,7 @@ static int BRI_card_close(xpd_t *xpd, lineno_t pos)
  */
 static int bri_spanconfig(struct dahdi_span *span, struct dahdi_lineconfig *lc)
 {
-	xpd_t		*xpd = span->pvt;
+	xpd_t		*xpd = container_of(span, struct xpd, span);
 	const char	*framingstr = "";
 	const char	*codingstr = "";
 	const char	*crcstr = "";
@@ -1227,7 +1227,7 @@ static int bri_chanconfig(struct dahdi_chan *chan, int sigtype)
  */
 static int bri_startup(struct dahdi_span *span)
 {
-	xpd_t			*xpd = span->pvt;
+	xpd_t			*xpd = container_of(span, struct xpd, span);
 	struct BRI_priv_data	*priv;
 	struct dahdi_chan	*dchan;
 
@@ -1263,7 +1263,7 @@ static int bri_startup(struct dahdi_span *span)
  */
 static int bri_shutdown(struct dahdi_span *span)
 {
-	xpd_t			*xpd = span->pvt;
+	xpd_t			*xpd = container_of(span, struct xpd, span);
 	struct BRI_priv_data	*priv;
 
 	BUG_ON(!xpd);
