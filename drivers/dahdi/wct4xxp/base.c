@@ -1461,6 +1461,27 @@ static int t4_maint(struct dahdi_span *span, int cmd)
 			dev_info(&wc->dev->dev,
 					"Only local loop supported in E1 mode\n");
 			return -ENOSYS;
+		case DAHDI_MAINT_FAS_DEFECT:
+			t4_framer_out(wc, span->offset, IERR_T, IFASE);
+			break;
+		case DAHDI_MAINT_MULTI_DEFECT:
+			t4_framer_out(wc, span->offset, IERR_T, IMFE);
+			break;
+		case DAHDI_MAINT_CRC_DEFECT:
+			t4_framer_out(wc, span->offset, IERR_T, ICRCE);
+			break;
+		case DAHDI_MAINT_CAS_DEFECT:
+			t4_framer_out(wc, span->offset, IERR_T, ICASE);
+			break;
+		case DAHDI_MAINT_PRBS_DEFECT:
+			t4_framer_out(wc, span->offset, IERR_T, IPE);
+			break;
+		case DAHDI_MAINT_BIPOLAR_DEFECT:
+			t4_framer_out(wc, span->offset, IERR_T, IBV);
+			break;
+		case DAHDI_RESET_COUNTERS:
+			t4_reset_counters(span);
+			break;
 		case DAHDI_MAINT_ALARM_SIM:
 			dev_info(&wc->dev->dev, "Invoking alarm state");
 			reg = t4_framer_in(wc, span->offset, FMR0);
@@ -2411,7 +2432,7 @@ static void __t4_configure_e1(struct t4 *wc, int unit, int lineconfig)
 	__t4_framer_out(wc, unit, FRMR_IMR0, 0xff & ~((wc->tspans[unit]->sigchan) ? HDLC_IMR0_MASK : 0));	/* IMR0: We care about CRC errors, CAS changes, etc */
 	__t4_framer_out(wc, unit, FRMR_IMR1, 0x3f & ~((wc->tspans[unit]->sigchan) ? HDLC_IMR1_MASK : 0));	/* IMR1: We care about loopup / loopdown */
 	__t4_framer_out(wc, unit, 0x16, 0x00);	/* IMR2: We care about all the alarm stuff! */
-	__t4_framer_out(wc, unit, 0x17, 0x44 | imr3extra); /* IMR3: AIS */
+	__t4_framer_out(wc, unit, 0x17, 0x04 | imr3extra); /* IMR3: AIS */
 	__t4_framer_out(wc, unit, 0x18, 0x3f);  /* IMR4: We care about slips on transmit */
 
 	printk(KERN_INFO "TE%dXXP: Span %d configured for %s/%s%s\n", wc->numspans, unit + 1, framing, line, crc4);
