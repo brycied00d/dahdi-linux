@@ -451,9 +451,6 @@ enum {
 #define DAHDI_EVENT_DTMFDOWN		(1 << 17)	/* Ditto for DTMF key down event */
 #define DAHDI_EVENT_DTMFUP		(1 << 18)	/* Ditto for DTMF key up event */
 
-/* If the source of timing changes */
-#define DAHDI_EVENT_SYNC		29
-
 /* Transcoder related definitions */
 
 struct dahdi_transcoder_formats {
