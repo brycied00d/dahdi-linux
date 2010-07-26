@@ -996,6 +996,7 @@ void voicebus_stop(struct voicebus *vb)
 #if defined(CONFIG_VOICEBUS_TIMER)
 	del_timer_sync(&vb->timer);
 #endif
+	vb_disable_interrupts(vb);
 	up(&stop);
 }
 EXPORT_SYMBOL(voicebus_stop);

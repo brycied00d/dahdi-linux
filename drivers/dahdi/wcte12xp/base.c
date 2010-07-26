@@ -2314,12 +2314,23 @@ static struct pci_device_id te12xp_pci_tbl[] = {
 	{ 0 }
 };
 
+#if LINUX_KERNEL_VERSION >= KERNEL_VERSION(2, 6, 12)
+static void te12xp_shutdown(struct pci_dev *pdev)
+{
+	struct t1 *wc = pci_get_drvdata(pdev);
+	voicebus_stop(&wc->vb);
+}
+#endif
+
 MODULE_DEVICE_TABLE(pci, te12xp_pci_tbl);
 
 static struct pci_driver te12xp_driver = {
 	.name = "wcte12xp",
 	.probe = te12xp_init_one,
 	.remove = __devexit_p(te12xp_remove_one),
+#if LINUX_KERNEL_VERSION >= KERNEL_VERSION(2, 6, 12)
+	.shutdown = te12xp_shutdown,
+#endif
 	.id_table = te12xp_pci_tbl,
 };
 
