@@ -73,8 +73,6 @@ static int vpmnlptype = DEFAULT_NLPTYPE;
 static int vpmnlpthresh = DEFAULT_NLPTHRESH;
 static int vpmnlpmaxsupp = DEFAULT_NLPMAXSUPP;
 
-static int echocan_create(struct dahdi_chan *chan, struct dahdi_echocanparams *ecp,
-			   struct dahdi_echocanparam *p, struct dahdi_echocan_state **ec);
 static void echocan_free(struct dahdi_chan *chan, struct dahdi_echocan_state *ec);
 static int t1xxp_clear_maint(struct dahdi_span *span);
 static int check_and_load_vpm(struct t1 *wc);
@@ -1331,13 +1329,15 @@ static int t1xxp_ioctl(struct dahdi_chan *chan, unsigned int cmd, unsigned long 
 	return 0;
 }
 
-static int echocan_create(struct dahdi_chan *chan, struct dahdi_echocanparams *ecp,
-			  struct dahdi_echocanparam *p, struct dahdi_echocan_state **ec)
+static int t1xxp_echocan_create(struct dahdi_chan *chan,
+				struct dahdi_echocanparams *ecp,
+				struct dahdi_echocanparam *p,
+				struct dahdi_echocan_state **ec)
 {
 	struct t1 *wc = chan->pvt;
 	enum adt_companding comp;
 
-	if (!wc->vpmadt032 || !test_bit(4, &wc->ctlreg))
+	if (!vpmsupport || !wc->vpmadt032 || !test_bit(4, &wc->ctlreg))
 		return -ENODEV;
 
 	*ec = wc->ec[chan->chanpos - 1];
@@ -1506,6 +1506,20 @@ t1xxp_spanconfig(struct dahdi_span *span, struct dahdi_lineconfig *lc)
 	return 0;
 }
 
+static const struct dahdi_span_ops t1_span_ops = {
+	.spanconfig = t1xxp_spanconfig,
+	.chanconfig = t1xxp_chanconfig,
+	.startup = t1xxp_startup,
+	.shutdown = t1xxp_shutdown,
+	.rbsbits = t1xxp_rbsbits,
+	.maint = t1xxp_maint,
+	.open = t1xxp_open,
+	.close = t1xxp_close,
+	.ioctl = t1xxp_ioctl,
+#ifdef VPM_SUPPORT
+	.echocan_create = t1xxp_echocan_create,
+#endif
+};
 
 static int t1_software_init(struct t1 *wc)
 {
@@ -1537,20 +1551,7 @@ static int t1_software_init(struct t1 *wc)
 		PCI_SLOT(pdev->devfn) + 1);
 
 	wc->span.owner = THIS_MODULE;
-	wc->span.spanconfig = t1xxp_spanconfig;
-	wc->span.chanconfig = t1xxp_chanconfig;
 	wc->span.irq = pdev->irq;
-	wc->span.startup = t1xxp_startup;
-	wc->span.shutdown = t1xxp_shutdown;
-	wc->span.rbsbits = t1xxp_rbsbits;
-	wc->span.maint = t1xxp_maint;
-	wc->span.open = t1xxp_open;
-	wc->span.close = t1xxp_close;
-	wc->span.ioctl = t1xxp_ioctl;
-#ifdef VPM_SUPPORT
-	if (vpmsupport)
-		wc->span.echocan_create = echocan_create;
-#endif
 
 	if (wc->spantype == TYPE_E1) {
 		if (unchannelized)
@@ -1578,6 +1579,7 @@ static int t1_software_init(struct t1 *wc)
 		wc->chans[x]->pvt = wc;
 		wc->chans[x]->chanpos = x + 1;
 	}
+	wc->span.ops = &t1_span_ops;
 	if (dahdi_register(&wc->span, 0)) {
 		t1_info(wc, "Unable to register span with DAHDI\n");
 		return -1;

@@ -259,6 +259,18 @@ static int tor2_close(struct dahdi_chan *chan)
 	return 0;
 }
 
+static const struct dahdi_span_ops tor2_span_ops = {
+	.spanconfig = tor2_spanconfig,
+	.chanconfig = tor2_chanconfig,
+	.startup = tor2_startup,
+	.shutdown = tor2_shutdown,
+	.rbsbits = tor2_rbsbits,
+	.maint = tor2_maint,
+	.open = tor2_open,
+	.close  = tor2_close,
+	.ioctl = tor2_ioctl,
+};
+
 static void init_spans(struct tor2 *tor)
 {
 	int x, y, c;
@@ -274,14 +286,6 @@ static void init_spans(struct tor2 *tor)
 		snprintf(s->location, sizeof(s->location) - 1,
 			 "PCI Bus %02d Slot %02d", tor->pci->bus->number, PCI_SLOT(tor->pci->devfn) + 1);
 		s->owner = THIS_MODULE;
-		s->spanconfig = tor2_spanconfig;
-		s->chanconfig = tor2_chanconfig;
-		s->startup = tor2_startup;
-		s->shutdown = tor2_shutdown;
-		s->rbsbits = tor2_rbsbits;
-		s->maint = tor2_maint;
-		s->open = tor2_open;
-		s->close  = tor2_close;
 		if (tor->cardtype == TYPE_T1) {
 			s->channels = 24;
 			s->deflaw = DAHDI_LAW_MULAW;
@@ -295,7 +299,8 @@ static void init_spans(struct tor2 *tor)
 		}
 		s->chans = tor->chans[x];
 		s->flags = DAHDI_FLAG_RBS;
-		s->ioctl = tor2_ioctl;
+		s->ops = &tor2_span_ops;
+
 		tor->tspans[x].tor = tor;
 		tor->tspans[x].span = x;
 		init_waitqueue_head(&s->maintq);

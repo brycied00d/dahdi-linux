@@ -256,8 +256,6 @@ static int vpmnlptype = DEFAULT_NLPTYPE;
 static int vpmnlpthresh = DEFAULT_NLPTHRESH;
 static int vpmnlpmaxsupp = DEFAULT_NLPMAXSUPP;
 
-static int echocan_create(struct dahdi_chan *chan, struct dahdi_echocanparams *ecp,
-			   struct dahdi_echocanparam *p, struct dahdi_echocan_state **ec);
 static void echocan_free(struct dahdi_chan *chan, struct dahdi_echocan_state *ec);
 
 static const struct dahdi_echocan_features vpm100m_ec_features = {
@@ -1206,7 +1204,7 @@ static inline void wctdm_receiveprep(struct wctdm *wc, const u8 *readchunk)
 				struct dahdi_span *s = &wc->spans[x]->span;
 #if 1
 				/* Check for digital spans */
-				if (s->chanconfig == b400m_chanconfig) {
+				if (s->ops->chanconfig == b400m_chanconfig) {
 					BUG_ON(!is_hx8(wc));
 					if (s->flags & DAHDI_FLAG_RUNNING)
 						b400m_dchan(s);
@@ -1844,14 +1842,20 @@ static inline void wctdm_vpm_check(struct wctdm *wc, int x)
 	}
 }
 
-static int echocan_create(struct dahdi_chan *chan, struct dahdi_echocanparams *ecp,
-			  struct dahdi_echocanparam *p, struct dahdi_echocan_state **ec)
+static int wctdm_echocan_create(struct dahdi_chan *chan,
+				struct dahdi_echocanparams *ecp,
+				struct dahdi_echocanparam *p,
+				struct dahdi_echocan_state **ec)
 {
 	struct wctdm *wc = chan->pvt;
 	struct wctdm_chan *wchan = container_of(chan, struct wctdm_chan, chan);
 	const struct dahdi_echocan_ops *ops;
 	const struct dahdi_echocan_features *features;
 
+#ifdef VPM_SUPPORT
+	if (!vpmsupport)
+		return -ENODEV;
+#endif
 	if (!wc->vpm100 && !wc->vpmadt032)
 		return -ENODEV;
 
@@ -3554,6 +3558,32 @@ static int wctdm_dacs(struct dahdi_chan *dst, struct dahdi_chan *src)
 	return 0;
 }
 
+static const struct dahdi_span_ops wctdm24xxp_analog_span_ops = {
+	.hooksig = wctdm_hooksig,
+	.open = wctdm_open,
+	.close = wctdm_close,
+	.ioctl = wctdm_ioctl,
+	.watchdog = wctdm_watchdog,
+	.dacs = wctdm_dacs,
+#ifdef VPM_SUPPORT
+	.echocan_create = wctdm_echocan_create,
+#endif
+};
+
+static const struct dahdi_span_ops wctdm24xxp_digital_span_ops = {
+	.open = wctdm_open,
+	.close = wctdm_close,
+	.ioctl = wctdm_ioctl,
+	.watchdog = wctdm_watchdog,
+	.hdlc_hard_xmit = wctdm_hdlc_hard_xmit,
+	.spanconfig = b400m_spanconfig,
+	.chanconfig = b400m_chanconfig,
+	.dacs = wctdm_dacs,
+#ifdef VPM_SUPPORT
+	.echocan_create = wctdm_echocan_create,
+#endif
+};
+
 static struct wctdm_chan *wctdm_init_chan(struct wctdm *wc, struct wctdm_span *s, int chanoffset, int channo)
 {
 	struct wctdm_chan *c;
@@ -3645,14 +3675,12 @@ static struct wctdm_span *wctdm_init_span(struct wctdm *wc, int spanno, int chan
 	}
 
 	if (digital_span) {
-		s->span.hdlc_hard_xmit = wctdm_hdlc_hard_xmit;
-		s->span.spanconfig = b400m_spanconfig;
-		s->span.chanconfig = b400m_chanconfig;
+		s->span.ops = &wctdm24xxp_digital_span_ops;
 		s->span.linecompat = DAHDI_CONFIG_AMI | DAHDI_CONFIG_B8ZS | DAHDI_CONFIG_D4;
 		s->span.linecompat |= DAHDI_CONFIG_ESF | DAHDI_CONFIG_HDB3 | DAHDI_CONFIG_CCS | DAHDI_CONFIG_CRC4;
 		s->span.linecompat |= DAHDI_CONFIG_NTTE | DAHDI_CONFIG_TERM;
 	} else {
-		s->span.hooksig = wctdm_hooksig;
+		s->span.ops = &wctdm24xxp_analog_span_ops;
 		s->span.flags = DAHDI_FLAG_RBS;
 		/* analog sigcap handled in fixup_analog_span() */
 	}
@@ -3672,21 +3700,12 @@ static struct wctdm_span *wctdm_init_span(struct wctdm *wc, int spanno, int chan
 
 	s->span.channels = chancount;
 	s->span.irq = pdev->irq;
-	s->span.open = wctdm_open;
-	s->span.close = wctdm_close;
-	s->span.ioctl = wctdm_ioctl;
-	s->span.watchdog = wctdm_watchdog;
-	s->span.dacs = wctdm_dacs;
 
 	if (digital_span) {
 		wc->chans[chanoffset + 0]->chan.sigcap = DAHDI_SIG_CLEAR;
 		wc->chans[chanoffset + 1]->chan.sigcap = DAHDI_SIG_CLEAR;
 		wc->chans[chanoffset + 2]->chan.sigcap = DAHDI_SIG_HARDHDLC;
 	}
-#ifdef VPM_SUPPORT
-	if (vpmsupport)
-		s->span.echocan_create = echocan_create;
-#endif	
 
 	init_waitqueue_head(&s->span.maintq);
 	wc->spans[spanno] = s;

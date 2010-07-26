@@ -750,6 +750,83 @@ struct dahdi_count {
 #define DAHDI_FLAG_MTP2		DAHDI_FLAG(MTP2)
 #define DAHDI_FLAG_HDLC56	DAHDI_FLAG(HDLC56)
 
+struct dahdi_span_ops {
+	/*   ==== Span Callback Operations ====   */
+	/*! Req: Set the requested chunk size.  This is the unit in which you must
+	   report results for conferencing, etc */
+	int (*setchunksize)(struct dahdi_span *span, int chunksize);
+
+	/*! Opt: Configure the span (if appropriate) */
+	int (*spanconfig)(struct dahdi_span *span, struct dahdi_lineconfig *lc);
+	
+	/*! Opt: Start the span */
+	int (*startup)(struct dahdi_span *span);
+	
+	/*! Opt: Shutdown the span */
+	int (*shutdown)(struct dahdi_span *span);
+	
+	/*! Opt: Enable maintenance modes */
+	int (*maint)(struct dahdi_span *span, int mode);
+
+#ifdef	DAHDI_SYNC_TICK
+	/*! Opt: send sync to spans */
+	int (*sync_tick)(struct dahdi_span *span, int is_master);
+#endif
+	/* ====  Channel Callback Operations ==== */
+	/*! Opt: Set signalling type (if appropriate) */
+	int (*chanconfig)(struct dahdi_chan *chan, int sigtype);
+
+	/*! Opt: Prepare a channel for I/O */
+	int (*open)(struct dahdi_chan *chan);
+
+	/*! Opt: Close channel for I/O */
+	int (*close)(struct dahdi_chan *chan);
+	
+	/*! Opt: IOCTL */
+	int (*ioctl)(struct dahdi_chan *chan, unsigned int cmd, unsigned long data);
+	
+	/* Okay, now we get to the signalling.  You have several options: */
+
+	/* Option 1: If you're a T1 like interface, you can just provide a
+	   rbsbits function and we'll assert robbed bits for you.  Be sure to 
+	   set the DAHDI_FLAG_RBS in this case.  */
+
+	/*! Opt: If the span uses A/B bits, set them here */
+	int (*rbsbits)(struct dahdi_chan *chan, int bits);
+	
+	/*! Option 2: If you don't know about sig bits, but do have their
+	   equivalents (i.e. you can disconnect battery, detect off hook,
+	   generate ring, etc directly) then you can just specify a
+	   sethook function, and we'll call you with appropriate hook states
+	   to set.  Still set the DAHDI_FLAG_RBS in this case as well */
+	int (*hooksig)(struct dahdi_chan *chan, enum dahdi_txsig hookstate);
+	
+	/*! Option 3: If you can't use sig bits, you can write a function
+	   which handles the individual hook states  */
+	int (*sethook)(struct dahdi_chan *chan, int hookstate);
+	
+	/*! Opt: Used to tell an onboard HDLC controller that there is data ready to transmit */
+	void (*hdlc_hard_xmit)(struct dahdi_chan *chan);
+
+	/*! If the watchdog detects no received data, it will call the
+	   watchdog routine */
+	int (*watchdog)(struct dahdi_span *span, int cause);
+
+#ifdef	DAHDI_AUDIO_NOTIFY
+	/*! Opt: audio is used, don't optimize out */
+	int (*audio_notify)(struct dahdi_chan *chan, int yes);
+#endif
+
+	/*! Opt: Dacs the contents of chan2 into chan1 if possible */
+	int (*dacs)(struct dahdi_chan *chan1, struct dahdi_chan *chan2);
+
+	/*! Opt: Provide echo cancellation on a channel */
+	int (*echocan_create)(struct dahdi_chan *chan,
+			      struct dahdi_echocanparams *ecp,
+			      struct dahdi_echocanparam *p,
+			      struct dahdi_echocan_state **ec);
+};
+
 struct dahdi_span {
 	spinlock_t lock;
 	struct module *owner;		/*!< Which module is exporting this span. */
@@ -775,90 +852,19 @@ struct dahdi_span {
 	int maintstat;			/*!< Maintenance state */
 	wait_queue_head_t maintq;	/*!< Maintenance queue */
 	int mainttimer;			/*!< Maintenance timer */
-	
+
 	int irqmisses;			/*!< Interrupt misses */
+	int timingslips;		/*!< Clock slips */
 
-	int timingslips;			/*!< Clock slips */
+	struct dahdi_chan **chans;	/*!< Member channel structures */
 
-	struct dahdi_chan **chans;		/*!< Member channel structures */
-
-	/*   ==== Span Callback Operations ====   */
-	/*! Req: Set the requested chunk size.  This is the unit in which you must
-	   report results for conferencing, etc */
-	int (*setchunksize)(struct dahdi_span *span, int chunksize);
-
-	/*! Opt: Configure the span (if appropriate) */
-	int (*spanconfig)(struct dahdi_span *span, struct dahdi_lineconfig *lc);
-	
-	/*! Opt: Start the span */
-	int (*startup)(struct dahdi_span *span);
-	
-	/*! Opt: Shutdown the span */
-	int (*shutdown)(struct dahdi_span *span);
-	
-	/*! Opt: Enable maintenance modes */
-	int (*maint)(struct dahdi_span *span, int mode);
-
-#ifdef	DAHDI_SYNC_TICK
-	/*! Opt: send sync to spans */
-	int (*sync_tick)(struct dahdi_span *span, int is_master);
-#endif
-
-	/* ====  Channel Callback Operations ==== */
-	/*! Opt: Set signalling type (if appropriate) */
-	int (*chanconfig)(struct dahdi_chan *chan, int sigtype);
-
-	/*! Opt: Prepare a channel for I/O */
-	int (*open)(struct dahdi_chan *chan);
-
-	/*! Opt: Close channel for I/O */
-	int (*close)(struct dahdi_chan *chan);
-	
-	/*! Opt: IOCTL */
-	int (*ioctl)(struct dahdi_chan *chan, unsigned int cmd, unsigned long data);
-	
-	/*! Opt: Provide echo cancellation on a channel */
-	int (*echocan_create)(struct dahdi_chan *chan, struct dahdi_echocanparams *ecp,
-			      struct dahdi_echocanparam *p, struct dahdi_echocan_state **ec);
-
-	/* Okay, now we get to the signalling.  You have several options: */
-
-	/* Option 1: If you're a T1 like interface, you can just provide a
-	   rbsbits function and we'll assert robbed bits for you.  Be sure to 
-	   set the DAHDI_FLAG_RBS in this case.  */
-
-	/*! Opt: If the span uses A/B bits, set them here */
-	int (*rbsbits)(struct dahdi_chan *chan, int bits);
-	
-	/*! Option 2: If you don't know about sig bits, but do have their
-	   equivalents (i.e. you can disconnect battery, detect off hook,
-	   generate ring, etc directly) then you can just specify a
-	   sethook function, and we'll call you with appropriate hook states
-	   to set.  Still set the DAHDI_FLAG_RBS in this case as well */
-	int (*hooksig)(struct dahdi_chan *chan, enum dahdi_txsig hookstate);
-	
-	/*! Option 3: If you can't use sig bits, you can write a function
-	   which handles the individual hook states  */
-	int (*sethook)(struct dahdi_chan *chan, int hookstate);
-	
-	/*! Opt: Dacs the contents of chan2 into chan1 if possible */
-	int (*dacs)(struct dahdi_chan *chan1, struct dahdi_chan *chan2);
-
-	/*! Opt: Used to tell an onboard HDLC controller that there is data ready to transmit */
-	void (*hdlc_hard_xmit)(struct dahdi_chan *chan);
-
-#ifdef	DAHDI_AUDIO_NOTIFY
-	/*! Opt: audio is used, don't optimize out */
-	int (*audio_notify)(struct dahdi_chan *chan, int yes);
-#endif
+	const struct dahdi_span_ops *ops;	/*!< span callbacks. */
 
 	/* Used by DAHDI only -- no user servicable parts inside */
 	int spanno;			/*!< Span number for DAHDI */
 	int offset;			/*!< Offset within a given card */
-	int lastalarms;		/*!< Previous alarms */
-	/*! If the watchdog detects no received data, it will call the
-	   watchdog routine */
-	int (*watchdog)(struct dahdi_span *span, int cause);
+	int lastalarms;			/*!< Previous alarms */
+
 #ifdef CONFIG_DAHDI_WATCHDOG
 	int watchcounter;
 	int watchstate;

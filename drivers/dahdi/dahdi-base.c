@@ -508,6 +508,33 @@ static inline void rotate_sums(void)
 	memset(conf_sums_next, 0, maxconfs * sizeof(sumtype));
 }
 
+static int dahdi_chan_dacs(struct dahdi_chan *chan1, struct dahdi_chan *chan2)
+{
+	if (chan2) {
+		if (chan1->span && chan2->span &&
+		    (chan1->span->ops->dacs == chan2->span->ops->dacs))
+			return chan1->span->ops->dacs(chan1, chan2);
+		else
+			return -ENOSYS;
+	} else {
+		if (chan1->span && chan1->span->ops->dacs)
+			return chan1->span->ops->dacs(chan1, NULL);
+		else
+			return -ENOSYS;
+	}
+}
+
+static int dahdi_chan_echocan_create(struct dahdi_chan *chan,
+				     struct dahdi_echocanparams *ecp,
+				     struct dahdi_echocanparam *p,
+				     struct dahdi_echocan_state **ec)
+{
+	if (chan->span && chan->span->ops->echocan_create)
+		return chan->span->ops->echocan_create(chan, ecp, p, ec);
+	else
+		return -ENODEV;
+}
+
 /*!
  * \return quiescent (idle) signalling states, for the various signalling types
  */
@@ -532,7 +559,7 @@ static int dahdi_q_sig(struct dahdi_chan *chan)
 		return -1;
 
 	/* if RBS does not apply, return error */
-	if (!(chan->span->flags & DAHDI_FLAG_RBS) || !chan->span->rbsbits)
+	if (!(chan->span->flags & DAHDI_FLAG_RBS) || !chan->span->ops->rbsbits)
 		return -1;
 
 	if (chan->sig == DAHDI_SIG_CAS)
@@ -1313,8 +1340,8 @@ static void close_channel(struct dahdi_chan *chan)
 	memset(chan->conflast1, 0, sizeof(chan->conflast1));
 	memset(chan->conflast2, 0, sizeof(chan->conflast2));
 
-	if (chan->span && chan->span->dacs && oldconf)
-		chan->span->dacs(chan, NULL);
+	if (chan->span && oldconf)
+		dahdi_chan_dacs(chan, NULL);
 
 	if (ec_state) {
 		ec_state->ops->echocan_free(chan, ec_state);
@@ -1978,8 +2005,8 @@ static void dahdi_chan_unreg(struct dahdi_chan *chan)
 				/* release conference resource if any */
 				if (chans[x]->confna) {
 					dahdi_check_conf(chans[x]->confna);
-					if (chans[x]->span && chans[x]->span->dacs)
-						chans[x]->span->dacs(chans[x], NULL);
+					if (chans[x]->span)
+						dahdi_chan_dacs(chans[x], NULL);
 				}
 				chans[x]->confna = 0;
 				chans[x]->_confn = 0;
@@ -2251,8 +2278,8 @@ static ssize_t dahdi_chan_write(struct file *file, const char __user *usrbuf, si
 
 		spin_unlock_irqrestore(&chan->lock, flags);
 
-		if (chan->flags & DAHDI_FLAG_NOSTDTXRX && chan->span->hdlc_hard_xmit)
-			chan->span->hdlc_hard_xmit(chan);
+		if (chan->flags & DAHDI_FLAG_NOSTDTXRX && chan->span->ops->hdlc_hard_xmit)
+			chan->span->ops->hdlc_hard_xmit(chan);
 	}
 	return amnt;
 }
@@ -2373,7 +2400,7 @@ static void dahdi_rbs_sethook(struct dahdi_chan *chan, int txsig, int txstate,
 		module_printk(KERN_NOTICE, "dahdi_rbs: Tried to set RBS hook state %d (> 3) on  channel %s\n", txsig, chan->name);
 		return;
 	}
-	if (!chan->span->rbsbits && !chan->span->hooksig) {
+	if (!chan->span->ops->rbsbits && !chan->span->ops->hooksig) {
 		module_printk(KERN_NOTICE, "dahdi_rbs: Tried to set RBS hook state %d on channel %s while span %s lacks rbsbits or hooksig function\n",
 			txsig, chan->name, chan->span->name);
 		return;
@@ -2397,10 +2424,10 @@ static void dahdi_rbs_sethook(struct dahdi_chan *chan, int txsig, int txstate,
 		chan->otimer = timeout * DAHDI_CHUNKSIZE;			/* Otimer is timer in samples */
 		return;
 	}
-	if (chan->span->hooksig) {
+	if (chan->span->ops->hooksig) {
 		if (chan->txhooksig != txsig) {
 			chan->txhooksig = txsig;
-			chan->span->hooksig(chan, txsig);
+			chan->span->ops->hooksig(chan, txsig);
 		}
 		chan->otimer = timeout * DAHDI_CHUNKSIZE;			/* Otimer is timer in samples */
 		return;
@@ -2412,7 +2439,7 @@ static void dahdi_rbs_sethook(struct dahdi_chan *chan, int txsig, int txstate,
 #endif
 				chan->txhooksig = txsig;
 				chan->txsig = outs[x].bits[txsig];
-				chan->span->rbsbits(chan, chan->txsig);
+				chan->span->ops->rbsbits(chan, chan->txsig);
 				chan->otimer = timeout * DAHDI_CHUNKSIZE;	/* Otimer is timer in samples */
 				return;
 			}
@@ -2426,9 +2453,9 @@ static int dahdi_cas_setbits(struct dahdi_chan *chan, int bits)
 	/* if no span, return as error */
 	if (!chan->span)
 		return -1;
-	if (chan->span->rbsbits) {
+	if (chan->span->ops->rbsbits) {
 		chan->txsig = bits;
-		chan->span->rbsbits(chan, bits);
+		chan->span->ops->rbsbits(chan, bits);
 	} else {
 		module_printk(KERN_NOTICE, "Huh?  CAS setbits, but no RBS bits function\n");
 	}
@@ -2467,10 +2494,10 @@ static int dahdi_hangup(struct dahdi_chan *chan)
 			dahdi_rbs_sethook(chan, DAHDI_TXSIG_ONHOOK, DAHDI_TXSTATE_ONHOOK, 0);
 	} else {
 		/* Let the driver hang up the line if it wants to  */
-		if (chan->span->sethook) {
+		if (chan->span->ops->sethook) {
 			if (chan->txhooksig != DAHDI_ONHOOK) {
 				chan->txhooksig = DAHDI_ONHOOK;
-				res = chan->span->sethook(chan, DAHDI_ONHOOK);
+				res = chan->span->ops->sethook(chan, DAHDI_ONHOOK);
 			} else
 				res = 0;
 		}
@@ -2581,8 +2608,7 @@ static int initialize_channel(struct dahdi_chan *chan)
 	if ((chan->sig & __DAHDI_SIG_DACS) != __DAHDI_SIG_DACS) {
 		chan->confna = 0;
 		chan->confmode = 0;
-		if (chan->span && chan->span->dacs)
-			chan->span->dacs(chan, NULL);
+		dahdi_chan_dacs(chan, NULL);
 	}
 	chan->_confn = 0;
 	memset(chan->conflast, 0, sizeof(chan->conflast));
@@ -2710,8 +2736,8 @@ static int dahdi_specchan_open(struct file *file, int unit)
 			if (chan->span) {
 				if (!try_module_get(chan->span->owner))
 					res = -ENXIO;
-				else if (chan->span->open)
-					res = chan->span->open(chan);
+				else if (chan->span->ops->open)
+					res = chan->span->ops->open(chan);
 			}
 			if (!res) {
 				chan->file = file;
@@ -2743,11 +2769,9 @@ static int dahdi_specchan_release(struct file *file, int unit)
 		spin_unlock_irqrestore(&chan->lock, flags);
 		close_channel(chan);
 		if (chan->span) {
-			struct module *owner = chan->span->owner;
-
-			if (chan->span->close)
-				res = chan->span->close(chan);
-			module_put(owner);
+			if (chan->span->ops->close)
+				res = chan->span->ops->close(chan);
+			module_put(chan->span->owner);
 		}
 		/* The channel might be destroyed by low-level driver span->close() */
 		if (chans[unit])
@@ -3728,7 +3752,7 @@ static int dahdi_common_ioctl(struct file *file, unsigned int cmd, unsigned long
 			stack.param.rxisoffhook = 1;
 		else
 			stack.param.rxisoffhook = 0;
-		if (chan->span && chan->span->rbsbits && !(chan->sig & DAHDI_SIG_CLEAR)) {
+		if (chan->span && chan->span->ops->rbsbits && !(chan->sig & DAHDI_SIG_CLEAR)) {
 			stack.param.rxbits = chan->rxsig;
 			stack.param.txbits = chan->txsig;
 			stack.param.idlebits = chan->idlebits;
@@ -3737,7 +3761,7 @@ static int dahdi_common_ioctl(struct file *file, unsigned int cmd, unsigned long
 			stack.param.txbits = -1;
 			stack.param.idlebits = 0;
 		}
-		if (chan->span && (chan->span->rbsbits || chan->span->hooksig) &&
+		if (chan->span && (chan->span->ops->rbsbits || chan->span->ops->hooksig) &&
 			!(chan->sig & DAHDI_SIG_CLEAR)) {
 			stack.param.rxhooksig = chan->rxhooksig;
 			stack.param.txhooksig = chan->txhooksig;
@@ -4088,13 +4112,13 @@ static int dahdi_ctl_ioctl(struct file *file, unsigned int cmd, unsigned long da
 		if ((lc.lineconfig & 0x1ff0 & spans[lc.span]->linecompat) !=
 		    (lc.lineconfig & 0x1ff0))
 			return -EINVAL;
-		if (spans[lc.span]->spanconfig) {
+		if (spans[lc.span]->ops->spanconfig) {
 			spans[lc.span]->lineconfig = lc.lineconfig;
 			spans[lc.span]->lbo = lc.lbo;
 			spans[lc.span]->txlevel = lc.lbo;
 			spans[lc.span]->rxlevel = 0;
 
-			return spans[lc.span]->spanconfig(spans[lc.span], &lc);
+			return spans[lc.span]->ops->spanconfig(spans[lc.span], &lc);
 		}
 		return 0;
 	}
@@ -4103,8 +4127,8 @@ static int dahdi_ctl_ioctl(struct file *file, unsigned int cmd, unsigned long da
 		if (spans[j]->flags & DAHDI_FLAG_RUNNING)
 			return 0;
 
-		if (spans[j]->startup)
-			res = spans[j]->startup(spans[j]);
+		if (spans[j]->ops->startup)
+			res = spans[j]->ops->startup(spans[j]);
 
 		if (!res) {
 			/* Mark as running and hangup any channels */
@@ -4128,8 +4152,8 @@ static int dahdi_ctl_ioctl(struct file *file, unsigned int cmd, unsigned long da
 		return 0;
 	case DAHDI_SHUTDOWN:
 		CHECK_VALID_SPAN(j);
-		if (spans[j]->shutdown)
-			res =  spans[j]->shutdown(spans[j]);
+		if (spans[j]->ops->shutdown)
+			res =  spans[j]->ops->shutdown(spans[j]);
 		spans[j]->flags &= ~DAHDI_FLAG_RUNNING;
 		return 0;
 	case DAHDI_ATTACH_ECHOCAN:
@@ -4259,14 +4283,9 @@ static int dahdi_ctl_ioctl(struct file *file, unsigned int cmd, unsigned long da
 				/* Setup conference properly */
 				chans[ch.chan]->confmode = DAHDI_CONF_DIGITALMON;
 				chans[ch.chan]->confna = ch.idlebits;
-				if (chans[ch.chan]->span &&
-				    chans[ch.chan]->span->dacs &&
-				    chans[ch.idlebits] &&
-				    chans[ch.chan]->span &&
-				    (chans[ch.chan]->span->dacs == chans[ch.idlebits]->span->dacs))
-					chans[ch.chan]->span->dacs(chans[ch.chan], chans[ch.idlebits]);
-			} else if (chans[ch.chan]->span && chans[ch.chan]->span->dacs) {
-				chans[ch.chan]->span->dacs(chans[ch.chan], NULL);
+				dahdi_chan_dacs(chans[ch.chan], chans[ch.idlebits]);
+			} else {
+				dahdi_chan_dacs(chans[ch.chan], NULL);
 			}
 			chans[ch.chan]->master = newmaster;
 			/* Note new slave if we are not our own master */
@@ -4287,8 +4306,8 @@ static int dahdi_ctl_ioctl(struct file *file, unsigned int cmd, unsigned long da
 				chans[ch.chan]->flags &= ~DAHDI_FLAG_MTP2;
 		}
 
-		if (!res && chans[ch.chan]->span->chanconfig) {
-			res = chans[ch.chan]->span->chanconfig(chans[ch.chan],
+		if (!res && chans[ch.chan]->span->ops->chanconfig) {
+			res = chans[ch.chan]->span->ops->chanconfig(chans[ch.chan],
 							       ch.sigtype);
 		}
 
@@ -4492,7 +4511,7 @@ static int dahdi_ctl_ioctl(struct file *file, unsigned int cmd, unsigned long da
 		/* must be valid span number */
 		if ((maint.spanno < 1) || (maint.spanno > DAHDI_MAX_SPANS) || (!spans[maint.spanno]))
 			return -EINVAL;
-		if (!spans[maint.spanno]->maint)
+		if (!spans[maint.spanno]->ops->maint)
 			return -ENOSYS;
 		spin_lock_irqsave(&spans[maint.spanno]->lock, flags);
 		  /* save current maint state */
@@ -4507,7 +4526,7 @@ static int dahdi_ctl_ioctl(struct file *file, unsigned int cmd, unsigned long da
 			/* if same, ignore it */
 			if (i == maint.command)
 				break;
-			rv = spans[maint.spanno]->maint(spans[maint.spanno], maint.command);
+			rv = spans[maint.spanno]->ops->maint(spans[maint.spanno], maint.command);
 			spin_unlock_irqrestore(&spans[maint.spanno]->lock, flags);
 			if (rv)
 				return rv;
@@ -4516,7 +4535,7 @@ static int dahdi_ctl_ioctl(struct file *file, unsigned int cmd, unsigned long da
 		case DAHDI_MAINT_LOOPUP:
 		case DAHDI_MAINT_LOOPDOWN:
 			spans[maint.spanno]->mainttimer = DAHDI_LOOPCODE_TIME * DAHDI_CHUNKSIZE;
-			rv = spans[maint.spanno]->maint(spans[maint.spanno], maint.command);
+			rv = spans[maint.spanno]->ops->maint(spans[maint.spanno], maint.command);
 			spin_unlock_irqrestore(&spans[maint.spanno]->lock, flags);
 			if (rv)
 				return rv;
@@ -4539,8 +4558,8 @@ static int dahdi_ctl_ioctl(struct file *file, unsigned int cmd, unsigned long da
 			if(!i)
 				spans[maint.spanno]->maintstat = 0;
 
-			rv = spans[maint.spanno]->maint(spans[maint.spanno],
-							maint.command);
+			rv = spans[maint.spanno]->ops->maint(spans[maint.spanno],
+							     maint.command);
 			spin_unlock_irqrestore(&spans[maint.spanno]->lock,
 					       flags);
 			if (rv)
@@ -4928,17 +4947,15 @@ dahdi_chanandpseudo_ioctl(struct file *file, unsigned int cmd,
 		chans[i]->_confn = 0;		     /* Clear confn */
 		dahdi_check_conf(j);
 		dahdi_check_conf(stack.conf.confno);
-		if (chans[i]->span && chans[i]->span->dacs) {
+		if (chans[i]->span && chans[i]->span->ops->dacs) {
 			if (((stack.conf.confmode & DAHDI_CONF_MODE_MASK) == DAHDI_CONF_DIGITALMON) &&
-			    chans[stack.conf.confno]->span &&
-			    chans[stack.conf.confno]->span->dacs == chans[i]->span->dacs &&
 			    chans[i]->txgain == defgain &&
 			    chans[i]->rxgain == defgain &&
 			    chans[stack.conf.confno]->txgain == defgain &&
 			    chans[stack.conf.confno]->rxgain == defgain) {
-				chans[i]->span->dacs(chans[i], chans[stack.conf.confno]);
+				dahdi_chan_dacs(chans[i], chans[stack.conf.confno]);
 			} else {
-				chans[i]->span->dacs(chans[i], NULL);
+				dahdi_chan_dacs(chans[i], NULL);
 			}
 		}
 		/* if we are going onto a conf */
@@ -5137,8 +5154,8 @@ dahdi_chanandpseudo_ioctl(struct file *file, unsigned int cmd,
 		rv = dahdi_common_ioctl(file, cmd, data, unit);
 		/* if no span, just return with value */
 		if (!chan->span) return rv;
-		if ((rv == -ENOTTY) && chan->span->ioctl)
-			rv = chan->span->ioctl(chan, cmd, data);
+		if ((rv == -ENOTTY) && chan->span->ops->ioctl)
+			rv = chan->span->ops->ioctl(chan, cmd, data);
 		return rv;
 
 	}
@@ -5238,13 +5255,11 @@ ioctl_echocancel(struct dahdi_chan *chan, struct dahdi_echocanparams *ecp,
 		ecp->tap_length = deftaps;
 	}
 
-	ret = -ENODEV;
 	ec_current = NULL;
 
 	/* attempt to use the span's echo canceler; fall back to built-in
 	   if it fails (but not if an error occurs) */
-	if (chan->span && chan->span->echocan_create)
-		ret = chan->span->echocan_create(chan, ecp, params, &ec);
+	ret = dahdi_chan_echocan_create(chan, ecp, params, &ec);
 
 	if ((ret == -ENODEV) && chan->ec_factory) {
 		/* try to get another reference to the module providing
@@ -5399,8 +5414,7 @@ static int dahdi_chan_ioctl(struct file *file, unsigned int cmd, unsigned long d
 			  /* initialize conference variables */
 			chan->_confn = 0;
 			chan->confna = 0;
-			if (chan->span && chan->span->dacs)
-				chan->span->dacs(chan, NULL);
+			dahdi_chan_dacs(chan, NULL);
 			chan->confmode = 0;
 			chan->confmute = 0;
 			memset(chan->conflast, 0, sizeof(chan->conflast));
@@ -5432,8 +5446,8 @@ static int dahdi_chan_ioctl(struct file *file, unsigned int cmd, unsigned long d
 			if (oldconf) dahdi_check_conf(oldconf);
 		}
 #ifdef	DAHDI_AUDIO_NOTIFY
-		if (chan->span->audio_notify)
-			chan->span->audio_notify(chan, j);
+		if (chan->span->ops->audio_notify)
+			chan->span->ops->audio_notify(chan, j);
 #endif
 		break;
 	case DAHDI_HDLCPPP:
@@ -5704,10 +5718,10 @@ static int dahdi_chan_ioctl(struct file *file, unsigned int cmd, unsigned long d
 			default:
 				return -EINVAL;
 			}
-		} else if (chan->span->sethook) {
+		} else if (chan->span->ops->sethook) {
 			if (chan->txhooksig != j) {
 				chan->txhooksig = j;
-				chan->span->sethook(chan, j);
+				chan->span->ops->sethook(chan, j);
 			}
 		} else
 			return -ENOSYS;
@@ -5975,8 +5989,8 @@ int dahdi_unregister(struct dahdi_span *span)
 	}
 	/* Shutdown the span if it's running */
 	if (span->flags & DAHDI_FLAG_RUNNING)
-		if (span->shutdown)
-			span->shutdown(span);
+		if (span->ops->shutdown)
+			span->ops->shutdown(span);
 
 	if (spans[span->spanno] != span) {
 		module_printk(KERN_ERR, "Span %s has spanno %d which is something else\n", span->name, span->spanno);
@@ -8184,7 +8198,7 @@ int dahdi_transmit(struct dahdi_span *span)
 				    	/* Just set bits for our destination */
 					if (span->chans[x]->txsig != chans[span->chans[x]->confna]->rxsig) {
 						span->chans[x]->txsig = chans[span->chans[x]->confna]->rxsig;
-						span->rbsbits(span->chans[x], chans[span->chans[x]->confna]->rxsig);
+						span->ops->rbsbits(span->chans[x], chans[span->chans[x]->confna]->rxsig);
 					}
 				}
 			}
@@ -8196,8 +8210,8 @@ int dahdi_transmit(struct dahdi_span *span)
 		span->mainttimer -= DAHDI_CHUNKSIZE;
 		if (span->mainttimer <= 0) {
 			span->mainttimer = 0;
-			if (span->maint)
-				span->maint(span, DAHDI_MAINT_LOOPSTOP);
+			if (span->ops->maint)
+				span->ops->maint(span, DAHDI_MAINT_LOOPSTOP);
 			span->maintstat = 0;
 			wake_up_interruptible(&span->maintq);
 		}
@@ -8297,8 +8311,8 @@ static void process_masterspan(void)
 #ifdef	DAHDI_SYNC_TICK
 	for (x = 0; x < maxspans; x++) {
 		struct dahdi_span *const s = spans[x];
-		if (s && s->sync_tick)
-			s->sync_tick(s, s == master);
+		if (s && s->ops->sync_tick)
+			s->ops->sync_tick(s, s == master);
 	}
 #endif
 	read_unlock(&chan_lock);

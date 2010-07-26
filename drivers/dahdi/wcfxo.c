@@ -638,6 +638,13 @@ static int wcfxo_hooksig(struct dahdi_chan *chan, enum dahdi_txsig txsig)
 	return 0;
 }
 
+static const struct dahdi_span_ops wcfxo_span_ops = {
+	.hooksig = wcfxo_hooksig,
+	.open = wcfxo_open,
+	.close = wcfxo_close,
+	.watchdog = wcfxo_watchdog,
+};
+
 static int wcfxo_initialize(struct wcfxo *wc)
 {
 	/* DAHDI stuff */
@@ -653,19 +660,16 @@ static int wcfxo_initialize(struct wcfxo *wc)
 	wc->chan->chanpos = 1;
 	wc->span.chans = &wc->chan;
 	wc->span.channels = 1;
-	wc->span.hooksig = wcfxo_hooksig;
 	wc->span.irq = wc->dev->irq;
-	wc->span.open = wcfxo_open;
-	wc->span.close = wcfxo_close;
 	wc->span.flags = DAHDI_FLAG_RBS;
 	wc->span.deflaw = DAHDI_LAW_MULAW;
-	wc->span.watchdog = wcfxo_watchdog;
 #ifdef ENABLE_TASKLETS
 	tasklet_init(&wc->wcfxo_tlet, wcfxo_tasklet, (unsigned long)wc);
 #endif
 	init_waitqueue_head(&wc->span.maintq);
 
 	wc->chan->pvt = wc;
+	wc->span.ops = &wcfxo_span_ops;
 	if (dahdi_register(&wc->span, 0)) {
 		printk(KERN_NOTICE "Unable to register span with DAHDI\n");
 		return -1;

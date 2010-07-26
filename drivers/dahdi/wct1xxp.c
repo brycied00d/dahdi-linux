@@ -745,6 +745,19 @@ static int t1xxp_spanconfig(struct dahdi_span *span, struct dahdi_lineconfig *lc
 
 	return 0;
 }
+
+static const struct dahdi_span_ops t1xxp_span_ops = {
+	.spanconfig = t1xxp_spanconfig,
+	.chanconfig = t1xxp_chanconfig,
+	.startup = t1xxp_startup,
+	.shutdown = t1xxp_shutdown,
+	.rbsbits = t1xxp_rbsbits,
+	.maint = t1xxp_maint,
+	.open = t1xxp_open,
+	.close = t1xxp_close,
+	.ioctl = t1xxp_ioctl,
+};
+
 static int t1xxp_software_init(struct t1xxp *wc)
 {
 	int x;
@@ -765,18 +778,9 @@ static int t1xxp_software_init(struct t1xxp *wc)
 	snprintf(wc->span.location, sizeof(wc->span.location) - 1,
 		 "PCI Bus %02d Slot %02d", wc->dev->bus->number, PCI_SLOT(wc->dev->devfn) + 1);
 	wc->span.owner = THIS_MODULE;
-	wc->span.spanconfig = t1xxp_spanconfig;
-	wc->span.chanconfig = t1xxp_chanconfig;
 	wc->span.irq = wc->dev->irq;
-	wc->span.startup = t1xxp_startup;
-	wc->span.shutdown = t1xxp_shutdown;
-	wc->span.rbsbits = t1xxp_rbsbits;
-	wc->span.maint = t1xxp_maint;
-	wc->span.open = t1xxp_open;
-	wc->span.close = t1xxp_close;
 	wc->span.chans = wc->chans;
 	wc->span.flags = DAHDI_FLAG_RBS;
-	wc->span.ioctl = t1xxp_ioctl;
 	if (wc->ise1) {
 		wc->span.channels = 31;
 		wc->span.deflaw = DAHDI_LAW_ALAW;
@@ -798,6 +802,7 @@ static int t1xxp_software_init(struct t1xxp *wc)
 		wc->chans[x]->pvt = wc;
 		wc->chans[x]->chanpos = x + 1;
 	}
+	wc->span.ops = &t1xxp_span_ops;
 	if (dahdi_register(&wc->span, 0)) {
 		printk(KERN_NOTICE "Unable to register span with DAHDI\n");
 		return -1;

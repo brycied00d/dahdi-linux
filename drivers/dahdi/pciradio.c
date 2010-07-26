@@ -1458,6 +1458,14 @@ static int pciradio_hooksig(struct dahdi_chan *chan, enum dahdi_txsig txsig)
 	return 0;
 }
 
+static const struct dahdi_span_ops pciradio_span_ops = {
+	.hooksig = pciradio_hooksig,
+	.open = pciradio_open,
+	.close = pciradio_close,
+	.ioctl = pciradio_ioctl,
+	.watchdog = pciradio_watchdog,
+};
+
 static int pciradio_initialize(struct pciradio *rad)
 {
 	int x;
@@ -1478,12 +1486,8 @@ static int pciradio_initialize(struct pciradio *rad)
 	}
 	rad->span.chans = &rad->chans;
 	rad->span.channels = rad->nchans;
-	rad->span.hooksig = pciradio_hooksig;
-	rad->span.open = pciradio_open;
-	rad->span.close = pciradio_close;
 	rad->span.flags = DAHDI_FLAG_RBS;
-	rad->span.ioctl = pciradio_ioctl;
-	rad->span.watchdog = pciradio_watchdog;
+	rad->span.ops = &pciradio_span_ops;
 	init_waitqueue_head(&rad->span.maintq);
 
 	if (dahdi_register(&rad->span, 0)) {
