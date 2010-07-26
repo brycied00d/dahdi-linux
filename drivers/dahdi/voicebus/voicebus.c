@@ -243,6 +243,7 @@ vb_initialize_rx_descriptors(struct voicebus *vb)
 int
 voicebus_set_minlatency(struct voicebus *vb, unsigned int ms)
 {
+	unsigned long flags;
 	/*
 	 * One millisecond of latency means that we have 3 buffers pending,
 	 * since two are always going to be waiting in the TX fifo on the
@@ -257,9 +258,9 @@ voicebus_set_minlatency(struct voicebus *vb, unsigned int ms)
 		dev_warn(&vb->pdev->dev, MESSAGE, ms, VOICEBUS_DEFAULT_LATENCY);
 		return -EINVAL;
 	}
-	spin_lock_bh(&vb->lock);
+	spin_lock_irqsave(&vb->lock, flags);
 	vb->min_tx_buffer_count = ms;
-	spin_unlock_bh(&vb->lock);
+	spin_unlock_irqrestore(&vb->lock, flags);
 	return 0;
 }
 EXPORT_SYMBOL(voicebus_set_minlatency);
@@ -269,9 +270,10 @@ int
 voicebus_current_latency(struct voicebus *vb)
 {
 	int latency;
-	spin_lock_bh(&vb->lock);
+	unsigned long flags;
+	spin_lock_irqsave(&vb->lock, flags);
 	latency = vb->min_tx_buffer_count;
-	spin_unlock_bh(&vb->lock);
+	spin_unlock_irqrestore(&vb->lock, flags);
 	return latency;
 }
 EXPORT_SYMBOL(voicebus_current_latency);
@@ -295,10 +297,11 @@ __vb_getctl(struct voicebus *vb, u32 addr)
 static inline u32
 vb_getctl(struct voicebus *vb, u32 addr)
 {
+	unsigned long flags;
 	u32 val;
-	spin_lock_bh(&vb->lock);
+	spin_lock_irqsave(&vb->lock, flags);
 	val = __vb_getctl(vb, addr);
-	spin_unlock_bh(&vb->lock);
+	spin_unlock_irqrestore(&vb->lock, flags);
 	return val;
 }
 
@@ -322,9 +325,10 @@ static int
 vb_is_stopped(struct voicebus *vb)
 {
 	int ret;
-	spin_lock_bh(&vb->lock);
+	unsigned long flags;
+	spin_lock_irqsave(&vb->lock, flags);
 	ret = __vb_is_stopped(vb);
-	spin_unlock_bh(&vb->lock);
+	spin_unlock_irqrestore(&vb->lock, flags);
 	return ret;
 }
 
@@ -442,9 +446,10 @@ __vb_setctl(struct voicebus *vb, u32 addr, u32 val)
 static inline void
 vb_setctl(struct voicebus *vb, u32 addr, u32 val)
 {
-	spin_lock_bh(&vb->lock);
+	unsigned long flags;
+	spin_lock_irqsave(&vb->lock, flags);
 	__vb_setctl(vb, addr, val);
-	spin_unlock_bh(&vb->lock);
+	spin_unlock_irqrestore(&vb->lock, flags);
 }
 
 static int
@@ -480,26 +485,28 @@ vb_setsdi(struct voicebus *vb, int addr, u16 val)
 {
 	u32 bits;
 	u32 sdi = 0;
+	unsigned long flags;
 	/* Send preamble */
 	bits = 0xffffffff;
-	spin_lock_bh(&vb->lock);
+	spin_lock_irqsave(&vb->lock, flags);
 	__vb_sdi_sendbits(vb, bits, 32, &sdi);
 	bits = (0x5 << 12) | (1 << 7) | (addr << 2) | 0x2;
 	__vb_sdi_sendbits(vb, bits, 16, &sdi);
 	__vb_sdi_sendbits(vb, val, 16, &sdi);
-	spin_unlock_bh(&vb->lock);
+	spin_unlock_irqrestore(&vb->lock, flags);
 }
 
 static void
 vb_enable_io_access(struct voicebus *vb)
 {
 	u32 reg;
+	unsigned long flags;
 	BUG_ON(!vb->pdev);
-	spin_lock_bh(&vb->lock);
+	spin_lock_irqsave(&vb->lock, flags);
 	pci_read_config_dword(vb->pdev, 0x0004, &reg);
 	reg |= 0x00000007;
 	pci_write_config_dword(vb->pdev, 0x0004, reg);
-	spin_unlock_bh(&vb->lock);
+	spin_unlock_irqrestore(&vb->lock, flags);
 }
 
 /*! \brief Resets the voicebus hardware interface. */
@@ -864,16 +871,18 @@ __vb_disable_interrupts(struct voicebus *vb)
 static void
 vb_disable_interrupts(struct voicebus *vb)
 {
-	spin_lock_bh(&vb->lock);
+	unsigned long flags;
+	spin_lock_irqsave(&vb->lock, flags);
 	__vb_disable_interrupts(vb);
-	spin_unlock_bh(&vb->lock);
+	spin_unlock_irqrestore(&vb->lock, flags);
 }
 
 static void start_packet_processing(struct voicebus *vb)
 {
 	u32 reg;
+	unsigned long flags;
 
-	spin_lock_bh(&vb->lock);
+	spin_lock_irqsave(&vb->lock, flags);
 	clear_bit(VOICEBUS_STOP, &vb->flags);
 	clear_bit(VOICEBUS_STOPPED, &vb->flags);
 #if defined(CONFIG_VOICEBUS_TIMER)
@@ -891,7 +900,7 @@ static void start_packet_processing(struct voicebus *vb)
 	__vb_rx_demand_poll(vb);
 	__vb_tx_demand_poll(vb);
 	__vb_getctl(vb, 0x0030);
-	spin_unlock_bh(&vb->lock);
+	spin_unlock_irqrestore(&vb->lock, flags);
 }
 
 static void vb_tasklet_boot(unsigned long data);

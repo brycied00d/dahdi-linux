@@ -152,10 +152,10 @@ static void resend_cmds(struct t1 *wc)
 	list_splice_init(&wc->active_cmds, &wc->pending_cmds);
 	spin_unlock_irqrestore(&wc->cmd_list_lock, flags);
 
-	spin_lock(&wc->reglock);
+	spin_lock_irqsave(&wc->reglock, flags);
 	if (wc->vpmadt032)
 		vpmadt032_resend(wc->vpmadt032);
-	spin_unlock(&wc->reglock);
+	spin_unlock_irqrestore(&wc->reglock, flags);
 }
 
 static void cmd_dequeue(struct t1 *wc, unsigned char *writechunk, int eframe, int slot)
@@ -572,6 +572,7 @@ static int t1_getreg(struct t1 *wc, int addr)
 {
 	struct command *cmd =  NULL;
 	unsigned long ret;
+	unsigned long flags;
 
 	might_sleep();
 
@@ -584,12 +585,12 @@ static int t1_getreg(struct t1 *wc, int addr)
 	submit_cmd(wc, cmd);
 	ret = wait_for_completion_timeout(&cmd->complete, HZ*10);
 	if (unlikely(!ret)) {
-		spin_lock_bh(&wc->cmd_list_lock);
+		spin_lock_irqsave(&wc->cmd_list_lock, flags);
 		if (!list_empty(&cmd->node)) {
 			/* Since we've removed this command from the list, we
 			 * can go ahead and free it right away. */
 			list_del_init(&cmd->node);
-			spin_unlock_bh(&wc->cmd_list_lock);
+			spin_unlock_irqrestore(&wc->cmd_list_lock, flags);
 			if (printk_ratelimit()) {
 				dev_warn(&wc->vb.pdev->dev,
 					 "Timeout in %s\n", __func__);
@@ -600,7 +601,7 @@ static int t1_getreg(struct t1 *wc, int addr)
 			/* Looks like this command was removed from the list by
 			 * someone else already. Let's wait for them to complete
 			 * it so that we don't free up the memory. */
-			spin_unlock_bh(&wc->cmd_list_lock);
+			spin_unlock_irqrestore(&wc->cmd_list_lock, flags);
 			ret = wait_for_completion_timeout(&cmd->complete, HZ*2);
 			WARN_ON(!ret);
 			ret = cmd->data;
@@ -630,6 +631,7 @@ static void t1_setleds(struct t1 *wc, int leds)
 static inline int t1_getpins(struct t1 *wc, int inisr)
 {
 	struct command *cmd;
+	unsigned long flags;
 	unsigned long ret;
 
 	cmd = get_free_cmd(wc);
@@ -641,9 +643,9 @@ static inline int t1_getpins(struct t1 *wc, int inisr)
 	submit_cmd(wc, cmd);
 	ret = wait_for_completion_timeout(&cmd->complete, HZ*2);
 	if (unlikely(!ret)) {
-		spin_lock_bh(&wc->cmd_list_lock);
+		spin_lock_irqsave(&wc->cmd_list_lock, flags);
 		list_del_init(&cmd->node);
-		spin_unlock_bh(&wc->cmd_list_lock);
+		spin_unlock_irqrestore(&wc->cmd_list_lock, flags);
 		if (printk_ratelimit()) {
 			dev_warn(&wc->vb.pdev->dev,
 				 "Timeout in %s\n", __func__);
@@ -1407,6 +1409,7 @@ setchanconfig_from_state(struct vpmadt032 *vpm, int channel,
 static int check_and_load_vpm(struct t1 *wc)
 {
 	int res;
+	unsigned long flags;
 	struct vpmadt032_options options;
 
 	if (!vpmsupport) {
@@ -1445,9 +1448,9 @@ static int check_and_load_vpm(struct t1 *wc)
 	if (-ENODEV == res) {
 		/* There does not appear to be a VPMADT032 installed. */
 		clear_bit(4, &wc->ctlreg);
-		spin_lock_bh(&wc->reglock);
+		spin_lock_irqsave(&wc->reglock, flags);
 		wc->vpmadt032 = NULL;
-		spin_unlock_bh(&wc->reglock);
+		spin_unlock_irqrestore(&wc->reglock, flags);
 		vpmadt032_free(wc->vpmadt032);
 		return res;
 
@@ -1856,6 +1859,7 @@ static inline void t1_transmitprep(struct t1 *wc, u8 *writechunk)
 	int x;
 	int y;
 	int chan;
+	unsigned long flags;
 
 	/* Calculate Transmission */
 	if (likely(test_bit(INITIALIZED, &wc->bit_flags))) {
@@ -1873,10 +1877,10 @@ static inline void t1_transmitprep(struct t1 *wc, u8 *writechunk)
 			cmd_dequeue(wc, writechunk, x, y);
 
 #ifdef VPM_SUPPORT
-		spin_lock(&wc->reglock);
+		spin_lock_irqsave(&wc->reglock, flags);
 		if (wc->vpmadt032)
 			cmd_dequeue_vpmadt032(wc, writechunk, x);
-		spin_unlock(&wc->reglock);
+		spin_unlock_irqrestore(&wc->reglock, flags);
 #endif
 
 		if (x < DAHDI_CHUNKSIZE - 1) {
@@ -1901,6 +1905,7 @@ static inline bool is_good_frame(const u8 *sframe)
 static inline void t1_receiveprep(struct t1 *wc, const u8* readchunk)
 {
 	int x,chan;
+	unsigned long flags;
 	unsigned char expected;
 
 	if (!is_good_frame(readchunk))
@@ -1928,10 +1933,10 @@ static inline void t1_receiveprep(struct t1 *wc, const u8* readchunk)
 		}
 		cmd_decipher(wc, readchunk);
 #ifdef VPM_SUPPORT
-		spin_lock(&wc->reglock);
+		spin_lock_irqsave(&wc->reglock, flags);
 		if (wc->vpmadt032)
 			cmd_decipher_vpmadt032(wc, readchunk);
-		spin_unlock(&wc->reglock);
+		spin_unlock_irqrestore(&wc->reglock, flags);
 #endif
 		readchunk += (EFRAME_SIZE + EFRAME_GAP);
 	}
@@ -2049,6 +2054,7 @@ static void vpm_check_func(struct work_struct *work)
 
 static void te12xp_timer(unsigned long data)
 {
+	unsigned long flags;
 	struct t1 *wc = (struct t1 *)data;
 
 	if (unlikely(!test_bit(INITIALIZED, &wc->bit_flags)))
@@ -2056,7 +2062,7 @@ static void te12xp_timer(unsigned long data)
 
 	queue_work(wc->wq, &wc->timer_work);
 
-	spin_lock(&wc->reglock);
+	spin_lock_irqsave(&wc->reglock, flags);
 	if (!wc->vpmadt032)
 		goto unlock_exit;
 
@@ -2066,22 +2072,23 @@ static void te12xp_timer(unsigned long data)
 	queue_work(wc->vpmadt032->wq, &wc->vpm_check_work);
 
 unlock_exit:
-	spin_unlock(&wc->reglock);
+	spin_unlock_irqrestore(&wc->reglock, flags);
 	return;
 }
 
 static void t1_handle_error(struct voicebus *vb)
 {
+	unsigned long flags;
 	struct t1 *wc = container_of(vb, struct t1, vb);
 
-	spin_lock_bh(&wc->reglock);
+	spin_lock_irqsave(&wc->reglock, flags);
 	if (!wc->vpmadt032)
 		goto unlock_exit;
 	clear_bit(4, &wc->ctlreg);
 	queue_work(wc->vpmadt032->wq, &wc->vpm_check_work);
 
 unlock_exit:
-	spin_unlock_bh(&wc->reglock);
+	spin_unlock_irqrestore(&wc->reglock, flags);
 }
 
 static const struct voicebus_operations voicebus_operations = {

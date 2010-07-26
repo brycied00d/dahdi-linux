@@ -4214,9 +4214,9 @@ static int hx8_send_command(struct wctdm *wc, const u8 *command,
 	if (bootloader)
 		vbb->data[EFRAME_SIZE + 3] = 0xAA;
 
-	spin_lock_bh(&wc->vb.lock);
+	spin_lock_irqsave(&wc->vb.lock, flags);
 	voicebus_transmit(&wc->vb, vbb);
-	spin_unlock_bh(&wc->vb.lock);
+	spin_unlock_irqrestore(&wc->vb.lock, flags);
 
 	/* Do not wait for the response if the caller doesn't care about the
 	 * results. */

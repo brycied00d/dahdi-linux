@@ -216,10 +216,11 @@ static inline void voicebus_set_hx8_mode(struct voicebus *vb)
 static inline void
 voicebus_set_maxlatency(struct voicebus *vb, unsigned int max_latency)
 {
-	spin_lock_bh(&vb->lock);
+	unsigned long flags;
+	spin_lock_irqsave(&vb->lock, flags);
 	vb->max_latency = clamp(max_latency,
 				vb->min_tx_buffer_count,
 				VOICEBUS_DEFAULT_MAXLATENCY);
-	spin_unlock_bh(&vb->lock);
+	spin_unlock_irqrestore(&vb->lock, flags);
 }
 #endif /* __VOICEBUS_H__ */
