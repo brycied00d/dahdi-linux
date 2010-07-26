@@ -58,6 +58,10 @@
 /* Define this in order to create a debugging network interface. */
 #undef VOICEBUS_NET_DEBUG
 
+/* Define this to only run the processing in an interrupt handler
+ * (and not tasklet). */
+#define CONFIG_VOICEBUS_INTERRUPT
+
 struct voicebus;
 
 struct vbb {
@@ -122,6 +126,10 @@ struct voicebus {
 	void __iomem 		*iobase;
 	struct tasklet_struct 	tasklet;
 	enum voicebus_mode	mode;
+
+#if defined(CONFIG_VOICEBUS_INTERRUPT)
+	atomic_t		deferred_disabled_count;
+#endif
 
 #if defined(CONFIG_VOICEBUS_TIMER)
 	struct timer_list	timer;
