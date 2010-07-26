@@ -707,7 +707,10 @@ static void free_wc(struct t1 *wc)
 		list_del_init(&cmd->node);
 		free_cmd(wc, cmd);
 	}
-	destroy_workqueue(wc->wq);
+
+	if (wc->wq)
+		destroy_workqueue(wc->wq);
+
 	kfree(wc);
 }
 
