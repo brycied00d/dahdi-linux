@@ -325,8 +325,6 @@ enum {
 #define DAHDI_ALARM_LOS			(1 << 8) /* Loss of Signal */
 #define DAHDI_ALARM_LFA			(1 << 9) /* Loss of Frame Alignment */
 #define DAHDI_ALARM_LMFA		(1 << 10)/* Loss of Multi-Frame Align */
-#define DAHDI_ALARM_XLS			(1 << 11)/* Transmit line Short */
-#define DAHDI_ALARM_XLO			(1 << 12)/* Transmit line Open */
 
 /* Maintenance modes */
 #define DAHDI_MAINT_NONE		0	/* Normal Mode */
