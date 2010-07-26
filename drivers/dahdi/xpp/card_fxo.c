@@ -511,8 +511,6 @@ static int FXO_card_dahdi_preregistration(xpd_t *xpd, bool on)
 	BUG_ON(!priv);
 	timer_count = xpd->timer_count;
 	XPD_DBG(GENERAL, xpd, "%s\n", (on)?"ON":"OFF");
-	xpd->span.owner = THIS_MODULE;
-	xpd->span.spantype = "FXO";
 	for_each_line(xpd, i) {
 		struct dahdi_chan	*cur_chan = XPD_CHAN(xpd, i);
 

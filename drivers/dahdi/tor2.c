@@ -260,6 +260,7 @@ static int tor2_close(struct dahdi_chan *chan)
 }
 
 static const struct dahdi_span_ops tor2_span_ops = {
+	.owner = THIS_MODULE,
 	.spanconfig = tor2_spanconfig,
 	.chanconfig = tor2_chanconfig,
 	.startup = tor2_startup,
@@ -285,7 +286,6 @@ static void init_spans(struct tor2 *tor)
 		dahdi_copy_string(s->devicetype, tor->type, sizeof(s->devicetype));
 		snprintf(s->location, sizeof(s->location) - 1,
 			 "PCI Bus %02d Slot %02d", tor->pci->bus->number, PCI_SLOT(tor->pci->devfn) + 1);
-		s->owner = THIS_MODULE;
 		if (tor->cardtype == TYPE_T1) {
 			s->channels = 24;
 			s->deflaw = DAHDI_LAW_MULAW;

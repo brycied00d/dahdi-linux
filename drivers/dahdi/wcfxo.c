@@ -639,6 +639,7 @@ static int wcfxo_hooksig(struct dahdi_chan *chan, enum dahdi_txsig txsig)
 }
 
 static const struct dahdi_span_ops wcfxo_span_ops = {
+	.owner = THIS_MODULE,
 	.hooksig = wcfxo_hooksig,
 	.open = wcfxo_open,
 	.close = wcfxo_close,
@@ -648,7 +649,6 @@ static const struct dahdi_span_ops wcfxo_span_ops = {
 static int wcfxo_initialize(struct wcfxo *wc)
 {
 	/* DAHDI stuff */
-	wc->span.owner = THIS_MODULE;
 	sprintf(wc->span.name, "WCFXO/%d", wc->pos);
 	snprintf(wc->span.desc, sizeof(wc->span.desc) - 1, "%s Board %d", wc->variety, wc->pos + 1);
 	sprintf(wc->chan->name, "WCFXO/%d/%d", wc->pos, 0);

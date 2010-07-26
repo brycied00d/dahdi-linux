@@ -747,6 +747,7 @@ static int t1xxp_spanconfig(struct dahdi_span *span, struct dahdi_lineconfig *lc
 }
 
 static const struct dahdi_span_ops t1xxp_span_ops = {
+	.owner = THIS_MODULE,
 	.spanconfig = t1xxp_spanconfig,
 	.chanconfig = t1xxp_chanconfig,
 	.startup = t1xxp_startup,
@@ -777,7 +778,6 @@ static int t1xxp_software_init(struct t1xxp *wc)
 	dahdi_copy_string(wc->span.devicetype, wc->variety, sizeof(wc->span.devicetype));
 	snprintf(wc->span.location, sizeof(wc->span.location) - 1,
 		 "PCI Bus %02d Slot %02d", wc->dev->bus->number, PCI_SLOT(wc->dev->devfn) + 1);
-	wc->span.owner = THIS_MODULE;
 	wc->span.irq = wc->dev->irq;
 	wc->span.chans = wc->chans;
 	wc->span.flags = DAHDI_FLAG_RBS;

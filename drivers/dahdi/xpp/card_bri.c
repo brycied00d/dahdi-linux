@@ -862,6 +862,7 @@ static int BRI_card_remove(xbus_t *xbus, xpd_t *xpd)
 }
 
 static const struct dahdi_span_ops BRI_span_ops = {
+	.owner = THIS_MODULE,
 	.spanconfig = bri_spanconfig,
 	.chanconfig = bri_chanconfig,
 	.startup = bri_startup,
@@ -897,7 +898,6 @@ static int BRI_card_dahdi_preregistration(xpd_t *xpd, bool on)
 		/* Nothing to do yet */
 		return 0;
 	}
-	xpd->span.owner = THIS_MODULE;
 	xpd->span.spantype = "BRI";
 	xpd->span.linecompat = DAHDI_CONFIG_AMI | DAHDI_CONFIG_CCS;
 	xpd->span.deflaw = DAHDI_LAW_ALAW;

@@ -1507,6 +1507,7 @@ t1xxp_spanconfig(struct dahdi_span *span, struct dahdi_lineconfig *lc)
 }
 
 static const struct dahdi_span_ops t1_span_ops = {
+	.owner = THIS_MODULE,
 	.spanconfig = t1xxp_spanconfig,
 	.chanconfig = t1xxp_chanconfig,
 	.startup = t1xxp_startup,
@@ -1550,7 +1551,6 @@ static int t1_software_init(struct t1 *wc)
 		"PCI Bus %02d Slot %02d", pdev->bus->number,
 		PCI_SLOT(pdev->devfn) + 1);
 
-	wc->span.owner = THIS_MODULE;
 	wc->span.irq = pdev->irq;
 
 	if (wc->spantype == TYPE_E1) {

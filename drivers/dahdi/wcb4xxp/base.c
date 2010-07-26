@@ -2313,6 +2313,7 @@ static void b4xxp_hdlc_hard_xmit(struct dahdi_chan *chan)
 /* internal functions, not specific to the hardware or DAHDI */
 
 static const struct dahdi_span_ops b4xxp_span_ops = {
+	.owner = THIS_MODULE,
 	.spanconfig = b4xxp_spanconfig,
 	.chanconfig = b4xxp_chanconfig,
 	.startup = b4xxp_startup,
@@ -2360,7 +2361,6 @@ static void init_spans(struct b4xxp *b4)
 		sprintf(bspan->span.location, "PCI Bus %02d Slot %02d",
 			b4->pdev->bus->number, PCI_SLOT(b4->pdev->devfn) + 1);
 
-		bspan->span.owner = THIS_MODULE;
 		bspan->span.ops = &b4xxp_span_ops;
 /* HDLC stuff */
 		bspan->sigchan = NULL;

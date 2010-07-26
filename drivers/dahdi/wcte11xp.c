@@ -956,6 +956,7 @@ static int t1xxp_spanconfig(struct dahdi_span *span, struct dahdi_lineconfig *lc
 }
 
 static const struct dahdi_span_ops t1xxp_span_ops = {
+	.owner = THIS_MODULE,
 	.startup = t1xxp_startup,
 	.shutdown = t1xxp_shutdown,
 	.rbsbits = t1xxp_rbsbits,
@@ -981,7 +982,6 @@ static int t1xxp_software_init(struct t1 *wc)
 		return -1;
 	t4_serial_setup(wc);
 	wc->num = x;
-	wc->span.owner = THIS_MODULE;
 	sprintf(wc->span.name, "WCT1/%d", wc->num);
 	snprintf(wc->span.desc, sizeof(wc->span.desc) - 1, "%s Card %d", wc->variety, wc->num);
 	wc->span.manufacturer = "Digium";
