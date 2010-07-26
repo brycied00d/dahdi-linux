@@ -332,6 +332,34 @@ vb_is_stopped(struct voicebus *vb)
 	return ret;
 }
 
+#if defined(CONFIG_VOICEBUS_INTERRUPT)
+
+static inline void vb_disable_deferred(struct voicebus *vb)
+{
+	if (atomic_inc_return(&vb->deferred_disabled_count) == 1)
+		disable_irq(vb->pdev->irq);
+}
+
+static inline void vb_enable_deferred(struct voicebus *vb)
+{
+	if (atomic_dec_return(&vb->deferred_disabled_count) == 0)
+		enable_irq(vb->pdev->irq);
+}
+
+#else
+
+static inline void vb_disable_deferred(struct voicebus *vb)
+{
+	tasklet_disable(&vb->tasklet);
+}
+
+static inline void vb_enable_deferred(struct voicebus *vb)
+{
+	tasklet_enable(&vb-tasklet);
+}
+
+#endif
+
 static void
 vb_cleanup_tx_descriptors(struct voicebus *vb)
 {
@@ -340,7 +368,7 @@ vb_cleanup_tx_descriptors(struct voicebus *vb)
 	struct voicebus_descriptor *d;
 	struct vbb *vbb;
 
-	tasklet_disable(&vb->tasklet);
+	vb_disable_deferred(vb);
 
 	while (!list_empty(&vb->tx_complete)) {
 		vbb = list_entry(vb->tx_complete.next, struct vbb, entry);
@@ -370,7 +398,7 @@ vb_cleanup_tx_descriptors(struct voicebus *vb)
 
 	dl->head = dl->tail = 0;
 	atomic_set(&dl->count, 0);
-	tasklet_enable(&vb->tasklet);
+	vb_enable_deferred(vb);
 }
 
 static void vb_cleanup_rx_descriptors(struct voicebus *vb)
@@ -380,7 +408,7 @@ static void vb_cleanup_rx_descriptors(struct voicebus *vb)
 	struct voicebus_descriptor *d;
 	struct vbb *vbb;
 
-	tasklet_disable(&vb->tasklet);
+	vb_disable_deferred(vb);
 	for (i = 0; i < DRING_SIZE; ++i) {
 		d = vb_descriptor(dl, i);
 		if (d->buffer1) {
@@ -397,7 +425,7 @@ static void vb_cleanup_rx_descriptors(struct voicebus *vb)
 	dl->head = 0;
 	dl->tail = 0;
 	atomic_set(&dl->count, 0);
-	tasklet_enable(&vb->tasklet);
+	vb_enable_deferred(vb);
 }
 
 static void vb_cleanup_descriptors(struct voicebus *vb,
@@ -667,13 +695,13 @@ static void setup_descriptors(struct voicebus *vb)
 		list_add_tail(&vbb->entry, &buffers);
 	}
 
-	tasklet_disable(&vb->tasklet);
+	vb_disable_deferred(vb);
 	while (!list_empty(&buffers)) {
 		vbb = list_entry(buffers.next, struct vbb, entry);
 		list_del(&vbb->entry);
 		vb_submit_rxb(vb, vbb);
 	}
-	tasklet_enable(&vb->tasklet);
+	vb_enable_deferred(vb);
 
 	if (BOOT != vb->mode) {
 		for (i = 0; i < vb->min_tx_buffer_count; ++i) {
@@ -686,13 +714,13 @@ static void setup_descriptors(struct voicebus *vb)
 
 		handle_transmit(vb, &buffers);
 
-		tasklet_disable(&vb->tasklet);
+		vb_disable_deferred(vb);
 		while (!list_empty(&buffers)) {
 			vbb = list_entry(buffers.next, struct vbb, entry);
 			list_del_init(&vbb->entry);
 			voicebus_transmit(vb, vbb);
 		}
-		tasklet_enable(&vb->tasklet);
+		vb_enable_deferred(vb);
 	}
 
 }
@@ -1113,6 +1141,15 @@ vb_increase_latency(struct voicebus *vb, unsigned int increase,
 	vb->min_tx_buffer_count += increase;
 }
 
+static void vb_schedule_deferred(struct voicebus *vb)
+{
+#if !defined(CONFIG_VOICEBUS_INTERRUPT)
+	tasklet_hi_schedule(&vb->tasklet);
+#else
+	vb->tasklet.func(vb->tasklet.data);
+#endif
+}
+
 /**
  * vb_tasklet_boot() - When vb->mode == BOOT
  *
@@ -1157,8 +1194,10 @@ static void vb_tasklet_boot(unsigned long data)
 	/* If there may still be buffers in the descriptor rings, reschedule
 	 * ourself to run again.  We essentially yield here to allow any other
 	 * cards a chance to run. */
+#if !defined(CONFIG_VOICEBUS_INTERRUPT)
 	if (unlikely(!count && !test_bit(VOICEBUS_STOP, &vb->flags)))
-		tasklet_hi_schedule(&vb->tasklet);
+		vb_schedule_deferred(vb);
+#endif
 
 	/* And finally, pass up any receive buffers. */
 	count = DEFAULT_COUNT;
@@ -1250,11 +1289,13 @@ static void vb_tasklet_hx8(unsigned long data)
 #endif
 	}
 
+#if !defined(CONFIG_VOICEBUS_INTERRUPT)
 	/* If there may still be buffers in the descriptor rings, reschedule
 	 * ourself to run again.  We essentially yield here to allow any other
 	 * cards a chance to run. */
 	if (unlikely(!count && !test_bit(VOICEBUS_STOP, &vb->flags)))
-		tasklet_hi_schedule(&vb->tasklet);
+		vb_schedule_deferred(vb);
+#endif
 
 	/* And finally, pass up any receive buffers. */
 	count = DEFAULT_COUNT;
@@ -1393,11 +1434,13 @@ static void vb_tasklet_normal(unsigned long data)
 #endif
 	}
 
+#if !defined(CONFIG_VOICEBUS_INTERRUPT)
 	/* If there may still be buffers in the descriptor rings, reschedule
 	 * ourself to run again.  We essentially yield here to allow any other
 	 * cards a chance to run. */
 	if (unlikely(!count && !test_bit(VOICEBUS_STOP, &vb->flags)))
-		tasklet_hi_schedule(&vb->tasklet);
+		vb_schedule_deferred(vb);
+#endif
 
 	/* And finally, pass up any receive buffers. */
 	count = DEFAULT_COUNT;
@@ -1460,10 +1503,10 @@ static void handle_hardunderrun(struct work_struct *work)
 		if (vb->ops->handle_error)
 			vb->ops->handle_error(vb);
 
-		tasklet_disable(&vb->tasklet);
+		vb_disable_deferred(vb);
 		setup_descriptors(vb);
 		start_packet_processing(vb);
-		tasklet_enable(&vb->tasklet);
+		vb_enable_deferred(vb);
 	}
 }
 
@@ -1504,7 +1547,7 @@ vb_isr(int irq, void *dev_id)
 			schedule_work(&vb->underrun_work);
 		} else if (HX8 == vb->mode) {
 			set_bit(VOICEBUS_HARD_UNDERRUN, &vb->flags);
-			tasklet_hi_schedule(&vb->tasklet);
+			vb_schedule_deferred(vb);
 			__vb_setctl(vb, SR_CSR5, int_status);
 		}
 	} else if (likely(int_status &
@@ -1512,7 +1555,7 @@ vb_isr(int irq, void *dev_id)
 		/* ******************************************************** */
 		/* NORMAL INTERRUPT CASE				    */
 		/* ******************************************************** */
-		tasklet_hi_schedule(&vb->tasklet);
+		vb_schedule_deferred(vb);
 		__vb_setctl(vb, SR_CSR5, TX_COMPLETE_INTERRUPT|RX_COMPLETE_INTERRUPT);
 	} else {
 		if (int_status & FATAL_BUS_ERROR_INTERRUPT)
