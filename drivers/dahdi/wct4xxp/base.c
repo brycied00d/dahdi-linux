@@ -462,6 +462,8 @@ static void t4_check_sigbits(struct t4 *wc, int span);
 #define LIM1_T 0x37		/* Line interface mode 1 register */
 #define LIM1_RL (1 << 1)	/* Remote Loop */
 
+#define FMR0 0x1C		/* Framer Mode Register 0 */
+#define FMR0_SIM (1 << 0)	/* Alarm Simulation */
 #define FMR1_T 0x1D		/* Framer Mode Register 1 */
 #define FMR1_ECM (1 << 2)	/* Error Counter 1sec Interrupt Enable */
 #define DEC_T 0x60		/* Diable Error Counter */
@@ -1437,6 +1439,7 @@ static int t4_maint(struct dahdi_span *span, int cmd)
 	struct t4_span *ts = container_of(span, struct t4_span, span);
 	struct t4 *wc = ts->owner;
 	unsigned int reg;
+	unsigned long flags;
 
 	if (ts->spantype == TYPE_E1) {
 		switch(cmd) {
@@ -1458,6 +1461,11 @@ static int t4_maint(struct dahdi_span *span, int cmd)
 			dev_info(&wc->dev->dev,
 					"Only local loop supported in E1 mode\n");
 			return -ENOSYS;
+		case DAHDI_MAINT_ALARM_SIM:
+			dev_info(&wc->dev->dev, "Invoking alarm state");
+			reg = t4_framer_in(wc, span->offset, FMR0);
+			t4_framer_out(wc, span->offset, FMR0, (reg|FMR0_SIM));
+			break;
 		default:
 			dev_info(&wc->dev->dev,
 					"Unknown E1 maint command: %d\n", cmd);
@@ -1544,6 +1552,25 @@ static int t4_maint(struct dahdi_span *span, int cmd)
 			return -ENOSYS;
 		case DAHDI_RESET_COUNTERS:
 			t4_reset_counters(span);
+			break;
+		case DAHDI_MAINT_ALARM_SIM:
+//			dev_info(&wc->dev->dev, "Invoking alarm state\n");
+			reg = t4_framer_in(wc, span->offset, FMR0);
+			//dev_info(&wc->dev->dev, "FMR0: %X\n", reg);
+
+			// The alarm simulation state machine requires us to bring this bit
+			// up and down for at least 1 clock cycle
+			// lock register writes to ensure nobody else tries to write to FMR0, while we delay
+			spin_lock_irqsave(&wc->reglock, flags);	
+			__t4_framer_out(wc, span->offset, FMR0, (reg|FMR0_SIM));
+			udelay(1);
+			__t4_framer_out(wc, span->offset, FMR0, (reg&~FMR0_SIM));
+			udelay(1);
+			spin_unlock_irqrestore(&wc->reglock, flags);
+
+			//dev_info(&wc->dev->dev, "FMR0: %X\n", reg|FMR0_SIM);
+			reg = t4_framer_in(wc, span->offset, 0x4e);
+			dev_info(&wc->dev->dev, "FRS2(alarm state): %d\n", ((reg&0xe0)>> 5));
 			break;
 		default:
 			dev_info(&wc->dev->dev, "Unknown T1 maint command:%d\n",
@@ -1952,12 +1979,9 @@ static void init_spans(struct t4 *wc)
 		/* Enable 1sec timer interrupt */
 		reg = t4_framer_in(wc, x, FMR1_T);
 		t4_framer_out(wc, x, FMR1_T, (reg | FMR1_ECM));
-		dev_info(&wc->dev->dev, "Enabled 1sec error counter "\
-							"interrupt\n");
 
 		/* Enable Errored Second interrupt */
 		t4_framer_out(wc, x, ESM, 0);
-		dev_info(&wc->dev->dev, "Enabled errored second interrupt\n");
 
 		t4_reset_counters(&ts->span);
 
@@ -2883,6 +2907,7 @@ static void t4_check_alarms(struct t4 *wc, int span)
 			alarms |= DAHDI_ALARM_NOTOPEN;
 	}
 
+	/* Loss of Frame Alignment */
 	if (c & 0x20) {
 		if (ts->alarmcount >= alarmdebounce) {
 
@@ -2903,7 +2928,8 @@ static void t4_check_alarms(struct t4 *wc, int span)
 	} else
 		ts->alarmcount = 0;
 
-	if (c & 0x80) { /* LOS */
+	/* Loss of Signal */
+	if (c & 0x80) {
 		if (ts->losalarmcount >= losalarmdebounce) {
 			/* Disable Slip Interrupts */
 			e = __t4_framer_in(wc, span, 0x17);
@@ -2922,7 +2948,8 @@ static void t4_check_alarms(struct t4 *wc, int span)
 	} else
 		ts->losalarmcount = 0;
 
-	if (c & 0x40) { /* AIS */
+	/* Alarm Indication Signal */
+	if (c & 0x40) {
 		if (ts->aisalarmcount >= aisalarmdebounce)
 			alarms |= DAHDI_ALARM_BLUE;
 		else {
@@ -2937,6 +2964,19 @@ static void t4_check_alarms(struct t4 *wc, int span)
 	} else
 		ts->aisalarmcount = 0;
 
+	/* Add detailed alarm status information to a red alarm state */
+	if (alarms & DAHDI_ALARM_RED) {
+		if (c & FRS0_LOS)
+		         alarms |= DAHDI_ALARM_LOS;
+		if (c & FRS0_LFA)
+		         alarms |= DAHDI_ALARM_LFA;
+		if (c & FRS0_LMFA)
+		         alarms |= DAHDI_ALARM_LMFA;
+		if (d & FRS1_XLS)
+		         alarms |= DAHDI_ALARM_XLS;
+		if (d & FRS1_XLO)
+			alarms |= DAHDI_ALARM_XLO;
+	}
 
 	if (((!ts->span.alarms) && alarms) || 
 	    (ts->span.alarms && (!alarms))) 
@@ -3112,6 +3152,7 @@ static inline void t4_framer_interrupt(struct t4 *wc, int span)
  			gis, isr0, isr1, isr2, isr3, isr4, wc->intcount);
  	}
  
+	/* Collect performance counters once per second */
  	if (isr3 & ISR3_SEC) {
  		ts->span.count.fe += t4_framer_in(wc, span, FECL_T);
  		ts->span.count.crc4 += t4_framer_in(wc, span, CEC1L_T);
@@ -3121,6 +3162,7 @@ static inline void t4_framer_interrupt(struct t4 *wc, int span)
  		ts->span.count.prbs = t4_framer_in(wc, span, FRS1_T);
  	}
  
+	/* Collect errored second counter once per second */
  	if (isr3 & ISR3_ES) {
  		ts->span.count.errsec += 1;
  	}
@@ -3145,7 +3187,10 @@ static inline void t4_framer_interrupt(struct t4 *wc, int span)
 	} else {
 		/* T1 checks */
 		if (isr2 || (isr3 & 0x08)) {
-			printk("card %d span %d: isr2=%x isr3=%x\n", wc->num, span, isr2, isr3);
+			if (debug & DEBUG_MAIN) {
+				printk("card %d span %d: isr2=%x isr3=%x\n",
+						wc->num, span, isr2, isr3);
+			}
 			t4_check_alarms(wc, span);		
 		}
 	}
