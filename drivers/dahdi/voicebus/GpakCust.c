@@ -716,13 +716,15 @@ void vpmadt032_get_default_parameters(struct GpakEcanParms *p)
 	p->EcanNlpUnConv = 12;
 	p->EcanNlpMaxSuppress = DEFAULT_NLPMAXSUPP;
 	p->EcanCngThreshold = 43;
-	p->EcanAdaptLimit = 50;
+	p->EcanAdaptLimit = 25;
 	p->EcanCrossCorrLimit = 15;
 	p->EcanNumFirSegments = 3;
 	p->EcanFirSegmentLen = 48;
-	p->EcanReconvergenceCheckEnable = 2;
+	p->EcanReconvergenceCheckEnable = 1;
 	p->EcanTandemOperationEnable = 0;
 	p->EcanMixedFourWireMode = 0;
+	p->EcanSaturationLevel = 3;
+	p->EcanNLPSaturationThreshold = 6;
 }
 EXPORT_SYMBOL(vpmadt032_get_default_parameters);
 

@@ -63,6 +63,8 @@ typedef struct GpakEcanParms
     short int EcanTandemOperationEnable;   //Enable tandem operation 
     short int EcanMixedFourWireMode; 	// Handle possible 4-wire (echo-free) lines
 	short int EcanReconvergenceCheckEnable; 	// Handle possible 4-wire (echo-free) lines
+	short int EcanSaturationLevel;		/* Far end input level above which significant saturation/nonlinearity may be expected. */
+	short int EcanNLPSaturationThreshold;	/* NLP threshold under conditions of possible saturation */
 } GpakEcanParms_t;
 
 /* Definition of a Channel Configuration information structure. */
@@ -88,6 +90,8 @@ typedef struct GpakChannelConfig
     GpakActivation      MuteToneB;          // B side mute DTMF Enabled
     GpakActivation      FaxCngDetA;         // A side FaxCng Tone Detector Enabled
     GpakActivation      FaxCngDetB;         // B side FaxCng Tone Detector Enabled
+	unsigned short int ChannelId_tobe_Debug; /* Channel Id of the channel that we'd like to debug */
+					    /* (0 to MaxChannels-1), only used for tdmToTdmDebug */
 
 } GpakChannelConfig_t;
 
