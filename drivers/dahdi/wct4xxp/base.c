@@ -426,7 +426,6 @@ static void t4_tsi_assign(struct t4 *wc, int fromspan, int fromchan, int tospan,
 static void t4_tsi_unassign(struct t4 *wc, int tospan, int tochan);
 static void __t4_set_rclk_src(struct t4 *wc, int span);
 static void __t4_set_sclk_src(struct t4 *wc, int mode, int master, int slave);
-static void t4_card_event(struct t4 *wc, int event);
 static void t4_check_alarms(struct t4 *wc, int span);
 static void t4_check_sigbits(struct t4 *wc, int span);
 
@@ -1560,8 +1559,6 @@ static int t4_maint(struct dahdi_span *span, int cmd)
 			/*
 			 * The alarm simulation state machine requires us to
 			 * bring this bit up and down for at least 1 clock cycle
-			 * lock register writes to ensure nobody else tries to
-			 * write to FMR0, while we delay
 			 */
 			spin_lock_irqsave(&wc->reglock, flags);
 			__t4_framer_out(wc, span->offset,
@@ -2074,8 +2071,6 @@ static void __t4_set_rclk_src(struct t4 *wc, int span)
 	cmr1 |= (span << 6);
 	__t4_framer_out(wc, 0, 0x44, cmr1);
 
-	t4_card_event(wc, DAHDI_EVENT_SYNC);
-
 	dev_info(&wc->dev->dev, "RCLK source set to span %d\n", span+1);
 }
 
@@ -2102,32 +2097,6 @@ static void __t4_set_sclk_src(struct t4 *wc, int mode, int master, int slave)
 		wc->dmactrl &= ~(1 << 29);/* Provide timing from MCLK */
 
 	__t4_pci_out(wc, WC_DMACTRL, wc->dmactrl);
-}
-
-/*
- * We do not have a per-span or per-card event system. In
- * order to create a global event, we send that event to
- * every channel on the card
- */
-void t4_card_event(struct t4 *wc, int event)
-{
-	unsigned long flags;
-	struct dahdi_span *span;
-	struct dahdi_chan *chan;
-	int x, y;
-
-	/* Loop through every channel on this card and
-	 * set the global event that occured
-	 */
-	for (x = 0; x < wc->numspans; x++) {
-		span = &wc->tspans[x]->span;
-		for (y = 0; y < span->channels; y++) {
-			chan = span->chans[y];
-			spin_lock_irqsave(&chan->lock, flags);
-			dahdi_qevent_nolock(chan, event);
-			spin_unlock_irqrestore(&chan->lock, flags);
-		}
-	}
 }
 
 static inline void __t4_update_timing(struct t4 *wc)
