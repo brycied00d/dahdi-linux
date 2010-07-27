@@ -1459,12 +1459,25 @@ static int t4_maint(struct dahdi_span *span, int cmd)
 			reg = t4_framer_in(wc, span->offset, LIM0_T);
 			t4_framer_out(wc, span->offset, LIM0_T, (reg|LIM0_LL));
 			break;
-		case DAHDI_MAINT_REMOTELOOP:
+		case DAHDI_MAINT_NETWORKLINELOOP:
+			dev_info(&wc->dev->dev,
+				 "Turning on network line loopback\n");
+			t4_clear_maint(span);
+			reg = t4_framer_in(wc, span->offset, LIM1_T);
+			t4_framer_out(wc, span->offset, LIM1_T, (reg|LIM1_RL));
+			break;
+		case DAHDI_MAINT_NETWORKPAYLOADLOOP:
+			dev_info(&wc->dev->dev,
+				 "Turning on network payload loopback\n");
+			t4_clear_maint(span);
+			reg = t4_framer_in(wc, span->offset, FMR2_T);
+			t4_framer_out(wc, span->offset, FMR2_T, (reg|FMR2_PLB));
+			break;
 		case DAHDI_MAINT_LOOPUP:
 		case DAHDI_MAINT_LOOPDOWN:
 		case DAHDI_MAINT_LOOPSTOP:
 			dev_info(&wc->dev->dev,
-					"Only local loop supported in E1 mode\n");
+				"Loopup & loopdown supported in E1 mode\n");
 			return -ENOSYS;
 		case DAHDI_MAINT_FAS_DEFECT:
 			t4_framer_out(wc, span->offset, IERR_T, IFASE);
