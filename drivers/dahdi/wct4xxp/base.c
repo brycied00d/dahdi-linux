@@ -468,7 +468,12 @@ static void t4_check_sigbits(struct t4 *wc, int span);
 #define FMR1_ECM (1 << 2)	/* Error Counter 1sec Interrupt Enable */
 #define DEC_T 0x60		/* Diable Error Counter */
 #define IERR_T 0x1B		/* Single Bit Defect Insertion Register */
-enum{IBV, IPE, ICASE, ICRCE, IMFE, IFASE};
+#define IBV	0	 /* Bipolar violation */
+#define IPE	(1 << 1) /* PRBS defect */
+#define ICASE	(1 << 2) /* CAS defect */
+#define ICRCE	(1 << 3) /* CRC defect */
+#define IMFE	(1 << 4) /* Multiframe defect */
+#define IFASE	(1 << 5) /* FAS defect */
 #define ISR3_SEC (1 << 6)	/* Internal one-second interrupt bit mask */
 #define ISR3_ES (1 << 7)	/* Errored Second interrupt bit mask */
 #define ESM 0x47		/* Errored Second mask register */
