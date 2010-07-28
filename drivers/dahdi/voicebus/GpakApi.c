@@ -1364,17 +1364,15 @@ gpakReadFramingStatsStatus_t gpakReadFramingStats(
     *pFramingError3Count = ReadBuffer[2];
     *pDmaStopErrorCount  = ReadBuffer[3];
     
-    if(pDmaSlipStatsBuffer != 0) 
-    // If users want to get the DMA slips count
-    {
-	    pDmaSlipStatsBuffer[0] = ReadBuffer[4];
-    	pDmaSlipStatsBuffer[1] = ReadBuffer[5];
-    	pDmaSlipStatsBuffer[2] = ReadBuffer[6];
-    	pDmaSlipStatsBuffer[3] = ReadBuffer[7];
-    	pDmaSlipStatsBuffer[4] = ReadBuffer[8];
-    	pDmaSlipStatsBuffer[5] = ReadBuffer[9];
-    
-    }
+	if (pDmaSlipStatsBuffer != NULL) {
+		/* If users want to get the DMA slips count */
+		pDmaSlipStatsBuffer[0] = ReadBuffer[4];
+		pDmaSlipStatsBuffer[1] = ReadBuffer[5];
+		pDmaSlipStatsBuffer[2] = ReadBuffer[6];
+		pDmaSlipStatsBuffer[3] = ReadBuffer[7];
+		pDmaSlipStatsBuffer[4] = ReadBuffer[8];
+		pDmaSlipStatsBuffer[5] = ReadBuffer[9];
+	}
     /* Return with an indication the statistics were read successfully. */
     return (RfsSuccess);
 }
