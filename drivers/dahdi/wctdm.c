@@ -252,10 +252,10 @@ struct wctdm {
 			int mwisendtype;
 			struct dahdi_vmwi_info vmwisetting;
 			int vmwi_active_messages;
-			int vmwi_lrev:1;		/* MWI Line Reversal*/
-			int vmwi_hvdc:1;		/* MWI High Voltage DC Idle line */
-			int vmwi_hvac:1;		/* MWI Neon High Voltage AC Idle line */
-			int neonringing:1; /* Ring Generator is set for NEON */
+			u32 vmwi_lrev:1; /*MWI Line Reversal*/
+			u32 vmwi_hvdc:1; /*MWI High Voltage DC Idle line*/
+			u32 vmwi_hvac:1; /*MWI Neon High Voltage AC Idle line*/
+			u32 neonringing:1; /*Ring Generator is set for NEON*/
 			struct calregs calregs;
 		} fxs;
 	} mod[NUM_CARDS];
