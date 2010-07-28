@@ -121,8 +121,9 @@ struct tor2 {
 	unsigned int passno;	/* number of interrupt passes */
 };
 
-#define t1out(tor,span,reg,val) tor->mem8[((span - 1) * 0x100) + reg] = val
-#define t1in(tor,span,reg) tor->mem8[((span - 1) * 0x100) + reg]
+#define t1out(tor, span, reg, val) \
+	writeb(val, &tor->mem8[((span - 1) * 0x100) + reg])
+#define t1in(tor, span, reg) readb(&tor->mem8[((span - 1) * 0x100) + reg])
 
 #ifdef ENABLE_TASKLETS
 static void tor2_tasklet(unsigned long data);
@@ -334,7 +335,7 @@ static int __devinit tor2_launch(struct tor2 *tor)
 			goto error_exit;
 		}
 	}
-	tor->plx[INTCSR] = cpu_to_le16(PLX_INTENA); /* enable PLX interrupt */
+	writew(PLX_INTENA, &tor->plx[INTCSR]); /* enable PLX interrupt */
 
 #ifdef ENABLE_TASKLETS
 	tasklet_init(&tor->tor2_tlet, tor2_tasklet, (unsigned long)tor);
@@ -450,17 +451,20 @@ static int __devinit tor2_probe(struct pci_dev *pdev, const struct pci_device_id
 
 	/* start programming mode */
 	gpdata_io = (__iomem unsigned long *) &tor->plx[GPIOC];
-	gpdata = le32_to_cpu(*gpdata_io);
+	gpdata = readl(gpdata_io);
 
 	gpdata |= GPIO_WRITE; /* make sure WRITE is not asserted */
-	*gpdata_io = cpu_to_le32(gpdata);
+	writel(gpdata, gpdata_io);
 
 	gpdata &= ~GPIO_PROGRAM;  /* activate the PROGRAM signal */
-	*gpdata_io = cpu_to_le32(gpdata);
+	writel(gpdata, gpdata_io);
 
 	/* wait for INIT and DONE to go low */
 	endjif = jiffies + 10;
-	while (le32_to_cpu(*gpdata_io) & (GPIO_INIT | GPIO_DONE) && (jiffies <= endjif));
+	while (readl(gpdata_io) & (GPIO_INIT | GPIO_DONE) &&
+	      (jiffies <= endjif)) {
+		;
+	}
 
 	if (endjif < jiffies) {
 		printk(KERN_ERR "Timeout waiting for INIT and DONE to go low\n");
@@ -468,10 +472,11 @@ static int __devinit tor2_probe(struct pci_dev *pdev, const struct pci_device_id
 	}
 	if (debug) printk(KERN_ERR "fwload: Init and done gone to low\n");
 	gpdata |= GPIO_PROGRAM;
-	*gpdata_io = cpu_to_le32(gpdata);  /* de-activate the PROGRAM signal */
+	writel(gpdata, gpdata_io);  /* de-activate the PROGRAM signal */
 	/* wait for INIT to go high (clearing done */
 	endjif = jiffies + 10;
-	while (!(le32_to_cpu(*gpdata_io) & GPIO_INIT) && (jiffies <= endjif));
+	while (!(readl(gpdata_io) & GPIO_INIT) && (jiffies <= endjif))
+		;
 	if (endjif < jiffies) {
 		printk(KERN_ERR "Timeout waiting for INIT to go high\n");
 		goto err_out_release_all;
@@ -480,15 +485,17 @@ static int __devinit tor2_probe(struct pci_dev *pdev, const struct pci_device_id
 	if (debug) printk(KERN_ERR "fwload: Init went high (clearing done)\nNow loading...\n");
 	/* assert WRITE signal */
 	gpdata &= ~GPIO_WRITE;
-	*gpdata_io = cpu_to_le32(gpdata);
+	writel(gpdata, gpdata_io);
 	for (x = 0; x < sizeof(tor2fw); x++)
 	   {
 		  /* write the byte */
-		*tor->mem8 = tor2fw[x];
+		writeb(tor2fw[x], tor->mem8);
 		  /* if DONE signal, we're done, exit */
-		if (le32_to_cpu(*gpdata_io) & GPIO_DONE) break;
+		if (readl(gpdata_io) & GPIO_DONE)
+			break;
 		  /* if INIT drops, we're screwed, exit */
-		if (!(le32_to_cpu(*gpdata_io) & GPIO_INIT)) break;
+		if (!(readl(gpdata_io) & GPIO_INIT))
+			break;
 	   }
 	if (debug) printk(KERN_DEBUG "fwload: Transferred %d bytes into chip\n",x);
 	/* Wait for FIFO to clear */
@@ -496,41 +503,41 @@ static int __devinit tor2_probe(struct pci_dev *pdev, const struct pci_device_id
 	while (jiffies < endjif); /* wait */
 	  /* de-assert write signal */
 	gpdata |= GPIO_WRITE;
-	*gpdata_io = cpu_to_le32(gpdata);
+	writel(gpdata, gpdata_io);
 	if (debug) printk(KERN_DEBUG "fwload: Loading done!\n");	
 
 	/* Wait for FIFO to clear */
 	endjif = jiffies + 2;
 	while (jiffies < endjif); /* wait */
-	if (!(le32_to_cpu(*gpdata_io) & GPIO_INIT))
+	if (!(readl(gpdata_io) & GPIO_INIT))
 	   {
 		printk(KERN_ERR "Drove Init low!! CRC Error!!!\n");
 		goto err_out_release_all;
 	   }
-	if (!(le32_to_cpu(*gpdata_io) & GPIO_DONE))
+	if (!(readl(gpdata_io) & GPIO_DONE))
 	   {
 		printk(KERN_ERR "Did not get DONE signal. Short file maybe??\n");
 		goto err_out_release_all;
 	   }
 	printk(KERN_INFO "Xilinx Chip successfully loaded, configured and started!!\n");
 
-	tor->mem8[SYNCREG] = 0;
-	tor->mem8[CTLREG] = 0;
-	tor->mem8[CTLREG1] = 0;
-	tor->mem8[LEDREG] = 0;
+	writeb(0, &tor->mem8[SYNCREG]);
+	writeb(0, &tor->mem8[CTLREG]);
+	writeb(0, &tor->mem8[CTLREG1]);
+	writeb(0, &tor->mem8[LEDREG]);
 
 	/* set the LA2BRD register so that we enable block transfer, read
 	   pre-fetch, and set to maximum read pre-fetch size */
 	lasdata_io = (__iomem unsigned long *) &tor->plx[LAS2BRD];
-	lasdata = *lasdata_io;
+	lasdata = readl(lasdata_io);
 	lasdata |= 0x39;
-	*lasdata_io = lasdata;
+	writel(lasdata, lasdata_io);
 
 	/* set the LA3BRD register so that we enable block transfer */
 	lasdata_io = (__iomem unsigned long *) &tor->plx[LAS3BRD];
-	lasdata = *lasdata_io;
+	lasdata = readl(lasdata_io);
 	lasdata |= 1;
-	*lasdata_io = lasdata;
+	writel(lasdata, lasdata_io);
 
 	/* check part revision data */
 	x = t1in(tor,1,0xf) & 15;
@@ -540,7 +547,8 @@ static int __devinit tor2_probe(struct pci_dev *pdev, const struct pci_device_id
 		tor->mem8[CTLREG1] = NONREVA;
 	}
 #endif
-	for (x = 0; x < 256; x++) tor->mem32[x] = 0x7f7f7f7f;
+	for (x = 0; x < 256; x++)
+		writel(0x7f7f7f7f, &tor->mem32[x]);
 
 	if (request_irq(tor->irq, tor2_intr, DAHDI_IRQ_SHARED_DISABLED, "tor2", tor)) {
 		printk(KERN_ERR "Unable to request tormenta IRQ %d\n", tor->irq);
@@ -578,7 +586,7 @@ static int __devinit tor2_probe(struct pci_dev *pdev, const struct pci_device_id
 
 	init_spans(tor); 
 
-	tor->order = tor->mem8[SWREG];
+	tor->order = readb(&tor->mem8[SWREG]);
 	printk(KERN_INFO "Detected Card number: %d\n", tor->order);
 
 	/* Launch cards as appropriate */
@@ -627,10 +635,10 @@ static void __devexit tor2_remove(struct pci_dev *pdev)
 	tor = pci_get_drvdata(pdev);
 	if (!tor)
 		BUG();
-	tor->mem8[SYNCREG] = 0;
-	tor->mem8[CTLREG] = 0;
-	tor->mem8[LEDREG] = 0;
-	tor->plx[INTCSR] = cpu_to_le16(0);
+	writeb(0, &tor->mem8[SYNCREG]);
+	writeb(0, &tor->mem8[CTLREG]);
+	writeb(0, &tor->mem8[LEDREG]);
+	writew(0, &tor->plx[INTCSR]);
 	free_irq(tor->irq, tor);
 	for (i = 0; i < SPANS_PER_CARD; ++i) {
 		struct dahdi_span *s = &tor->tspans[i].dahdi_span;
@@ -797,7 +805,7 @@ static int tor2_shutdown(struct dahdi_span *span)
 	    !(tor->tspans[2].dahdi_span.flags & DAHDI_FLAG_RUNNING) &&
 	    !(tor->tspans[3].dahdi_span.flags & DAHDI_FLAG_RUNNING))
 		/* No longer in use, disable interrupts */
-		tor->mem8[CTLREG] = 0;
+		writeb(0, &tor->mem8[CTLREG]);
 	if (debug)
 		printk(KERN_DEBUG"Span %d (%s) shutdown\n", span->spanno, span->name);
 	return 0;
@@ -841,9 +849,9 @@ static int tor2_startup(struct dahdi_span *span)
 	if (p->tor->cardtype == TYPE_E1) { /* if this is an E1 card */
 		unsigned char tcr1,ccr1,tcr2;
 		if (!alreadyrunning) {
-			p->tor->mem8[SYNCREG] = SYNCSELF;
-			p->tor->mem8[CTLREG] = E1DIV;
-			p->tor->mem8[LEDREG] = 0;
+			writeb(SYNCSELF, &p->tor->mem8[SYNCREG]);
+			writeb(E1DIV, &p->tor->mem8[CTLREG]);
+			writeb(0, &p->tor->mem8[LEDREG]);
 			/* Force re-evaluation of sync src */
 			/* Zero out all registers */
 			for (i = 0; i < 192; i++) 
@@ -909,7 +917,7 @@ static int tor2_startup(struct dahdi_span *span)
 			p->tor->spansstarted++;
 
 			/* enable interrupts */
-			p->tor->mem8[CTLREG] = INTENA | E1DIV;
+			writeb(INTENA | E1DIV, &p->tor->mem8[CTLREG]);
 		}
 
 		spin_unlock_irqrestore(&p->tor->lock, flags);
@@ -923,9 +931,9 @@ static int tor2_startup(struct dahdi_span *span)
 	} else { /* is a T1 card */
 
 		if (!alreadyrunning) {
-			p->tor->mem8[SYNCREG] = SYNCSELF;
-			p->tor->mem8[CTLREG] = 0;
-			p->tor->mem8[LEDREG] = 0;
+			writeb(SYNCSELF, &p->tor->mem8[SYNCREG]);
+			writeb(0, &p->tor->mem8[CTLREG]);
+			writeb(0, &p->tor->mem8[LEDREG]);
 			/* Zero out all registers */
 			for (i = 0; i < 160; i++) 
 				t1out(p->tor,tspan, i, 0);
@@ -994,7 +1002,7 @@ static int tor2_startup(struct dahdi_span *span)
 			p->tor->spansstarted++;
 
 			/* enable interrupts */
-			p->tor->mem8[CTLREG] = INTENA;
+			writeb(INTENA, &p->tor->mem8[CTLREG]);
 		}
 
 		set_clear(p->tor);
@@ -1186,14 +1194,14 @@ found:
 		if (syncnum == tor->num) {
 #if 1
 			/* actually set the sync register */
-			tor->mem8[SYNCREG] = syncspan;
+			writeb(syncspan, &tor->mem8[SYNCREG]);
 #endif			
 			if (debug) printk(KERN_DEBUG "Card %d, using sync span %d, master\n", tor->num, syncspan);
 			tor->master = MASTER;	
 		} else {
 #if 1
 			/* time from the timing cable */
-			tor->mem8[SYNCREG] = SYNCEXTERN;
+			writeb(SYNCEXTERN, &tor->mem8[SYNCREG]);
 #endif			
 			tor->master = 0;
 			if (debug) printk(KERN_DEBUG "Card %d, using Timing Bus, NOT master\n", tor->num);	
@@ -1213,17 +1221,20 @@ DAHDI_IRQ_HANDLER(tor2_intr)
 	struct tor2 *tor = (struct tor2 *) dev_id;	
 
 	  /* make sure its a real interrupt for us */
-	if (!(tor->mem8[STATREG] & INTACTIVE)) /* if not, just return */
+	if (!(readb(&tor->mem8[STATREG]) & INTACTIVE)) /* if not, just return */
 	   {
 		return IRQ_NONE;
 	   }
 
-	if (tor->cardtype == TYPE_E1)
-		  /* set outbit, interrupt enable, and ack interrupt */
-		tor->mem8[CTLREG] = OUTBIT | INTENA | INTACK | E1DIV | tor->master;
-	else
-		  /* set outbit, interrupt enable, and ack interrupt */
-		tor->mem8[CTLREG] = OUTBIT | INTENA | INTACK | tor->master;
+	if (tor->cardtype == TYPE_E1) {
+		/* set outbit, interrupt enable, and ack interrupt */
+		writeb(OUTBIT | INTENA | INTACK | E1DIV | tor->master,
+		       &tor->mem8[CTLREG]);
+	} else {
+		/* set outbit, interrupt enable, and ack interrupt */
+		writeb(OUTBIT | INTENA | INTACK | tor->master,
+		       &tor->mem8[CTLREG]);
+	}
 
 #if	0
 	if (!tor->passno)
@@ -1245,7 +1256,7 @@ DAHDI_IRQ_HANDLER(tor2_intr)
 #ifdef FIXTHISFOR64
 			tor->mem32[tor->datxlt[n] + (32 * i)] = txword;
 #else
-			tor->mem32[tor->datxlt[n] + (32 * i)] = cpu_to_le32(txword);
+			writel(txword, &tor->mem32[tor->datxlt[n] + (32 * i)]);
 #endif
 		}
 	}
@@ -1257,7 +1268,7 @@ DAHDI_IRQ_HANDLER(tor2_intr)
 #ifdef FIXTHISFOR64
 		        rxword = tor->mem32[tor->datxlt[n] + (32 * i)];
 #else
-			rxword = le32_to_cpu(tor->mem32[tor->datxlt[n] + (32 * i)]);
+			rxword = readl(&tor->mem32[tor->datxlt[n] + (32 * i)]);
 #endif
 			/* span 1 */
 			tor->tspans[0].dahdi_span.chans[n]->readchunk[i] = rxword >> 24;
@@ -1421,7 +1432,7 @@ DAHDI_IRQ_HANDLER(tor2_intr)
 			else if (j & DAHDI_ALARM_YELLOW) tor->leds |= (LEDRED | LEDGREEN) << (2 * i);
 			else tor->leds |= LEDGREEN << (2 * i);
 		}
-		tor->mem8[LEDREG] = tor->leds;
+		writeb(tor->leds, &tor->mem8[LEDREG]);
 		dahdi_alarm_notify(&tor->tspans[i].dahdi_span);
 	   }
 	if (!(tor->passno % 1000)) /* even second boundary */
@@ -1488,7 +1499,7 @@ DAHDI_IRQ_HANDLER(tor2_intr)
 			tor->tspans[i].dahdi_span.syncsrc = newsyncsrc;
 
 		/* actually set the sync register */
-		tor->mem8[SYNCREG] = tor->syncsrc;
+		writeb(tor->syncsrc, &tor->mem8[SYNCREG]);
 	} else	/* Timing cable version */
 		tor2_findsync(tor);
 
@@ -1508,10 +1519,10 @@ DAHDI_IRQ_HANDLER(tor2_intr)
 	/* We are not the timing bus master */
 	if (tor->cardtype == TYPE_E1)
 		/* clear OUTBIT and enable interrupts */
-		tor->mem8[CTLREG] = INTENA | E1DIV | tor->master;
+		writeb(INTENA | E1DIV | tor->master, &tor->mem8[CTLREG]);
 	else
 		/* clear OUTBIT and enable interrupts */
-		tor->mem8[CTLREG] = INTENA | tor->master;
+		writeb(INTENA | tor->master, &tor->mem8[CTLREG]);
 	return IRQ_RETVAL(1);
 }
 
