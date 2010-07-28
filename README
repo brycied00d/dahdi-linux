@@ -94,12 +94,12 @@ Kernel Source / "Headers"
   * On Fedora, RHEL and compatibles (e.g. CentOS) and in SUSE this is
     the kernel-devel package. Or if you run kernel-smp or kernel-xen,
     you need kernel-smp-devel or kernel-xen-devel, respectively.
-  * In some distributions (e.g.: in RHEL/CentOS, Fedora, Ubuntu) the 
-    installation of the kernel-devel / kernel-headers package will 
-    be of a version that is newer than the one you currently run. In 
-    such a case you may need to upgrade the kernel package itself as 
+  * In some distributions (e.g.: in RHEL/CentOS, Fedora, Ubuntu) the
+    installation of the kernel-devel / kernel-headers package will
+    be of a version that is newer than the one you currently run. In
+    such a case you may need to upgrade the kernel package itself as
     well and reboot.
-- To point explicitly to a different build tree: set KSRC to the kernel 
+- To point explicitly to a different build tree: set KSRC to the kernel
   source tree or KVERS to the exact kernel version (if "headers" are
   available for a different version). This parameter must be run on
   every calls to 'make' (e.g.: 'make clean', 'make install').
