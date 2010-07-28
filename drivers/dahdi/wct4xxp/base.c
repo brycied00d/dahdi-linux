@@ -180,7 +180,7 @@ static int losalarmdebounce = 2500;/* LOS def to 2.5s AT&T TR54016*/
 static int aisalarmdebounce = 2500;/* AIS(blue) def to 2.5s AT&T TR54016*/
 static int yelalarmdebounce = 500;/* RAI(yellow) def to 0.5s AT&T devguide */
 static int max_latency = GEN5_MAX_LATENCY;  /* Used to set a maximum latency (if you don't wish it to hard cap it at a certain value) in milliseconds */
-static int extendedreset = 0;
+static int extendedreset;
 #ifdef VPM_SUPPORT
 static int vpmsupport = 1;
 /* If set to auto, vpmdtmfsupport is enabled for VPM400M and disabled for VPM450M */
@@ -194,7 +194,7 @@ static int lastdtmfthreshold = VPM_DEFAULT_DTMFTHRESHOLD;
    can also cause PCI bus starvation, especially in combination with other
    aggressive cards.  Please note that burst mode has no effect on CPU
    utilization / max number of calls / etc. */
-static int noburst = 0;
+static int noburst;
 /* For 56kbps links, set this module parameter to 0x7f */
 static int hardhdlcmode = 0xff;
 
@@ -1890,7 +1890,7 @@ static void set_span_devicetype(struct t4 *wc)
 */
 static unsigned int order_index[16];
 
-void setup_chunks(struct t4 *wc, int which)
+static void setup_chunks(struct t4 *wc, int which)
 {
 	struct t4_span *ts;
 	int offset = 1;
@@ -3273,13 +3273,13 @@ static inline void t4_framer_interrupt(struct t4 *wc, int span)
 		if (debug & DEBUG_FRAMER) printk(KERN_DEBUG "Received data length is %d (%d)\n", readsize, readsize & FRMR_RBCL_MAX_SIZE);
 		/* RPF isn't set on last part of frame */
 		if ((readsize > 0) && ((readsize &= FRMR_RBCL_MAX_SIZE) == 0))
-			readsize = 32;
+			readsize = FRMR_RBCL_MAX_SIZE + 1;
 	} else if (isr0 & FRMR_ISR0_RPF)
-		readsize = 32;
+		readsize = FRMR_RBCL_MAX_SIZE + 1;
 
 	if (readsize > 0) {
 		int i;
-		unsigned char readbuf[readsize];
+		unsigned char readbuf[FRMR_RBCL_MAX_SIZE + 1];
 
 		if (debug & DEBUG_FRAMER) printk(KERN_DEBUG "Framer %d: Got RPF/RME! readsize is %d\n", sigchan->span->offset, readsize);
 
@@ -4582,7 +4582,7 @@ static void __devexit t4_remove_one(struct pci_dev *pdev)
 	free_irq(pdev->irq, wc);
 	
 	if (wc->membase)
-		iounmap((void *)wc->membase);
+		iounmap(wc->membase);
 	
 	pci_release_regions(pdev);		
 	
