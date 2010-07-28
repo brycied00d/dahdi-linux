@@ -359,7 +359,7 @@ struct wcdte {
 	 * physical interface to the transcoding engine.  */
 	struct pci_dev *pdev;
 	unsigned int   intmask;
-	unsigned long  iobase;
+	void __iomem	*iobase;
 	struct wctc4xxp_descriptor_ring *txd;
 	struct wctc4xxp_descriptor_ring *rxd;
 
@@ -981,13 +981,14 @@ static inline int wctc4xxp_getcount(struct wctc4xxp_descriptor_ring *dr)
 static inline void
 __wctc4xxp_setctl(struct wcdte *wc, unsigned int addr, unsigned int val)
 {
-	outl(val, wc->iobase + addr);
+	writel(val, wc->iobase + addr);
+	readl(wc->iobase + addr);
 }
 
 static inline unsigned int
 __wctc4xxp_getctl(struct wcdte *wc, unsigned int addr)
 {
-	return inl(wc->iobase + addr);
+	return readl(wc->iobase + addr);
 }
 
 static inline void
@@ -3352,6 +3353,13 @@ wctc4xxp_add_to_device_list(struct wcdte *wc)
 	return pos;
 }
 
+static void wctc4xxp_remove_from_device_list(struct wcdte *wc)
+{
+	spin_lock(&wctc4xxp_list_lock);
+	list_del(&wc->node);
+	spin_unlock(&wctc4xxp_list_lock);
+}
+
 struct wctc4xxp_desc {
 	const char *short_name;
 	const char *long_name;
@@ -3396,11 +3404,20 @@ wctc4xxp_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 	position_on_list = wctc4xxp_add_to_device_list(wc);
 	snprintf(wc->board_name, sizeof(wc->board_name)-1, "%s%d",
 		d->short_name, position_on_list);
-	wc->iobase           = pci_resource_start(pdev, 0);
+	wc->iobase           = pci_iomap(pdev, 1, 0);
 	wc->pdev             = pdev;
 	wc->pos              = position_on_list;
 	wc->variety          = d->long_name;
 	wc->last_rx_seq_num  = -1;
+
+	if (!request_mem_region(pci_resource_start(pdev, 1),
+	    pci_resource_len(pdev, 1), wc->board_name)) {
+		dev_err(&pdev->dev, "IO Registers are in use by another "
+			"module.\n");
+		wctc4xxp_remove_from_device_list(wc);
+		kfree(wc);
+		return -EIO;
+	}
 
 	init_MUTEX(&wc->chansem);
 	spin_lock_init(&wc->reglock);
@@ -3417,18 +3434,13 @@ wctc4xxp_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 #endif
 	DTE_PRINTK(INFO, "Attached to device at %s.\n", pci_name(wc->pdev));
 
-	/* Keep track of whether we need to free the region */
-	if (!request_region(wc->iobase, 0xff, wc->board_name)) {
-		/* \todo put in error message. */
-		DTE_PRINTK(WARNING,
-		    "Failed to reserve the I/O ports for this device.\n");
-		return -EIO;
-	}
-
 	init_waitqueue_head(&wc->waitq);
 
 	if (pci_set_dma_mask(wc->pdev, DMA_BIT_MASK(32))) {
-		release_region(wc->iobase, 0xff);
+		release_mem_region(pci_resource_start(wc->pdev, 1),
+			pci_resource_len(wc->pdev, 1));
+		if (wc->iobase)
+			pci_iounmap(wc->pdev, wc->iobase);
 		DTE_PRINTK(WARNING, "No suitable DMA available.\n");
 		return -EIO;
 	}
@@ -3591,10 +3603,11 @@ error_exit_swinit:
 	kfree(wc->txd);
 	wctc4xxp_cleanup_descriptor_ring(wc->rxd);
 	kfree(wc->rxd);
-	release_region(wc->iobase, 0xff);
-	spin_lock(&wctc4xxp_list_lock);
-	list_del(&wc->node);
-	spin_unlock(&wctc4xxp_list_lock);
+	release_mem_region(pci_resource_start(wc->pdev, 1),
+		pci_resource_len(wc->pdev, 1));
+	if (wc->iobase)
+		pci_iounmap(wc->pdev, wc->iobase);
+	wctc4xxp_remove_from_device_list(wc);
 	kfree(wc);
 	return res;
 }
@@ -3620,9 +3633,7 @@ static void __devexit wctc4xxp_remove_one(struct pci_dev *pdev)
 	if (!wc)
 		return;
 
-	spin_lock(&wctc4xxp_list_lock);
-	list_del(&wc->node);
-	spin_unlock(&wctc4xxp_list_lock);
+	wctc4xxp_remove_from_device_list(wc);
 
 	set_bit(DTE_SHUTDOWN, &wc->flags);
 	if (del_timer_sync(&wc->watchdog))
@@ -3650,7 +3661,10 @@ static void __devexit wctc4xxp_remove_one(struct pci_dev *pdev)
 	dahdi_transcoder_unregister(wc->uencode);
 
 	/* Free Resources */
-	release_region(wc->iobase, 0xff);
+	release_mem_region(pci_resource_start(wc->pdev, 1),
+		pci_resource_len(wc->pdev, 1));
+	if (wc->iobase)
+		pci_iounmap(wc->pdev, wc->iobase);
 	wctc4xxp_cleanup_descriptor_ring(wc->txd);
 	kfree(wc->txd);
 	wctc4xxp_cleanup_descriptor_ring(wc->rxd);
