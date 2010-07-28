@@ -1,5 +1,4 @@
-/*
- * Wildcard TC400B Driver
+/* Wildcard TC400B Driver
  *
  * Copyright (C) 2006-2010, Digium, Inc.
  *
@@ -38,6 +37,8 @@
 #include <linux/udp.h>
 #include <linux/etherdevice.h>
 #include <linux/timer.h>
+
+#include <stdbool.h>
 
 #include "dahdi/kernel.h"
 
@@ -2217,19 +2218,18 @@ wctc4xxp_send_ack(struct wcdte *wc, u8 seqno, __be16 channel)
 	wctc4xxp_transmit_cmd(wc, cmd);
 }
 
-static void
-do_rx_response_packet(struct wcdte *wc, struct tcb *cmd)
+static bool do_rx_response_packet(struct wcdte *wc, struct tcb *cmd)
 {
 	const struct csm_encaps_hdr *listhdr, *rxhdr;
 	struct tcb *pos, *temp;
 	unsigned long flags;
-	u32 handled = 0;
+	bool handled = false;
 	rxhdr = cmd->data;
-	if (0xffff == rxhdr->channel) {
+	if (SUPERVISOR_CHANNEL == rxhdr->channel) {
 		/* We received a duplicate response. */
 		if (rxhdr->seq_num == wc->last_rx_seq_num) {
 			free_cmd(cmd);
-			return;
+			return false;
 		}
 		wc->last_rx_seq_num = rxhdr->seq_num;
 	}
@@ -2250,7 +2250,7 @@ do_rx_response_packet(struct wcdte *wc, struct tcb *cmd)
 			if (pos->flags & TX_COMPLETE)
 				complete(&pos->complete);
 			spin_unlock(&pos->lock);
-			handled = 1;
+			handled = true;
 
 			break;
 		}
@@ -2262,7 +2262,10 @@ do_rx_response_packet(struct wcdte *wc, struct tcb *cmd)
 			"Freeing unhandled response ch:(%04x)\n",
 			be16_to_cpu(rxhdr->channel));
 		free_cmd(cmd);
+		return false;
 	}
+
+	return true;
 }
 
 static void
@@ -2356,12 +2359,20 @@ receive_csm_encaps_packet(struct wcdte *wc, struct tcb *cmd)
 	const struct csm_encaps_hdr *hdr = cmd->data;
 
 	if (!(hdr->control & MESSAGE_PACKET)) {
-		if (!(hdr->control & SUPPRESS_ACK))
-			wctc4xxp_send_ack(wc, hdr->seq_num, hdr->channel);
-
+		const bool suppress_ack = ((hdr->control & SUPPRESS_ACK) > 0);
 		if (is_response(hdr)) {
-			do_rx_response_packet(wc, cmd);
+			u8 seq_num = hdr->seq_num;
+			__be16 channel = hdr->channel;
+
+			if (do_rx_response_packet(wc, cmd) && !suppress_ack)
+				wctc4xxp_send_ack(wc, seq_num, channel);
+
 		} else if (0xc1 == hdr->type) {
+			if (!suppress_ack) {
+				wctc4xxp_send_ack(wc, hdr->seq_num,
+						  hdr->channel);
+			}
+
 			if (0x75 == hdr->class) {
 				DTE_PRINTK(WARNING,
 				   "Received alert (0x%04x) from dsp\n",
@@ -2369,6 +2380,10 @@ receive_csm_encaps_packet(struct wcdte *wc, struct tcb *cmd)
 			}
 			free_cmd(cmd);
 		} else if (0xd4 == hdr->type) {
+			if (!suppress_ack) {
+				wctc4xxp_send_ack(wc, hdr->seq_num,
+						  hdr->channel);
+			}
 			if (hdr->params[0] != le16_to_cpu(0xffff)) {
 				DTE_PRINTK(WARNING,
 				   "DTE Failed self test (%04x).\n",
@@ -2384,10 +2399,18 @@ receive_csm_encaps_packet(struct wcdte *wc, struct tcb *cmd)
 			}
 			free_cmd(cmd);
 		} else if (MONITOR_LIVE_INDICATION_TYPE == hdr->type) {
+			if (!suppress_ack) {
+				wctc4xxp_send_ack(wc, hdr->seq_num,
+						  hdr->channel);
+			}
 			DTE_PRINTK(WARNING, "Received diagnostic message:\n");
 			print_command(wc, cmd);
 			free_cmd(cmd);
 		} else {
+			if (!suppress_ack) {
+				wctc4xxp_send_ack(wc, hdr->seq_num,
+						  hdr->channel);
+			}
 			DTE_PRINTK(WARNING,
 			  "Unknown command type received. %02x\n", hdr->type);
 			free_cmd(cmd);
