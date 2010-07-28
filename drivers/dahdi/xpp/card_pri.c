@@ -1686,7 +1686,7 @@ static int pri_rbsbits(struct dahdi_chan *chan, int bits)
 		XPD_DBG(SIGNAL, xpd, "RBS: TX: No layer1 yet. Keep going.\n");
 	}
 	if(!priv->is_cas) {
-		XPD_NOTICE(xpd, "RBS: TX: not in CAS mode. Ignore.\n");
+		XPD_DBG(SIGNAL, xpd, "RBS: TX: not in CAS mode. Ignore.\n");
 		return 0;
 	}
 	if (chan->sig == DAHDI_SIG_NONE) {
