@@ -4590,6 +4590,8 @@ static int dahdi_ctl_ioctl(struct file *file, unsigned int cmd, unsigned long da
 			spin_lock_irqsave(&spans[maint.spanno]->lock, flags);
 			break;
 		default:
+			spin_unlock_irqrestore(&spans[maint.spanno]->lock,
+					       flags);
 			module_printk(KERN_NOTICE,
 				      "Unknown maintenance event: %d\n",
 				      maint.command);
