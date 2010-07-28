@@ -99,6 +99,13 @@ typedef	unsigned gfp_t;		/* Added in 2.6.14 */
 #endif
 #endif
 
+
+/* define CONFIG_WCTC4XXP_POLLING to operate in a pure polling mode.  This is
+ * was placed in as a debugging tool for a particluar system that wasn't
+ * routing the interrupt properly. Therefore it is off by default and the
+ * driver must be recompiled to enable it. */
+#undef CONFIG_WCTC4XXP_POLLING
+
 /* The total number of active channels over which the driver will start polling
  * the card every 10 ms. */
 #define POLLING_CALL_THRESHOLD 40
@@ -1896,10 +1903,13 @@ wctc4xxp_operation_release(struct dahdi_transcoder_channel *dtc)
 #endif
 
 	atomic_dec(&wc->open_channels);
+
+#if !defined(CONFIG_WCTC4XXP_POLLING)
 	if (atomic_read(&wc->open_channels) < POLLING_CALL_THRESHOLD) {
 		if (test_bit(DTE_POLLING, &wc->flags))
 			wctc4xxp_disable_polling(wc);
 	}
+#endif
 
 	packets_received = atomic_read(&cpvt->stats.packets_received);
 	packets_sent = atomic_read(&cpvt->stats.packets_sent);
@@ -2868,6 +2878,10 @@ wctc4xxp_load_firmware(struct wcdte *wc, const struct firmware *firmware)
 	if (!cmd)
 		return -ENOMEM;
 
+#if defined(CONFIG_WCTC4XXP_POLLING)
+	wctc4xxp_enable_polling(wc);
+#endif
+
 	while (byteloc < (firmware->size-20)) {
 		last_byteloc = byteloc;
 		length = (firmware->data[byteloc] << 8) |
@@ -2883,14 +2897,24 @@ wctc4xxp_load_firmware(struct wcdte *wc, const struct firmware *firmware)
 		if (cmd->flags & DTE_CMD_TIMEOUT) {
 			free_cmd(cmd);
 			DTE_PRINTK(ERR, "Failed to load firmware.\n");
+#if defined(CONFIG_WCTC4XXP_POLLING)
+			wctc4xxp_disable_polling(wc);
+#endif
 			return -EIO;
 		}
 	}
 	free_cmd(cmd);
 	if (!wait_event_timeout(wc->waitq, wctc4xxp_is_ready(wc), 15*HZ)) {
 		DTE_PRINTK(ERR, "Failed to boot firmware.\n");
+#if defined(CONFIG_WCTC4XXP_POLLING)
+		wctc4xxp_disable_polling(wc);
+#endif
 		return -EIO;
 	}
+
+#if defined(CONFIG_WCTC4XXP_POLLING)
+	wctc4xxp_disable_polling(wc);
+#endif
 	return 0;
 }
 
@@ -3567,6 +3591,9 @@ wctc4xxp_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 	if (res)
 		goto error_exit_hwinit;
 
+#if defined(CONFIG_WCTC4XXP_POLLING)
+	wctc4xxp_enable_polling(wc);
+#endif
 	res = wctc4xxp_setup_channels(wc);
 	if (res)
 		goto error_exit_hwinit;
@@ -3589,6 +3616,9 @@ wctc4xxp_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 	return 0;
 
 error_exit_hwinit:
+#if defined(CONFIG_WCTC4XXP_POLLING)
+	wctc4xxp_disable_polling(wc);
+#endif
 	wctc4xxp_stop_dma(wc);
 	wctc4xxp_cleanup_command_list(wc);
 	free_irq(pdev->irq, wc);
