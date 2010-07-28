@@ -1,7 +1,7 @@
 /*
  * Wildcard TC400B Driver
  *
- * Copyright (C) 2006-2009, Digium, Inc.
+ * Copyright (C) 2006-2010, Digium, Inc.
  *
  * All rights reserved.
  *
@@ -2038,6 +2038,8 @@ wctc4xxp_read(struct file *file, char __user *frame, size_t count, loff_t *ppos)
 	struct tcb *cmd;
 	struct rtp_packet *packet;
 	ssize_t payload_bytes;
+	ssize_t returned_bytes = 0;
+	unsigned long flags;
 
 	BUG_ON(!dtc);
 	BUG_ON(!cpvt);
@@ -2050,48 +2052,64 @@ wctc4xxp_read(struct file *file, char __user *frame, size_t count, loff_t *ppos)
 
 	cmd = get_ready_cmd(dtc);
 	if (!cmd) {
-		if (file->f_flags & O_NONBLOCK) {
+		if (file->f_flags & O_NONBLOCK)
 			return -EAGAIN;
-		} else {
-			ret = wait_event_interruptible(dtc->ready,
+		ret = wait_event_interruptible(dtc->ready,
 				dahdi_tc_is_data_waiting(dtc));
-			if (-ERESTARTSYS == ret) {
-				/* Signal interrupted the wait */
-				return -EINTR;
-			} else {
-				/* List went not empty. */
-				cmd = get_ready_cmd(dtc);
+		if (-ERESTARTSYS == ret)
+			return -EINTR;
+		/* List went not empty. */
+		cmd = get_ready_cmd(dtc);
+	}
+
+	do {
+		BUG_ON(!cmd);
+		packet = cmd->data;
+
+		payload_bytes = be16_to_cpu(packet->udphdr.len) -
+					sizeof(struct rtphdr) -
+					sizeof(struct udphdr);
+
+		if (count < (payload_bytes + returned_bytes)) {
+			if (returned_bytes) {
+				/* If we have already returned at least one
+				 * packets worth of data, we'll add this next
+				 * packet to the head of the receive queue so
+				 * it will be picked up next time. */
+				spin_lock_irqsave(&cpvt->lock, flags);
+				list_add(&cmd->node, &cpvt->rx_queue);
+				dahdi_tc_set_data_waiting(dtc);
+				spin_unlock_irqrestore(&cpvt->lock, flags);
+				return returned_bytes;
 			}
+
+			if (printk_ratelimit()) {
+				DTE_PRINTK(ERR,
+				  "Cannot copy %zd bytes into %zd byte user " \
+				  "buffer.\n", payload_bytes, count);
+			}
+			free_cmd(cmd);
+			return -EFBIG;
 		}
-	}
 
-	BUG_ON(!cmd);
-	packet = cmd->data;
+		atomic_inc(&cpvt->stats.packets_received);
 
-	payload_bytes = be16_to_cpu(packet->udphdr.len) -
-		sizeof(struct rtphdr) - sizeof(struct udphdr);
-
-	if (count < payload_bytes) {
-		if (printk_ratelimit()) {
-			DTE_PRINTK(ERR,
-			  "Cannot copy %zd bytes into %zd byte user " \
-			  "buffer.\n", payload_bytes, count);
+		ret = copy_to_user(&frame[returned_bytes],
+				   &packet->payload[0], payload_bytes);
+		if (unlikely(ret)) {
+			DTE_PRINTK(ERR, "Failed to copy data in %s\n",
+				   __func__);
+			free_cmd(cmd);
+			return -EFAULT;
 		}
+
+		returned_bytes += payload_bytes;
+
 		free_cmd(cmd);
-		return -EFBIG;
-	}
 
-	atomic_inc(&cpvt->stats.packets_received);
+	} while ((cmd = get_ready_cmd(dtc)));
 
-	if (unlikely(copy_to_user(frame, &packet->payload[0], payload_bytes))) {
-		DTE_PRINTK(ERR, "Failed to copy data in %s\n", __func__);
-		free_cmd(cmd);
-		return -EFAULT;
-	}
-
-	free_cmd(cmd);
-
-	return payload_bytes;
+	return returned_bytes;
 }
 
 /* Called with a frame in the srcfmt to be transcoded into the dstfmt. */
