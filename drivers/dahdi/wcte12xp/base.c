@@ -1320,7 +1320,7 @@ static int t1xxp_ioctl(struct dahdi_chan *chan, unsigned int cmd, unsigned long 
 		for (x = 0; x < sizeof(regs.regs) / sizeof(regs.regs[0]); x++)
 			regs.regs[x] = t1_getreg(wc, x);
 
-		if (copy_to_user((struct t4_regs *) data, &regs, sizeof(regs)))
+		if (copy_to_user((void __user *) data, &regs, sizeof(regs)))
 			return -EFAULT;
 		break;
 	default:
