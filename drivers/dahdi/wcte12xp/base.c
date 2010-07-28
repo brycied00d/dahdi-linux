@@ -658,7 +658,7 @@ static inline int t1_getpins(struct t1 *wc, int inisr)
 
 static void __t1xxp_set_clear(struct t1 *wc)
 {
-	int i,offset;
+	int i, offset;
 	int ret;
 	unsigned short reg[3] = {0, 0, 0};
 
@@ -1313,13 +1313,13 @@ static int t1xxp_ioctl(struct dahdi_chan *chan, unsigned int cmd, unsigned long 
 	struct t4_regs regs;
 	unsigned int x;
 	struct t1 *wc;
-	
+
 	switch (cmd) {
 	case WCT4_GET_REGS:
 		wc = chan->pvt;
 		for (x = 0; x < sizeof(regs.regs) / sizeof(regs.regs[0]); x++)
 			regs.regs[x] = t1_getreg(wc, x);
-		
+
 		if (copy_to_user((struct t4_regs *) data, &regs, sizeof(regs)))
 			return -EFAULT;
 		break;
