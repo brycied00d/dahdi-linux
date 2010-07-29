@@ -741,6 +741,8 @@ static int dahdi_proc_read(char *page, char **start, off_t off, int count, int *
 					len += snprintf(page+len, count-len,
 							"Master ");
 			}
+		} else if (!chan->sigcap) {
+			len += snprintf(page+len, count-len, "Reserved ");
 		}
 
 		if (test_bit(DAHDI_FLAGBIT_OPEN, &chan->flags))
