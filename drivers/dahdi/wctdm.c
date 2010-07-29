@@ -468,11 +468,10 @@ static inline void __write_8bits(struct wctdm *wc, unsigned char bits)
 	outb(wc->ios, wc->ioaddr + WC_AUXD);
 	for (x=0;x<8;x++) {
 		/* Send out each bit, MSB first, drop SCLK as we do so */
-		if (bits & 0x80) {
+		if (bits & 0x80)
 			wc->ios |= BIT_SDI;
-		} else {
+		else
 			wc->ios &= ~BIT_SDI;
-		}
 		wc->ios &= ~BIT_SCLK;
 		outb(wc->ios, wc->ioaddr + WC_AUXD);
 
