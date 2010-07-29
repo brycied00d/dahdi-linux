@@ -1480,10 +1480,46 @@ static inline int check_and_load_vpm(const struct t1 *wc)
 }
 #endif
 
+static void t1_chan_set_sigcap(struct dahdi_span *span, int x)
+{
+	struct t1 *wc = container_of(span, struct t1, span);
+	struct dahdi_chan *chan = wc->chans[x];
+	chan->sigcap = DAHDI_SIG_CLEAR;
+	/* E&M variant supported depends on span type */
+	if (wc->spantype == TYPE_E1) {
+		/* E1 sigcap setup */
+		if (span->lineconfig & DAHDI_CONFIG_CCS) {
+			/* CCS setup */
+			chan->sigcap |= DAHDI_SIG_MTP2 | DAHDI_SIG_SF;
+			return;
+		}
+		/* clear out sig and sigcap for channel 16 on E1 CAS
+		 * lines, otherwise, set it correctly */
+		if (x == 15) {
+			/* CAS signaling channel setup */
+			wc->chans[15]->sigcap = 0;
+			wc->chans[15]->sig = 0;
+			return;
+		}
+		/* normal CAS setup */
+		chan->sigcap |= DAHDI_SIG_EM_E1 | DAHDI_SIG_FXSLS |
+			DAHDI_SIG_FXSGS | DAHDI_SIG_FXSKS | DAHDI_SIG_SF |
+			DAHDI_SIG_FXOLS | DAHDI_SIG_FXOGS | DAHDI_SIG_FXOKS |
+			DAHDI_SIG_CAS | DAHDI_SIG_DACS_RBS;
+	} else {
+		/* T1 sigcap setup */
+		chan->sigcap |= DAHDI_SIG_EM | DAHDI_SIG_FXSLS |
+			DAHDI_SIG_FXSGS | DAHDI_SIG_FXSKS | DAHDI_SIG_MTP2 |
+			DAHDI_SIG_SF | DAHDI_SIG_FXOLS | DAHDI_SIG_FXOGS |
+			DAHDI_SIG_FXOKS | DAHDI_SIG_CAS | DAHDI_SIG_DACS_RBS;
+	}
+}
+
 static int
 t1xxp_spanconfig(struct dahdi_span *span, struct dahdi_lineconfig *lc)
 {
 	struct t1 *wc = container_of(span, struct t1, span);
+	int i;
 
 	/* Do we want to SYNC on receive or not */
 	if (lc->sync) {
@@ -1493,6 +1529,10 @@ t1xxp_spanconfig(struct dahdi_span *span, struct dahdi_lineconfig *lc)
 		clear_bit(7, &wc->ctlreg);
 		span->syncsrc = 0;
 	}
+
+	/* make sure that sigcaps gets updated if necessary */
+	for (i = 0; i < wc->span.channels; i++)
+		t1_chan_set_sigcap(span, i);
 
 	/* If already running, apply changes immediately */
 	if (test_bit(DAHDI_FLAGBIT_RUNNING, &span->flags))
@@ -1554,12 +1594,14 @@ static int t1_software_init(struct t1 *wc)
 		else
 			wc->span.channels = 31;
 		wc->span.spantype = "E1";
-		wc->span.linecompat = DAHDI_CONFIG_HDB3 | DAHDI_CONFIG_CCS | DAHDI_CONFIG_CRC4;
+		wc->span.linecompat = DAHDI_CONFIG_AMI | DAHDI_CONFIG_HDB3 |
+			DAHDI_CONFIG_CCS | DAHDI_CONFIG_CRC4;
 		wc->span.deflaw = DAHDI_LAW_ALAW;
 	} else {
 		wc->span.channels = 24;
 		wc->span.spantype = "T1";
-		wc->span.linecompat = DAHDI_CONFIG_AMI | DAHDI_CONFIG_B8ZS | DAHDI_CONFIG_D4 | DAHDI_CONFIG_ESF;
+		wc->span.linecompat = DAHDI_CONFIG_AMI | DAHDI_CONFIG_B8ZS |
+			DAHDI_CONFIG_D4 | DAHDI_CONFIG_ESF;
 		wc->span.deflaw = DAHDI_LAW_MULAW;
 	}
 	wc->span.chans = wc->chans;
@@ -1567,10 +1609,7 @@ static int t1_software_init(struct t1 *wc)
 	init_waitqueue_head(&wc->span.maintq);
 	for (x = 0; x < wc->span.channels; x++) {
 		sprintf(wc->chans[x]->name, "WCT1/%d/%d", num, x + 1);
-		wc->chans[x]->sigcap = DAHDI_SIG_EM | DAHDI_SIG_CLEAR | DAHDI_SIG_EM_E1 | 
-				      DAHDI_SIG_FXSLS | DAHDI_SIG_FXSGS | DAHDI_SIG_MTP2 |
-				      DAHDI_SIG_FXSKS | DAHDI_SIG_FXOLS | DAHDI_SIG_DACS_RBS |
-				      DAHDI_SIG_FXOGS | DAHDI_SIG_FXOKS | DAHDI_SIG_CAS | DAHDI_SIG_SF;
+		t1_chan_set_sigcap(&wc->span, x);
 		wc->chans[x]->pvt = wc;
 		wc->chans[x]->chanpos = x + 1;
 	}
