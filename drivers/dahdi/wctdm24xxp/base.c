@@ -4115,7 +4115,7 @@ retry:
 			} else if (is_hx8(wc) && !wctdm_init_b400m(wc, x)) {
 				wc->modmap |= (1 << x);
 				dev_info(&wc->vb.pdev->dev,
-					 "Port %d: Installed -- XHFC "
+					 "Port %d: Installed -- BRI "
 					 "quad-span module\n", x + 1);
 			} else {
 				if ((wc->desc->ports != 24) && ((x & 0x3) == 1) && !wc->altcs[x]) {
@@ -5156,13 +5156,13 @@ MODULE_PARM_DESC(timingcable, "Set to 1 for enabling timing cable.  This means t
 module_param(forceload, int, 0600);
 MODULE_PARM_DESC(forceload, "Set to 1 in order to force an FPGA reload after power on (currently only for HA8/HB8 cards).");
 
-MODULE_DESCRIPTION("Wildcard VoiceBus Analog Card Driver");
+MODULE_DESCRIPTION("VoiceBus Driver for Wildcard Analog and Hybrid Cards");
 MODULE_AUTHOR("Digium Incorporated <support@digium.com>");
 MODULE_ALIAS("wctdm8xxp");
 MODULE_ALIAS("wctdm4xxp");
 MODULE_ALIAS("wcaex24xx");
 MODULE_ALIAS("wcaex8xx");
-MODULE_ALIAS("wcaex8xx");
+MODULE_ALIAS("wcaex4xx");
 MODULE_LICENSE("GPL v2");
 
 module_init(wctdm_init);
