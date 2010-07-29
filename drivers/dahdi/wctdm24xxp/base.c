@@ -4899,10 +4899,10 @@ __wctdm_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 	wc->initialized = 1;
 
 	dev_info(&wc->vb.pdev->dev,
-		 "Found a Wildcard TDM: %s (%d digital %s, %d analog %s)\n",
-		 wc->desc->name, digimods,
-		 (digimods == 1) ? "module" : "modules", anamods,
-		 (anamods == 1) ? "module" : "modules");
+		 "Found a %s: %s (%d BRI spans, %d analog %s)\n",
+		 (is_hx8(wc)) ? "Hybrid card" : "Wildcard TDM",
+		 wc->desc->name, digimods*4, anamods,
+		 (anamods == 1) ? "channel" : "channels");
 	ret = 0;
 
 	voicebus_unlock_latency(&wc->vb);
@@ -4995,7 +4995,8 @@ static void __devexit wctdm_remove_one(struct pci_dev *pdev)
 			wc->vpmadt032 = NULL;
 		}
 
-		dev_info(&wc->vb.pdev->dev, "Freed a Wildcard\n");
+		dev_info(&wc->vb.pdev->dev, "Freed a %s\n",
+				(is_hx8(wc)) ? "Hybrid card" : "Wildcard");
 		/* Release span */
 		wctdm_release(wc);
 	}
