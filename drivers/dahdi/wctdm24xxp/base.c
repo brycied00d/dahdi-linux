@@ -4813,6 +4813,13 @@ __wctdm_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 			++curspan;
 			continue;
 		} else if (wc->modtype[i] == MOD_TYPE_BRI) {
+			if (!is_hx8(wc)) {
+				dev_info(&wc->vb.pdev->dev, "Digital modules "
+					"detected on a non-hybrid card. "
+					"This is unsupported.\n");
+				wctdm_back_out_gracefully(wc);
+				return -EIO;
+			}
 			wc->spans[curspan] = wctdm_init_span(wc, curspan, curchan, 3, 1);
 			if (!wc->spans[curspan]) {
 				wctdm_back_out_gracefully(wc);
