@@ -3762,7 +3762,9 @@ static int wctdm_vpm_init(struct wctdm *wc)
 		if (debug & DEBUG_ECHOCAN)
 			dev_info(&wc->vb.pdev->dev, "VPM100: Chip %d: ver %02x\n", x, ver);
 		if (ver != 0x33) {
-			dev_info(&wc->vb.pdev->dev, "VPM100: %s\n", x ? "Inoperable" : "Not Present");
+			if (x)
+				dev_info(&wc->vb.pdev->dev,
+						"VPM100: Inoperable\n");
 			wc->vpm100 = 0;
 			return -ENODEV;
 		}	
@@ -4466,6 +4468,9 @@ static int hx8_reload_application(struct wctdm *wc, const struct ha80000_firmwar
 	u8 status;
 	int ret = 0;
 	const int HYBRID_PAGE_COUNT = (sizeof(ha8_fw->data)) / HYBRID_PAGE_SIZE;
+
+	dev_info(&wc->vb.pdev->dev, "Reloading firmware. Do not power down "
+			"the system until the process is complete.\n");
 
 	BUG_ON(!ha8_fw);
 	might_sleep();
