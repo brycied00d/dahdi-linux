@@ -174,7 +174,6 @@ static int timingcable = 0;
 static int t1e1override = -1;  /* 0xff for E1, 0x00 for T1 */
 static int j1mode = 0;
 static int sigmode = FRMR_MODE_NO_ADDR_CMP;
-static int loopback = 0;
 static int alarmdebounce = 2500; /* LOF/LFA def to 2.5s AT&T TR54016*/
 static int losalarmdebounce = 2500;/* LOS def to 2.5s AT&T TR54016*/
 static int aisalarmdebounce = 2500;/* AIS(blue) def to 2.5s AT&T TR54016*/
@@ -2381,8 +2380,6 @@ static void __t4_configure_t1(struct t4 *wc, int unit, int lineconfig, int txlev
 		mytxlevel = txlevel - 4;
 	fmr1 = 0x9c; /* FMR1: Mode 1, T1 mode, CRC on for ESF, 8.192 Mhz system data rate, no XAIS */
 	fmr2 = 0x20; /* FMR2: no payload loopback, don't auto yellow */
-	if (loopback)
-		fmr2 |= 0x4;
 	fmr4 = 0x0c; /* FMR4: Lose sync on 2 out of 5 framing bits, auto resync */
 	lim2 = 0x21; /* LIM2: 50% peak is a "1", Advanced Loss recovery */
 	lim2 |= (mytxlevel << 6);	/* LIM2: Add line buildout */
@@ -2474,8 +2471,6 @@ static void __t4_configure_e1(struct t4 *wc, int unit, int lineconfig)
 	char *framing, *line;
 	fmr1 = 0x44; /* FMR1: E1 mode, Automatic force resync, PCM30 mode, 8.192 Mhz backplane, no XAIS */
 	fmr2 = 0x03; /* FMR2: Auto transmit remote alarm, auto loss of multiframe recovery, no payload loopback */
-	if (loopback)
-		fmr2 |= 0x4;
 	if (lineconfig & DAHDI_CONFIG_CRC4) {
 		fmr1 |= 0x08;	/* CRC4 transmit */
 		fmr2 |= 0xc0;	/* CRC4 receive */
@@ -4868,7 +4863,6 @@ MODULE_LICENSE("GPL v2");
 
 module_param(pedanticpci, int, 0600);
 module_param(debug, int, 0600);
-module_param(loopback, int, 0600);
 module_param(noburst, int, 0600);
 module_param(timingcable, int, 0600);
 module_param(t1e1override, int, 0600);

@@ -61,7 +61,6 @@ static int alarmdebounce = 2500; /* LOF/LFA def to 2.5s AT&T TR54016*/
 static int losalarmdebounce = 2500; /* LOS def to 2.5s AT&T TR54016*/
 static int aisalarmdebounce = 2500; /* AIS(blue) def to 2.5s AT&T TR54016*/
 static int yelalarmdebounce = 500; /* RAI(yellow) def to 0.5s AT&T devguide */
-static int loopback = 0;
 static int t1e1override = -1;
 static int unchannelized = 0;
 static int latency = VOICEBUS_DEFAULT_LATENCY;
@@ -776,8 +775,6 @@ static void t1_configure_t1(struct t1 *wc, int lineconfig, int txlevel)
 		mytxlevel = txlevel - 4;
 	fmr1 = 0x9e; /* FMR1: Mode 0, T1 mode, CRC on for ESF, 2.048 Mhz system data rate, no XAIS */
 	fmr2 = 0x20; /* FMR2: no payload loopback, don't auto yellow alarm */
-	if (loopback)
-		fmr2 |= 0x4;
 
 	if (j1mode)
 		fmr4 = 0x1c;
@@ -861,8 +858,6 @@ static void t1_configure_e1(struct t1 *wc, int lineconfig)
 	fmr2 = 0x03; /* FMR2: Auto transmit remote alarm, auto loss of multiframe recovery, no payload loopback */
 	if (unchannelized)
 		fmr2 |= 0x30;
-	if (loopback)
-		fmr2 |= 0x4;
 	if (lineconfig & DAHDI_CONFIG_CRC4) {
 		fmr1 |= 0x08;	/* CRC4 transmit */
 		fmr2 |= 0xc0;	/* CRC4 receive */
@@ -2380,7 +2375,6 @@ static void __exit te12xp_cleanup(void)
 }
 
 module_param(debug, int, S_IRUGO | S_IWUSR);
-module_param(loopback, int, S_IRUGO | S_IWUSR);
 module_param(t1e1override, int, S_IRUGO | S_IWUSR);
 module_param(j1mode, int, S_IRUGO | S_IWUSR);
 module_param(alarmdebounce, int, S_IRUGO | S_IWUSR);
