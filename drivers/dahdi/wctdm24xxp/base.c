@@ -1805,12 +1805,74 @@ static inline void wctdm_voicedaa_check_hook(struct wctdm *wc, int card)
 #undef MS_PER_CHECK_HOOK
 }
 
+static void wctdm_fxs_hooksig(struct wctdm *wc, const int card, enum dahdi_txsig txsig)
+{
+	int x = 0;
+	unsigned long flags;
+	struct fxs *const fxs = &wc->mods[card].fxs;
+	spin_lock_irqsave(&fxs->lasttxhooklock, flags);
+	switch (txsig) {
+	case DAHDI_TXSIG_ONHOOK:
+		switch (wc->aspan->span.chans[card]->sig) {
+		case DAHDI_SIG_EM:
+		case DAHDI_SIG_FXOKS:
+		case DAHDI_SIG_FXOLS:
+			x = fxs->idletxhookstate;
+			break;
+		case DAHDI_SIG_FXOGS:
+			x = (POLARITY_XOR(card)) ?
+					SLIC_LF_RING_OPEN :
+					SLIC_LF_TIP_OPEN;
+			break;
+		}
+		break;
+	case DAHDI_TXSIG_OFFHOOK:
+		switch (wc->aspan->span.chans[card]->sig) {
+		case DAHDI_SIG_EM:
+			x = (POLARITY_XOR(card)) ?
+					SLIC_LF_ACTIVE_FWD :
+					SLIC_LF_ACTIVE_REV;
+			break;
+		default:
+			x = fxs->idletxhookstate;
+			break;
+		}
+		break;
+	case DAHDI_TXSIG_START:
+		x = SLIC_LF_RINGING;
+		break;
+	case DAHDI_TXSIG_KEWL:
+		x = SLIC_LF_OPEN;
+		break;
+	default:
+		spin_unlock_irqrestore(&fxs->lasttxhooklock, flags);
+		dev_notice(&wc->vb.pdev->dev,
+			"wctdm24xxp: Can't set tx state to %d\n", txsig);
+		return;
+	}
+
+	if (x != fxs->lasttxhook) {
+		fxs->lasttxhook = x | SLIC_LF_OPPENDING;
+		wc->sethook[card] = CMD_WR(LINE_STATE, fxs->lasttxhook);
+		spin_unlock_irqrestore(&fxs->lasttxhooklock, flags);
+
+		if (debug & DEBUG_CARD) {
+			dev_info(&wc->vb.pdev->dev, "Setting FXS hook state "
+				 "to %d (%02x) intcount=%d\n", txsig, x,
+				 wc->intcount);
+		}
+	} else {
+		spin_unlock_irqrestore(&fxs->lasttxhooklock, flags);
+	}
+}
+
 static void wctdm_fxs_off_hook(struct wctdm *wc, const int card)
 {
 	struct fxs *const fxs = &wc->mods[card].fxs;
 
 	if (debug & DEBUG_CARD)
-		dev_info(&wc->vb.pdev->dev, "wctdm: Card %d Going off hook\n", card);
+		dev_info(&wc->vb.pdev->dev,
+			"fxs_off_hook: Card %d Going off hook\n", card);
 	switch (fxs->lasttxhook) {
 	case SLIC_LF_RINGING:		/* Ringing */
 	case SLIC_LF_OHTRAN_FWD:	/* Forward On Hook Transfer */
@@ -1821,7 +1883,9 @@ static void wctdm_fxs_off_hook(struct wctdm *wc, const int card)
 						SLIC_LF_ACTIVE_FWD;
 		break;
 	}
+	wctdm_fxs_hooksig(wc, card, DAHDI_TXSIG_OFFHOOK);
 	dahdi_hooksig(wc->aspan->span.chans[card], DAHDI_RXSIG_OFFHOOK);
+
 #ifdef DEBUG
 	if (robust)
 		wctdm_init_proslic(wc, card, 1, 0, 1);
@@ -1833,7 +1897,9 @@ static void wctdm_fxs_on_hook(struct wctdm *wc, const int card)
 {
 	struct fxs *const fxs = &wc->mods[card].fxs;
 	if (debug & DEBUG_CARD)
-		dev_info(&wc->vb.pdev->dev, "wctdm: Card %d Going on hook\n", card);
+		dev_info(&wc->vb.pdev->dev,
+			"fxs_on_hook: Card %d Going on hook\n", card);
+	wctdm_fxs_hooksig(wc, card, DAHDI_TXSIG_ONHOOK);
 	dahdi_hooksig(wc->aspan->span.chans[card], DAHDI_RXSIG_ONHOOK);
 	fxs->oldrxhook = 0;
 }
@@ -3237,29 +3303,33 @@ static int wctdm_ioctl(struct dahdi_chan *chan, unsigned int cmd, unsigned long 
 			fxs->idletxhookstate |= SLIC_LF_REVMASK;
 			x = fxs->lasttxhook & SLIC_LF_SETMASK;
 			x |= SLIC_LF_REVMASK;
-			x = set_lasttxhook_interruptible(fxs, x, &wc->sethook[chan->chanpos - 1]);
-			if ((debug & DEBUG_CARD) && x) {
-				dev_info(&wc->vb.pdev->dev,
-					 "Channel %d TIMEOUT: Set Reverse "
-					 "Polarity\n", chan->chanpos - 1);
-			} else if (debug & DEBUG_CARD) {
-				dev_info(&wc->vb.pdev->dev,
-					 "Channel %d Set Reverse Polarity\n",
-					 chan->chanpos - 1);
+			if (x != fxs->lasttxhook) { 
+				x = set_lasttxhook_interruptible(fxs, x, &wc->sethook[chan->chanpos - 1]);
+				if ((debug & DEBUG_CARD) && x) {
+					dev_info(&wc->vb.pdev->dev,
+						 "Channel %d TIMEOUT: Set Reverse "
+						 "Polarity\n", chan->chanpos - 1);
+				} else if (debug & DEBUG_CARD) {
+					dev_info(&wc->vb.pdev->dev,
+						 "Channel %d Set Reverse Polarity\n",
+						 chan->chanpos - 1);
+				}
 			}
 		} else {
 			fxs->idletxhookstate &= ~SLIC_LF_REVMASK;
 			x = fxs->lasttxhook & SLIC_LF_SETMASK;
 			x &= ~SLIC_LF_REVMASK;
-			x = set_lasttxhook_interruptible(fxs, x, &wc->sethook[chan->chanpos - 1]);
-			if ((debug & DEBUG_CARD) & x) {
-				dev_info(&wc->vb.pdev->dev,
-					 "Channel %d TIMEOUT: Set Normal "
-					 "Polarity\n", chan->chanpos - 1);
-			} else if (debug & DEBUG_CARD) {
-				dev_info(&wc->vb.pdev->dev,
-					 "Channel %d Set Normal Polarity\n",
-					 chan->chanpos - 1);
+			if (x != fxs->lasttxhook) { 
+				x = set_lasttxhook_interruptible(fxs, x, &wc->sethook[chan->chanpos - 1]);
+				if ((debug & DEBUG_CARD) & x) {
+					dev_info(&wc->vb.pdev->dev,
+						 "Channel %d TIMEOUT: Set Normal "
+						 "Polarity\n", chan->chanpos - 1);
+				} else if (debug & DEBUG_CARD) {
+					dev_info(&wc->vb.pdev->dev,
+						 "Channel %d Set Normal Polarity\n",
+						 chan->chanpos - 1);
+				}
 			}
 		}
 		break;
@@ -3527,60 +3597,7 @@ static int wctdm_hooksig(struct dahdi_chan *chan, enum dahdi_txsig txsig)
 			dev_notice(&wc->vb.pdev->dev, "wctdm24xxp: Can't set tx state to %d\n", txsig);
 		}
 	} else if (wc->modtype[chan->chanpos - 1] == MOD_TYPE_FXS) {
-		int x = 0;
-		unsigned long flags;
-		struct fxs *const fxs = &wc->mods[chan->chanpos - 1].fxs;
-		spin_lock_irqsave(&fxs->lasttxhooklock, flags);
-		switch(txsig) {
-		case DAHDI_TXSIG_ONHOOK:
-			switch(chan->sig) {
-			case DAHDI_SIG_EM:
-			case DAHDI_SIG_FXOKS:
-			case DAHDI_SIG_FXOLS:
-				x = fxs->idletxhookstate;
-				break;
-			case DAHDI_SIG_FXOGS:
-				if (POLARITY_XOR(chan->chanpos -1)) {
-					x = SLIC_LF_RING_OPEN;
-				} else {
-					x = SLIC_LF_TIP_OPEN;
-				}
-				break;
-			}
-			break;
-		case DAHDI_TXSIG_OFFHOOK:
-			switch(chan->sig) {
-			case DAHDI_SIG_EM:
-				x = (POLARITY_XOR(chan->chanpos - 1)) ?
-						SLIC_LF_ACTIVE_FWD :
-						SLIC_LF_ACTIVE_REV;
-				break;
-			default:
-				x = fxs->idletxhookstate;
-				break;
-			}
-			break;
-		case DAHDI_TXSIG_START:
-			x = SLIC_LF_RINGING;
-			break;
-		case DAHDI_TXSIG_KEWL:
-			x = SLIC_LF_OPEN;
-			break;
-		default:
-			spin_unlock_irqrestore(&fxs->lasttxhooklock, flags);
-			dev_notice(&wc->vb.pdev->dev, "wctdm24xxp: Can't set tx state to %d\n", txsig);
-			return 0;
-		}
-
-		fxs->lasttxhook = x | SLIC_LF_OPPENDING;
-		wc->sethook[chan->chanpos - 1] = CMD_WR(LINE_STATE, fxs->lasttxhook);
-		spin_unlock_irqrestore(&fxs->lasttxhooklock, flags);
-		if (debug & DEBUG_CARD) {
-			dev_info(&wc->vb.pdev->dev, "Setting FXS hook state "
-				 "to %d (%02x) intcount=%d\n", txsig, x,
-				 wc->intcount);
-		}
-	} else {
+		wctdm_fxs_hooksig(wc, chan->chanpos - 1, txsig);
 	}
 	return 0;
 }
