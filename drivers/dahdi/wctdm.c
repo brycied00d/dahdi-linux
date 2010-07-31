@@ -1004,6 +1004,63 @@ static inline void wctdm_voicedaa_check_hook(struct wctdm *wc, int card)
 #undef MS_PER_CHECK_HOOK
 }
 
+static void wctdm_fxs_hooksig(struct wctdm *wc, const int card, enum dahdi_txsig txsig)
+{
+	struct fxs *const fxs = &wc->mod[card].fxs;
+	switch (txsig) {
+	case DAHDI_TXSIG_ONHOOK:
+		switch (wc->span.chans[card]->sig) {
+		case DAHDI_SIG_FXOKS:
+		case DAHDI_SIG_FXOLS:
+			/* Can't change Ring Generator during OHT */
+			if (!fxs->ohttimer) {
+				wctdm_set_ring_generator_mode(wc,
+					    card, fxs->vmwi_hvac);
+				fxs->lasttxhook = fxs->vmwi_hvac ?
+						SLIC_LF_RINGING :
+						fxs->idletxhookstate;
+			} else {
+				fxs->lasttxhook = fxs->idletxhookstate;
+			}
+			break;
+		case DAHDI_SIG_EM:
+			fxs->lasttxhook = fxs->idletxhookstate;
+			break;
+		case DAHDI_SIG_FXOGS:
+			fxs->lasttxhook = SLIC_LF_TIP_OPEN;
+			break;
+		}
+		break;
+	case DAHDI_TXSIG_OFFHOOK:
+		switch (wc->span.chans[card]->sig) {
+		case DAHDI_SIG_EM:
+			fxs->lasttxhook = SLIC_LF_ACTIVE_REV;
+			break;
+		default:
+			fxs->lasttxhook = fxs->idletxhookstate;
+			break;
+		}
+		break;
+	case DAHDI_TXSIG_START:
+		/* Set ringer mode */
+		wctdm_set_ring_generator_mode(wc, card, 0);
+		fxs->lasttxhook = SLIC_LF_RINGING;
+		break;
+	case DAHDI_TXSIG_KEWL:
+		fxs->lasttxhook = SLIC_LF_OPEN;
+		break;
+	default:
+		printk(KERN_NOTICE "wctdm: Can't set tx state to %d\n", txsig);
+		return;
+	}
+	if (debug) {
+		printk(KERN_DEBUG
+		       "Setting FXS hook state to %d (%02x)\n",
+		       txsig, fxs->lasttxhook);
+	}
+	wctdm_setreg(wc, card, LINE_STATE, fxs->lasttxhook);
+}
+
 static inline void wctdm_proslic_check_hook(struct wctdm *wc, int card)
 {
 	struct fxs *const fxs = &wc->mod[card].fxs;
@@ -1055,6 +1112,7 @@ static inline void wctdm_proslic_check_hook(struct wctdm *wc, int card)
 					break;
 				}
 
+				wctdm_fxs_hooksig(wc, card, DAHDI_TXSIG_OFFHOOK);
 				dahdi_hooksig(wc->chans[card], DAHDI_RXSIG_OFFHOOK);
 				if (robust)
 					wctdm_init_proslic(wc, card, 1, 0, 1);
@@ -1066,6 +1124,7 @@ static inline void wctdm_proslic_check_hook(struct wctdm *wc, int card)
 				if (debug)
 #endif				
 					printk(KERN_DEBUG "wctdm: Card %d Going on hook\n", card);
+				wctdm_fxs_hooksig(wc, card, DAHDI_TXSIG_ONHOOK);
 				dahdi_hooksig(wc->chans[card], DAHDI_RXSIG_ONHOOK);
 				fxs->oldrxhook = 0;
 			}
@@ -1945,6 +2004,8 @@ static int wctdm_ioctl(struct dahdi_chan *chan, unsigned int cmd, unsigned long 
 		if (fxs->neonringing) {
 			/* keep same Forward polarity */
 			fxs->lasttxhook = SLIC_LF_OHTRAN_FWD;
+			printk(KERN_INFO "ioctl: Start OnHookTrans, card %d\n",
+					chan->chanpos - 1);
 			wctdm_setreg(wc, chan->chanpos - 1,
 					LINE_STATE, fxs->lasttxhook);
 		} else if (fxs->lasttxhook == SLIC_LF_ACTIVE_FWD ||
@@ -1952,6 +2013,8 @@ static int wctdm_ioctl(struct dahdi_chan *chan, unsigned int cmd, unsigned long 
 			/* Apply the change if appropriate */
 			fxs->lasttxhook = POLARITY_XOR ?
 				SLIC_LF_OHTRAN_REV : SLIC_LF_OHTRAN_FWD;
+			printk(KERN_INFO "ioctl: Start OnHookTrans, card %d\n",
+					chan->chanpos - 1);
 			wctdm_setreg(wc, chan->chanpos - 1,
 				      LINE_STATE, fxs->lasttxhook);
 		}
@@ -1966,10 +2029,15 @@ static int wctdm_ioctl(struct dahdi_chan *chan, unsigned int cmd, unsigned long 
 		    (fxs->lasttxhook == SLIC_LF_OPEN))
 			return -EINVAL;
 		fxs->reversepolarity = x;
-		if (POLARITY_XOR)
+		if (POLARITY_XOR) {
 			fxs->lasttxhook |= SLIC_LF_REVMASK;
-		else
+			printk(KERN_INFO "ioctl: Reverse Polarity, card %d\n",
+					chan->chanpos - 1);
+		} else {
 			fxs->lasttxhook &= ~SLIC_LF_REVMASK;
+			printk(KERN_INFO "ioctl: Normal Polarity, card %d\n",
+					chan->chanpos - 1);
+		}
 		wctdm_setreg(wc, chan->chanpos - 1,
 					LINE_STATE, fxs->lasttxhook);
 		break;
@@ -2257,6 +2325,8 @@ static int wctdm_set_ring_generator_mode(struct wctdm *wc, int card, int mode)
 	return 0;
 }
 
+
+
 static int wctdm_hooksig(struct dahdi_chan *chan, enum dahdi_txsig txsig)
 {
 	struct wctdm *wc = chan->pvt;
@@ -2277,59 +2347,7 @@ static int wctdm_hooksig(struct dahdi_chan *chan, enum dahdi_txsig txsig)
 			printk(KERN_NOTICE "wcfxo: Can't set tx state to %d\n", txsig);
 		}
 	} else {
-		struct fxs *const fxs = &wc->mod[chan_entry].fxs;
-		switch(txsig) {
-		case DAHDI_TXSIG_ONHOOK:
-			switch(chan->sig) {
-			case DAHDI_SIG_FXOKS:
-			case DAHDI_SIG_FXOLS:
-				/* Can't change Ring Generator during OHT */
-				if (!fxs->ohttimer) {
-					wctdm_set_ring_generator_mode(wc,
-						    chan_entry, fxs->vmwi_hvac);
-					fxs->lasttxhook = fxs->vmwi_hvac ?
-							SLIC_LF_RINGING :
-							fxs->idletxhookstate;
-				} else {
-					fxs->lasttxhook = fxs->idletxhookstate;
-				}
-				break;
-			case DAHDI_SIG_EM:
-				fxs->lasttxhook = fxs->idletxhookstate;
-				break;
-			case DAHDI_SIG_FXOGS:
-				fxs->lasttxhook = SLIC_LF_TIP_OPEN;
-				break;
-			}
-			break;
-		case DAHDI_TXSIG_OFFHOOK:
-			switch(chan->sig) {
-			case DAHDI_SIG_EM:
-				fxs->lasttxhook = SLIC_LF_ACTIVE_REV;
-				break;
-			default:
-				fxs->lasttxhook = fxs->idletxhookstate;
-				break;
-			}
-			break;
-		case DAHDI_TXSIG_START:
-			/* Set ringer mode */
-			wctdm_set_ring_generator_mode(wc, chan_entry, 0);
-			fxs->lasttxhook = SLIC_LF_RINGING;
-			break;
-		case DAHDI_TXSIG_KEWL:
-			fxs->lasttxhook = SLIC_LF_OPEN;
-			break;
-		default:
-			printk(KERN_NOTICE "wctdm: Can't set tx state to %d\n", txsig);
-		}
-		if (debug) {
-			printk(KERN_DEBUG
-			       "Setting FXS hook state to %d (%02x)\n",
-			       txsig, fxs->lasttxhook);
-		}
-
-		wctdm_setreg(wc, chan_entry, LINE_STATE, fxs->lasttxhook);
+		wctdm_fxs_hooksig(wc, chan_entry, txsig);
 	}
 	return 0;
 }
