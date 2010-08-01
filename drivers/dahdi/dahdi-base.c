@@ -623,6 +623,13 @@ void dahdi_unregister_echocan_factory(const struct dahdi_echocan_factory *ec)
 	write_unlock(&ecfactory_list_lock);
 }
 
+/* Is this span our syncronization master? */
+int dahdi_is_sync_master(const struct dahdi_span *span)
+{
+       return (span == master);
+}
+EXPORT_SYMBOL(dahdi_is_sync_master);
+
 static inline void rotate_sums(void)
 {
 	/* Rotate where we sum and so forth */
@@ -733,7 +740,7 @@ static int dahdi_q_sig(struct dahdi_chan *chan)
 }
 
 #ifdef CONFIG_PROC_FS
-static const char *sigstr(int sig)
+const char *sigstr(int sig)
 {
 	switch (sig) {
 	case DAHDI_SIG_FXSLS:
@@ -780,7 +787,7 @@ static const char *sigstr(int sig)
 	}
 }
 
-static int fill_alarm_string(char *buf, int count, int alarms)
+int fill_alarm_string(char *buf, int count, int alarms)
 {
 	int len;
 
