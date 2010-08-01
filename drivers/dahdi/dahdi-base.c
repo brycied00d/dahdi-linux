@@ -66,6 +66,8 @@
 #include <dahdi/kernel.h>
 #include "ecdis.h"
 
+#include "dahdi-sysfs.h"
+
 #ifndef CONFIG_OLD_HDLC_API
 #define NEW_HDLC_INTERFACE
 #endif
@@ -143,8 +145,6 @@ EXPORT_SYMBOL(dahdi_hdlc_finish);
 EXPORT_SYMBOL(dahdi_hdlc_getbuf);
 EXPORT_SYMBOL(dahdi_hdlc_putbuf);
 EXPORT_SYMBOL(dahdi_alarm_channel);
-EXPORT_SYMBOL(dahdi_register_chardev);
-EXPORT_SYMBOL(dahdi_unregister_chardev);
 
 EXPORT_SYMBOL(dahdi_register_echocan_factory);
 EXPORT_SYMBOL(dahdi_unregister_echocan_factory);
@@ -186,17 +186,9 @@ static struct proc_dir_entry *proc_entries[DAHDI_MAX_SPANS];
 	class_simple_device_remove(class, devt)
 #endif
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,13)
-static struct class *dahdi_class = NULL;
-#else
-static struct class_simple *dahdi_class = NULL;
-#define class_create class_simple_create
-#define class_destroy class_simple_destroy
-#endif
-
 static int deftaps = 64;
 
-static int debug;
+int debug;
 
 /*!
  * \brief states for transmit signalling
@@ -2024,7 +2016,6 @@ static void dahdi_chan_unreg(struct dahdi_chan *chan)
 				chans[x]->confmode = 0;
 			}
 		}
-	chan->channo = -1;
 	write_unlock_irqrestore(&chan_lock, flags);
 }
 
@@ -5890,6 +5881,25 @@ static long dahdi_ioctl_compat(struct file *file, unsigned int cmd,
 }
 #endif
 
+#ifdef CONFIG_PROC_FS
+static void cleanup_proc(void)
+{
+	int	i;
+
+	if (proc_entries[0]) {
+		for (i = 1; i < ARRAY_SIZE(proc_entries); i++) {
+			if (proc_entries[i]) {
+				remove_proc_entry(proc_entries[i]->name,
+						proc_entries[0]);
+				proc_entries[i] = NULL;
+			}
+		}
+		remove_proc_entry(proc_entries[0]->name, NULL);
+		proc_entries[0] = NULL;
+	}
+}
+#endif
+
 /**
  * dahdi_register() - unregister a new DAHDI span
  * @span:	the DAHDI span
@@ -5948,6 +5958,7 @@ int dahdi_register(struct dahdi_span *span, int prefmaster)
 	span->spanno = x;
 
 	spin_lock_init(&span->lock);
+	init_waitqueue_head(&span->wait_user);
 
 	if (!span->deflaw) {
 		module_printk(KERN_NOTICE, "Span %s didn't specify default law.  "
@@ -5965,6 +5976,13 @@ int dahdi_register(struct dahdi_span *span, int prefmaster)
 		}
 	}
 
+	res = span_sysfs_create(span);
+	if (res != 0) {
+		module_printk(KERN_ERR, "Span %s sysfs initialization failed\n",
+				span->name);
+		goto err_sysfs_span;
+	}
+
 #ifdef CONFIG_PROC_FS
 	{
 		char tempfile[17];
@@ -5973,16 +5991,6 @@ int dahdi_register(struct dahdi_span *span, int prefmaster)
 				NULL, dahdi_proc_read, (int *) (long) span->spanno);
 	}
 #endif
-
-	for (x = 0; x < span->channels; x++) {
-		if (span->chans[x]->channo < 250) {
-			char chan_name[32];
-			snprintf(chan_name, sizeof(chan_name), "dahdi!%d", 
-					span->chans[x]->channo);
-			CLASS_DEV_CREATE(dahdi_class, MKDEV(DAHDI_MAJOR, 
-					span->chans[x]->channo), NULL, chan_name);
-		}
-	}
 
 	if (debug) {
 		module_printk(KERN_NOTICE, "Registered Span %d ('%s') with "
@@ -5999,6 +6007,16 @@ int dahdi_register(struct dahdi_span *span, int prefmaster)
 
 	return 0;
 
+err_sysfs_span:
+	for (x = 0; x < span->channels; x++) {
+		dahdi_chan_unreg(span->chans[x]);
+		//span->chans[x]->span = NULL; /* FIXME: Required? */
+	}
+	span->flags &= DAHDI_FLAG_REGISTERED;
+	/* FIXME: making dahdi_chan_unreg safe for usage on an
+	 * unregistereg channel will avoid this duplication. */
+	for (x = 0; x < span->channels; x++)
+		dahdi_chan_unreg(span->chans[x]);
 unreg_channels:
 	spans[span->spanno] = NULL;
 	return res;
@@ -6018,10 +6036,6 @@ int dahdi_unregister(struct dahdi_span *span)
 	int new_maxspans;
 	static struct dahdi_span *new_master;
 
-#ifdef CONFIG_PROC_FS
-	char tempfile[17];
-#endif /* CONFIG_PROC_FS */
-
 	if (!test_bit(DAHDI_FLAGBIT_REGISTERED, &span->flags)) {
 		module_printk(KERN_ERR, "Span %s does not appear to be registered\n", span->name);
 		return -1;
@@ -6038,20 +6052,19 @@ int dahdi_unregister(struct dahdi_span *span)
 	if (debug)
 		module_printk(KERN_NOTICE, "Unregistering Span '%s' with %d channels\n", span->name, span->channels);
 #ifdef CONFIG_PROC_FS
-	snprintf(tempfile, sizeof(tempfile)-1, "dahdi/%d", span->spanno);
-        remove_proc_entry(tempfile, NULL);
-#endif /* CONFIG_PROC_FS */
-
-	for (x = 0; x < span->channels; x++) {
-		if (span->chans[x]->channo < 250)
-			CLASS_DEV_DESTROY(dahdi_class, MKDEV(DAHDI_MAJOR, span->chans[x]->channo));
+	if (proc_entries[span->spanno] && proc_entries[0]) {
+		remove_proc_entry(proc_entries[span->spanno]->name,
+				proc_entries[0]);
+		proc_entries[span->spanno] = NULL;
 	}
+#endif /* CONFIG_PROC_FS */
 
 	spans[span->spanno] = NULL;
 	span->spanno = 0;
 	clear_bit(DAHDI_FLAGBIT_REGISTERED, &span->flags);
 	for (x=0;x<span->channels;x++)
 		dahdi_chan_unreg(span->chans[x]);
+	span_sysfs_remove(span);
 	new_maxspans = 0;
 	new_master = master; /* FIXME: locking */
 	if (master == span)
@@ -8652,48 +8665,31 @@ static void __exit watchdog_cleanup(void)
 
 #endif
 
-int dahdi_register_chardev(struct dahdi_chardev *dev)
-{
-	static const char *DAHDI_STRING = "dahdi!";
-	char *udevname;
-
-	udevname = kzalloc(strlen(dev->name) + sizeof(DAHDI_STRING) + 1,
-			   GFP_KERNEL);
-	if (!udevname)
-		return -ENOMEM;
-
-	strcpy(udevname, DAHDI_STRING);
-	strcat(udevname, dev->name);
-	CLASS_DEV_CREATE(dahdi_class, MKDEV(DAHDI_MAJOR, dev->minor), NULL, udevname);
-	kfree(udevname);
-	return 0;
-}
-
-int dahdi_unregister_chardev(struct dahdi_chardev *dev)
-{
-	CLASS_DEV_DESTROY(dahdi_class, MKDEV(DAHDI_MAJOR, dev->minor));
-
-	return 0;
-}
-
 static int __init dahdi_init(void)
 {
 	int res = 0;
 
 #ifdef CONFIG_PROC_FS
 	proc_entries[0] = proc_mkdir("dahdi", NULL);
+	if (proc_entries[0] == NULL) {
+		module_printk(KERN_ERR, "Failed creating /proc/dahdi\n");
+		res = -ENOENT;
+		goto fail_proc;
+	}
 #endif
 
 	if ((res = register_chrdev(DAHDI_MAJOR, "dahdi", &dahdi_fops))) {
 		module_printk(KERN_ERR, "Unable to register DAHDI character device handler on %d\n", DAHDI_MAJOR);
-		return res;
+		goto fail_chrdev;
 	}
 
-	dahdi_class = class_create(THIS_MODULE, "dahdi");
-	CLASS_DEV_CREATE(dahdi_class, MKDEV(DAHDI_MAJOR, DAHDI_TIMER), NULL, "dahdi!timer");
-	CLASS_DEV_CREATE(dahdi_class, MKDEV(DAHDI_MAJOR, DAHDI_CHANNEL), NULL, "dahdi!channel");
-	CLASS_DEV_CREATE(dahdi_class, MKDEV(DAHDI_MAJOR, DAHDI_PSEUDO), NULL, "dahdi!pseudo");
-	CLASS_DEV_CREATE(dahdi_class, MKDEV(DAHDI_MAJOR, DAHDI_CTL), NULL, "dahdi!ctl");
+	res = dahdi_driver_init(&dahdi_fops);
+	if (res != 0) {
+		/* FIXME: Remove this. dahdi_driver_init should report */
+		/* errors.                                             */
+		module_printk(KERN_ERR, "Error starting sysfs: %d\n", res);
+		goto fail_driverinit;
+	}
 
 	module_printk(KERN_INFO, "Telephony Interface Registered on major %d\n", DAHDI_MAJOR);
 	module_printk(KERN_INFO, "Version: %s\n", DAHDI_VERSION);
@@ -8705,6 +8701,12 @@ static int __init dahdi_init(void)
 #endif
 	coretimer_init();
 	return res;
+fail_driverinit:
+	unregister_chrdev(DAHDI_MAJOR, "dahdi");
+fail_chrdev:
+	cleanup_proc();
+fail_proc:
+	return res;
 }
 
 static void __exit dahdi_cleanup(void)
@@ -8713,16 +8715,10 @@ static void __exit dahdi_cleanup(void)
 
 	coretimer_cleanup();
 
-	CLASS_DEV_DESTROY(dahdi_class, MKDEV(DAHDI_MAJOR, DAHDI_TIMER));
-	CLASS_DEV_DESTROY(dahdi_class, MKDEV(DAHDI_MAJOR, DAHDI_CHANNEL));
-	CLASS_DEV_DESTROY(dahdi_class, MKDEV(DAHDI_MAJOR, DAHDI_PSEUDO));
-	CLASS_DEV_DESTROY(dahdi_class, MKDEV(DAHDI_MAJOR, DAHDI_CTL));
-	class_destroy(dahdi_class);
-
 	unregister_chrdev(DAHDI_MAJOR, "dahdi");
 
 #ifdef CONFIG_PROC_FS
-	remove_proc_entry("dahdi", NULL);
+	cleanup_proc();
 #endif
 
 	module_printk(KERN_INFO, "Telephony Interface Unloaded\n");
@@ -8730,6 +8726,7 @@ static void __exit dahdi_cleanup(void)
 		if (tone_zones[x])
 			kfree(tone_zones[x]);
 	}
+	dahdi_driver_exit();
 
 #ifdef CONFIG_DAHDI_WATCHDOG
 	watchdog_cleanup();
