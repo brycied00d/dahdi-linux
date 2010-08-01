@@ -99,6 +99,8 @@
 
 /* macro-oni for determining a unit (channel) number */
 #define	UNIT(file) MINOR(file->f_dentry->d_inode->i_rdev)
+#define	IS_UNIT(file, unit) \
+	((file)->f_dentry->d_inode->i_rdev == MKDEV(DAHDI_MAJOR, (unit)))
 
 /* names of tx level settings */
 static char *dahdi_txlevelnames[] = {
@@ -3053,12 +3055,11 @@ static void dahdi_free_pseudo(struct dahdi_chan *chan)
 
 static int dahdi_open(struct inode *inode, struct file *file)
 {
-	int unit = UNIT(file);
 	struct dahdi_chan *chan;
 	/* Minor 0: Special "control" descriptor */
-	if (!unit)
+	if (IS_UNIT(file, DAHDI_CTL))
 		return dahdi_ctl_open(file);
-	if (unit == 250) {
+	if (IS_UNIT(file, DAHDI_TRANSCODE)) {
 		if (!dahdi_transcode_fops) {
 			if (request_module("dahdi_transcode")) {
 				return -ENXIO;
@@ -3080,16 +3081,16 @@ static int dahdi_open(struct inode *inode, struct file *file)
 		}
 		return -ENXIO;
 	}
-	if (unit == 253) {
+	if (IS_UNIT(file, DAHDI_TIMER)) {
 		if (can_open_timer()) {
 			return dahdi_timing_open(file);
 		} else {
 			return -ENXIO;
 		}
 	}
-	if (unit == 254)
+	if (IS_UNIT(file, DAHDI_CHANNEL))
 		return dahdi_chan_open(file);
-	if (unit == 255) {
+	if (IS_UNIT(file, DAHDI_PSEUDO)) {
 		chan = dahdi_alloc_pseudo();
 		if (chan) {
 			file->private_data = chan;
@@ -3549,30 +3550,28 @@ static void __do_dtmf(struct dahdi_chan *chan)
 
 static int dahdi_release(struct inode *inode, struct file *file)
 {
-	int unit = UNIT(file);
 	int res;
 	struct dahdi_chan *chan;
 
-	if (!unit)
+	if (IS_UNIT(file, DAHDI_CTL))
 		return dahdi_ctl_release(file);
-	if (unit == 253) {
+	if (IS_UNIT(file, DAHDI_TIMER))
 		return dahdi_timer_release(file);
-	}
-	if (unit == 250) {
+	if (IS_UNIT(file, DAHDI_TRANSCODE)) {
 		/* We should not be here because the dahdi_transcode.ko module
 		 * should have updated the file_operations for this file
 		 * handle when the file was opened. */
 		WARN_ON(1);
 		return -EFAULT;
 	}
-	if (unit == 254) {
+	if (IS_UNIT(file, DAHDI_CHANNEL)) {
 		chan = file->private_data;
 		if (!chan)
 			return dahdi_chan_release(file);
 		else
 			return dahdi_specchan_release(file);
 	}
-	if (unit == 255) {
+	if (IS_UNIT(file, DAHDI_PSEUDO)) {
 		chan = file->private_data;
 		if (chan) {
 			res = dahdi_specchan_release(file);
@@ -6153,7 +6152,6 @@ static int dahdi_ioctl(struct inode *inode, struct file *file,
 		unsigned int cmd, unsigned long data)
 #endif
 {
-	int unit = UNIT(file);
 	struct dahdi_timer *timer;
 	int ret;
 
@@ -6161,12 +6159,12 @@ static int dahdi_ioctl(struct inode *inode, struct file *file,
 	lock_kernel();
 #endif
 
-	if (!unit) {
+	if (IS_UNIT(file, DAHDI_CTL)) {
 		ret = dahdi_ctl_ioctl(file, cmd, data);
 		goto unlock_exit;
 	}
 
-	if (unit == 250) {
+	if (IS_UNIT(file, DAHDI_TRANSCODE)) {
 		/* dahdi_transcode should have updated the file_operations on
 		 * this file object on open, so we shouldn't be here. */
 		WARN_ON(1);
@@ -6174,7 +6172,7 @@ static int dahdi_ioctl(struct inode *inode, struct file *file,
 		goto unlock_exit;
 	}
 
-	if (unit == 253) {
+	if (IS_UNIT(file, DAHDI_TIMER)) {
 		timer = file->private_data;
 		if (timer)
 			ret = dahdi_timer_ioctl(file, cmd, data, timer);
@@ -6182,14 +6180,14 @@ static int dahdi_ioctl(struct inode *inode, struct file *file,
 			ret = -EINVAL;
 		goto unlock_exit;
 	}
-	if (unit == 254) {
+	if (IS_UNIT(file, DAHDI_CHANNEL)) {
 		if (file->private_data)
 			ret = dahdi_chan_ioctl(file, cmd, data);
 		else
 			ret = dahdi_prechan_ioctl(file, cmd, data);
 		goto unlock_exit;
 	}
-	if (unit == 255) {
+	if (IS_UNIT(file, DAHDI_PSEUDO)) {
 		if (!file->private_data) {
 			module_printk(KERN_NOTICE, "No pseudo channel structure to read?\n");
 			ret = -EINVAL;
@@ -8349,9 +8347,7 @@ dahdi_chan_poll(struct file *file, struct poll_table_struct *wait_table)
 
 static unsigned int dahdi_poll(struct file *file, struct poll_table_struct *wait_table)
 {
-	const int unit = UNIT(file);
-
-	if (likely(unit == 253))
+	if (IS_UNIT(file, DAHDI_TIMER))
 		return dahdi_timer_poll(file, wait_table);
 
 	/* transcoders and channels should have updated their file_operations
@@ -9027,10 +9023,10 @@ static int __init dahdi_init(void)
 	}
 
 	dahdi_class = class_create(THIS_MODULE, "dahdi");
-	CLASS_DEV_CREATE(dahdi_class, MKDEV(DAHDI_MAJOR, 253), NULL, "dahdi!timer");
-	CLASS_DEV_CREATE(dahdi_class, MKDEV(DAHDI_MAJOR, 254), NULL, "dahdi!channel");
-	CLASS_DEV_CREATE(dahdi_class, MKDEV(DAHDI_MAJOR, 255), NULL, "dahdi!pseudo");
-	CLASS_DEV_CREATE(dahdi_class, MKDEV(DAHDI_MAJOR, 0), NULL, "dahdi!ctl");
+	CLASS_DEV_CREATE(dahdi_class, MKDEV(DAHDI_MAJOR, DAHDI_TIMER), NULL, "dahdi!timer");
+	CLASS_DEV_CREATE(dahdi_class, MKDEV(DAHDI_MAJOR, DAHDI_CHANNEL), NULL, "dahdi!channel");
+	CLASS_DEV_CREATE(dahdi_class, MKDEV(DAHDI_MAJOR, DAHDI_PSEUDO), NULL, "dahdi!pseudo");
+	CLASS_DEV_CREATE(dahdi_class, MKDEV(DAHDI_MAJOR, DAHDI_CTL), NULL, "dahdi!ctl");
 
 	module_printk(KERN_INFO, "Telephony Interface Registered on major %d\n", DAHDI_MAJOR);
 	module_printk(KERN_INFO, "Version: %s\n", DAHDI_VERSION);
@@ -9050,10 +9046,10 @@ static void __exit dahdi_cleanup(void)
 
 	coretimer_cleanup();
 
-	CLASS_DEV_DESTROY(dahdi_class, MKDEV(DAHDI_MAJOR, 253)); /* timer */
-	CLASS_DEV_DESTROY(dahdi_class, MKDEV(DAHDI_MAJOR, 254)); /* channel */
-	CLASS_DEV_DESTROY(dahdi_class, MKDEV(DAHDI_MAJOR, 255)); /* pseudo */
-	CLASS_DEV_DESTROY(dahdi_class, MKDEV(DAHDI_MAJOR, 0)); /* ctl */
+	CLASS_DEV_DESTROY(dahdi_class, MKDEV(DAHDI_MAJOR, DAHDI_TIMER));
+	CLASS_DEV_DESTROY(dahdi_class, MKDEV(DAHDI_MAJOR, DAHDI_CHANNEL));
+	CLASS_DEV_DESTROY(dahdi_class, MKDEV(DAHDI_MAJOR, DAHDI_PSEUDO));
+	CLASS_DEV_DESTROY(dahdi_class, MKDEV(DAHDI_MAJOR, DAHDI_CTL));
 	class_destroy(dahdi_class);
 
 	unregister_chrdev(DAHDI_MAJOR, "dahdi");
