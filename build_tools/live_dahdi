@@ -207,6 +207,12 @@ config)
 	shift
 	cd "$TOOLS_DIR"; make config DESTDIR=$DESTDIR "$@"
 	mkdir -p $DESTDIR/etc/asterisk
+	cat >"$FIRMWARE_DIR/live-init.conf" <<EOF
+PATH="$PATH" # FIXME: add to existing \$PATH?
+export PATH
+dahdiconfdir="${DESTDIR}/etc/dahdi"
+export dahdiconfdir
+EOF
 	;;
 rsync)
 	if [ $# -ne 2 ]; then
