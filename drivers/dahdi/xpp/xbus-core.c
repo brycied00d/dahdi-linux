@@ -100,26 +100,35 @@ static xbus_t *xbus_byhwid(const char *hwid)
 	return NULL;
 }
 
+
+/* If an Astribank disconnected and then reconnected, we prefer not to
+   fully initialize it
+ */
 int xbus_check_unique(xbus_t *xbus)
 {
+	xbus_t	*xbus_old;
+
 	if (!xbus)
 		return -ENOENT;
-	if (xbus->label) {
-		xbus_t	*xbus_old;
-
-		XBUS_DBG(DEVICES, xbus, "Checking LABEL='%s'\n", xbus->label);
-		xbus_old = xbus_byhwid(xbus->label);
-		if (xbus_old && xbus_old != xbus) {
-			XBUS_NOTICE(xbus_old,
-				"Duplicate LABEL='%s'. Leave %s unused. refcount_xbus=%d\n",
-				xbus_old->label,
-				xbus->busname,
-				refcount_xbus(xbus_old));
-			return -EBUSY;
-		}
-	} else {
-		XBUS_NOTICE(xbus, "MISSING BOARD LABEL!!!\n");
+	if (!xbus->label) {
+		XBUS_NOTICE(xbus, "Astribank without a Label: Bad.\n");
+		return 0;
 	}
+
+	XBUS_DBG(DEVICES, xbus, "Checking LABEL='%s'\n", xbus->label);
+	xbus_old = xbus_byhwid(xbus->label);
+	if (xbus_old && xbus_old != xbus) {
+		XBUS_NOTICE(xbus_old,
+			/* FIXME: rephrase message to hint this is a
+			   reconnecting AB */
+			"Astribank with label '%s' already connected. "
+			"Leave %s unused. refcount_xbus=%d\n",
+			xbus_old->label,
+			xbus->busname,
+			refcount_xbus(xbus_old));
+		return -EBUSY;
+	}
+
 	return 0;
 }
 
@@ -1308,6 +1317,8 @@ bad_state:
 int xbus_activate(xbus_t *xbus)
 {
 	XBUS_INFO(xbus, "[%s] Activating\n", xbus->label);
+	if (xbus_check_unique(xbus))
+		return -EBUSY;
 	xpp_drift_init(xbus);
 	xbus_set_command_timer(xbus, 1);
 	xframe_queue_disable(&xbus->command_queue, 0);
