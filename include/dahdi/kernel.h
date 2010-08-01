@@ -53,6 +53,7 @@
 #include <linux/skbuff.h>
 #include <linux/interrupt.h>
 #endif
+#include <linux/device.h>
 
 #include <linux/poll.h>
 
@@ -591,6 +592,8 @@ struct dahdi_chan {
 #else
 	unsigned char *lin2x;
 #endif
+	struct device chan_device; /*!< Kernel object for this span */
+#define dev_to_chan(dev)    container_of(dev, struct dahdi_chan, chan_device)
 };
 
 #ifdef CONFIG_DAHDI_NET
@@ -838,6 +841,10 @@ struct dahdi_span {
 	const char *manufacturer;	/*!< span's device manufacturer */
 	char devicetype[80];		/*!< span's device type */
 	char location[40];		/*!< span device's location in system */
+	char hardware_id[40];		/*!< span device's unique id (serial) */
+	int span_id;			/*!< span unique number on its device */
+	int user_ready;			/*!< Got confirmation from user-space */
+	wait_queue_head_t wait_user;	/*!< wait until span->user_ready == 1 */
 	int deflaw;			/*!< Default law (DAHDI_MULAW or DAHDI_ALAW) */
 	int alarms;			/*!< Pending alarms on span */
 	unsigned long flags;
@@ -864,6 +871,12 @@ struct dahdi_span {
 	const struct dahdi_span_ops *ops;	/*!< span callbacks. */
 
 	/* Used by DAHDI only -- no user servicable parts inside */
+	struct device span_device; /*!< Kernel object for this span */
+	/* FIXME: placing the span in the device tree should be done by the
+	 * low-level driver, right?
+	 */
+	struct device *parent_device; /*!< Location in the devices tree */
+#define dev_to_span(dev)  container_of(dev, struct dahdi_span, span_device)
 	int spanno;			/*!< Span number for DAHDI */
 	int offset;			/*!< Offset within a given card */
 	int lastalarms;			/*!< Previous alarms */
