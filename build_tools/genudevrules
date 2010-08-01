@@ -37,4 +37,7 @@ KERNEL${match}"dahdi[0-9]*", NAME="dahdi/%n"
 
 # DAHDI devices with ownership/permissions for running as non-root
 SUBSYSTEM${match}"dahdi",  OWNER="asterisk", GROUP="asterisk", MODE="0660"
+SUBSYSTEM${match}"dahdi_chans",  OWNER="asterisk", GROUP="asterisk", MODE="0660"
+SUBSYSTEM${match}"dahdi_chans",  SYMLINK+="dahdi/\$env{MINOR}"
+SUBSYSTEM=="dahdi_spans", RUN+="%E{DAHDI_INIT_DIR}/symlink_span -H '\$sysfs{hardware_id}' -L '\$sysfs{location}' -S '\$sysfs{span_id}'"
 EOF
