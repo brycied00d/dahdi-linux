@@ -1140,15 +1140,13 @@ int dahdi_register_xpd(xpd_t *xpd)
 		"Astribank: Unit %x Subunit %x: %s",
 		XBUS_UNIT(xpd->xbus_idx), XBUS_SUBUNIT(xpd->xbus_idx),
 		xpd->type_name);
-	/*
-	 * location is the only usefull new data item.
-	 * For our devices it was available for ages via:
-	 *  - The legacy "/proc/xpp/XBUS-??/summary" (CONNECTOR=...)
-	 *  - The same info in "/proc/xpp/xbuses"
-	 *  - The modern "/sys/bus/astribanks/devices/xbus-??/connector" attribute
-	 * So let's also export it via the newfangled "location" field.
-	 */
-	snprintf(span->location, sizeof(span->location) - 1, "%s", xbus->connector); 
+	/* The location is: <Connector> */
+	snprintf(span->location, sizeof(span->location) - 1, "%s",
+			xbus->connector);
+	/* The hardware_id is: <Label> */
+	snprintf(span->hardware_id, sizeof(span->hardware_id) - 1, "%s",
+			xbus->label);
+	span->span_id = xpd->addr.unit * 10 + xpd->addr.subunit;
 	/*
 	 * Who said a span and irq have 1-1 relationship?
 	 * Also exporting this low-level detail isn't too wise.
