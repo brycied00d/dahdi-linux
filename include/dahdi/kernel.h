@@ -886,6 +886,8 @@ struct dahdi_transcoder_channel {
 	u32 srcfmt;
 };
 
+int dahdi_is_sync_master(const struct dahdi_span *span);
+
 static inline int 
 dahdi_tc_is_built(struct dahdi_transcoder_channel *dtc) {
 	return test_bit(DAHDI_TC_FLAG_CHAN_BUILT, &dtc->flags);
@@ -1058,6 +1060,12 @@ void dahdi_init_tone_state(struct dahdi_tone_state *ts, struct dahdi_tone *zt);
 
 /*! \brief Get a given MF tone struct, suitable for dahdi_tone_nextsample. */
 struct dahdi_tone *dahdi_mf_tone(const struct dahdi_chan *chan, char digit, int digitmode);
+
+/*! \brief Convert signalling bits to human readable string */
+const char *sigstr(int sig);
+
+/*! \brief Convert alarm bits to human readable string */
+int fill_alarm_string(char *buf, int count, int alarms);
 
 /* Echo cancel a receive and transmit chunk for a given channel.  This
    should be called by the low-level driver as close to the interface
