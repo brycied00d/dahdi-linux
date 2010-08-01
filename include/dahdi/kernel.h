@@ -1288,4 +1288,10 @@ wait_for_completion_timeout(struct completion *x, unsigned long timeout)
 					"%s: " fmt, __func__, ## __VA_ARGS__)))
 #endif /* DAHDI_PRINK_MACROS_USE_debug */
 
+#define	DAHDI_CTL	0
+#define	DAHDI_TRANSCODE	250
+#define	DAHDI_TIMER	253
+#define	DAHDI_CHANNEL	254
+#define	DAHDI_PSEUDO	255
+
 #endif /* _DAHDI_KERNEL_H */
