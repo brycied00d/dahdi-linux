@@ -299,7 +299,11 @@ int __init dahdi_driver_chan_init(const struct file_operations *fops)
 		driver_unregister(&chan_driver);
 		goto failed_chrdev_region;
 	}
+#if LINUX_VERSION_CODE <= KERNEL_VERSION(2, 6, 17)
+	cdev_init(&dahdi_channels_cdev, (struct file_operations *)fops);
+#else
 	cdev_init(&dahdi_channels_cdev, fops);
+#endif
 	res = cdev_add(&dahdi_channels_cdev, dahdi_channels_devt,
 			DAHDI_MAX_CHANNELS);
 	if (res) {
