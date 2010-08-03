@@ -1006,7 +1006,7 @@ an error when a KB1 echocanceller is configured with greater than 128 taps.
 Reporting Bugs
 --------------
 Please report bug and patches to the Asterisk bug tracker at
-http://issues.asterisk.org in the "DAHDI" category.
+http://issues.asterisk.org in the "DAHDI-linux" category.
 
 Links
 -----
