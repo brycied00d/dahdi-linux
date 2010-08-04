@@ -1967,6 +1967,12 @@ static void dahdi_chan_unreg(struct dahdi_chan *chan)
 
 	might_sleep();
 
+	/* In the case of surprise removal of hardware, make sure any open
+	 * file handles to this channel are disassociated with the actual
+	 * dahdi_chan. */
+	if (chan->file)
+		chan->file->private_data = NULL;
+
 	release_echocan(chan->ec_factory);
 
 #ifdef CONFIG_DAHDI_NET
@@ -2019,9 +2025,10 @@ static void dahdi_chan_unreg(struct dahdi_chan *chan)
 	write_unlock_irqrestore(&chan_lock, flags);
 }
 
-static ssize_t dahdi_chan_read(struct file *file, char __user *usrbuf, size_t count, int unit)
+static ssize_t dahdi_chan_read(struct file *file, char __user *usrbuf,
+			       size_t count)
 {
-	struct dahdi_chan *chan = chans[unit];
+	struct dahdi_chan *chan = file->private_data;
 	int amnt;
 	int res, rv;
 	int oldbuf,x;
@@ -2145,10 +2152,11 @@ static int num_filled_bufs(struct dahdi_chan *chan)
 	return range1 + range2;
 }
 
-static ssize_t dahdi_chan_write(struct file *file, const char __user *usrbuf, size_t count, int unit)
+static ssize_t dahdi_chan_write(struct file *file, const char __user *usrbuf,
+				size_t count)
 {
 	unsigned long flags;
-	struct dahdi_chan *chan = chans[unit];
+	struct dahdi_chan *chan = file->private_data;
 	int res, amnt, oldbuf, rv, x;
 
 	/* Make sure count never exceeds 65k, and make sure it's unsigned */
@@ -2743,6 +2751,7 @@ static int dahdi_specchan_open(struct file *file, int unit)
 			}
 			if (!res) {
 				chan->file = file;
+				file->private_data = chan;
 				spin_unlock_irqrestore(&chan->lock, flags);
 			} else {
 				spin_unlock_irqrestore(&chan->lock, flags);
@@ -2904,7 +2913,7 @@ static ssize_t dahdi_read(struct file *file, char __user *usrbuf, size_t count, 
 		chan = file->private_data;
 		if (!chan)
 			return -EINVAL;
-		return dahdi_chan_read(file, usrbuf, count, chan->channo);
+		return dahdi_chan_read(file, usrbuf, count);
 	}
 
 	if (IS_UNIT(file, DAHDI_PSEUDO)) {
@@ -2913,12 +2922,12 @@ static ssize_t dahdi_read(struct file *file, char __user *usrbuf, size_t count, 
 			module_printk(KERN_NOTICE, "No pseudo channel structure to read?\n");
 			return -EINVAL;
 		}
-		return dahdi_chan_read(file, usrbuf, count, chan->channo);
+		return dahdi_chan_read(file, usrbuf, count);
 	}
 	if (count < 0)
 		return -EINVAL;
 
-	return dahdi_chan_read(file, usrbuf, count, unit);
+	return dahdi_chan_read(file, usrbuf, count);
 }
 
 static ssize_t dahdi_write(struct file *file, const char __user *usrbuf, size_t count, loff_t *ppos)
@@ -2936,7 +2945,7 @@ static ssize_t dahdi_write(struct file *file, const char __user *usrbuf, size_t 
 		chan = file->private_data;
 		if (!chan)
 			return -EINVAL;
-		return dahdi_chan_write(file, usrbuf, count, chan->channo);
+		return dahdi_chan_write(file, usrbuf, count);
 	}
 	if (IS_UNIT(file, DAHDI_PSEUDO)) {
 		chan = file->private_data;
@@ -2944,9 +2953,9 @@ static ssize_t dahdi_write(struct file *file, const char __user *usrbuf, size_t 
 			module_printk(KERN_NOTICE, "No pseudo channel structure to read?\n");
 			return -EINVAL;
 		}
-		return dahdi_chan_write(file, usrbuf, count, chan->channo);
+		return dahdi_chan_write(file, usrbuf, count);
 	}
-	return dahdi_chan_write(file, usrbuf, count, unit);
+	return dahdi_chan_write(file, usrbuf, count);
 
 }
 
@@ -5861,6 +5870,12 @@ static int dahdi_ioctl(struct inode *inode, struct file *file,
 		ret = dahdi_chanandpseudo_ioctl(file, cmd, data, chan->channo);
 		goto unlock_exit;
 	}
+
+	if (!file->private_data) {
+		ret = -ENXIO;
+		goto unlock_exit;
+	}
+
 	ret = dahdi_chan_ioctl(file, cmd, data, unit);
 
 unlock_exit:
