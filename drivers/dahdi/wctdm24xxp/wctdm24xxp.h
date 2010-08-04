@@ -156,6 +156,7 @@ struct wctdm_span {
 	int timing_priority;
 	int spanno;
 	struct wctdm *wc;
+	struct b400m_span *bspan;
 };
 
 struct wctdm_chan {

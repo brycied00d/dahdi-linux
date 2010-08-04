@@ -4966,6 +4966,7 @@ __wctdm_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 				return -EIO;
 			}
 			b4 = wc->mods[i].bri;
+			b400m_set_dahdi_span(b4, i & 0x03, wc->spans[curspan]);
 
 			++curspan;
 			curchan += 3;
