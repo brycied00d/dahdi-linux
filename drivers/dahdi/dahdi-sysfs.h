@@ -22,6 +22,8 @@ enum kobject_action {
 };
 #endif
 
+extern int debug;
+
 /*
  * Hotplug replaced with uevent in 2.6.16
  */
