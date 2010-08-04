@@ -1,0 +1,29 @@
+Events generated from adding a single dahdi_dynamic_loc span with a single
+channel defined:
+
+UEVENT[1280859410.239557] add@/module/dahdi
+UEVENT[1280859410.241005] add@/bus/dahdi_spans
+UEVENT[1280859410.241762] add@/bus/dahdi_spans/drivers/generic_lowlevel
+UEVENT[1280859410.241865] add@/bus/dahdi_chans
+UEVENT[1280859410.242009] add@/bus/dahdi_chans/drivers/generic_chan
+UEVENT[1280859410.242104] add@/class/dahdi
+UEVENT[1280859410.244008] add@/class/dahdi/dahdi!timer
+UEVENT[1280859410.244530] add@/class/dahdi/dahdi!channel
+UEVENT[1280859410.244663] add@/class/dahdi/dahdi!pseudo
+UEVENT[1280859410.244784] add@/class/dahdi/dahdi!ctl
+UDEV  [1280859410.247019] add@/bus/dahdi_chans
+UEVENT[1280859410.249852] add@/module/dahdi_dynamic
+UDEV  [1280859410.250811] add@/bus/dahdi_spans
+UDEV  [1280859410.251983] add@/class/dahdi
+UEVENT[1280859410.253570] add@/module/dahdi_dynamic_loc
+UDEV  [1280859410.455226] add@/class/dahdi/dahdi!timer
+UDEV  [1280859410.455928] add@/class/dahdi/dahdi!pseudo
+UDEV  [1280859410.456989] add@/class/dahdi/dahdi!ctl
+UDEV  [1280859410.460339] add@/class/dahdi/dahdi!channel
+UEVENT[1280859411.261544] add@/devices/span-1
+UEVENT[1280859411.262820] add@/devices/span-1/dahdi!spans!1!1
+UDEV  [1280859411.262939] add@/devices/span-1
+UEVENT[1280859411.263847] online@/devices/span-1
+UDEV  [1280859411.566848] add@/devices/span-1/dahdi!spans!1!1
+UDEV  [1280859411.869353] online@/devices/span-1
+
