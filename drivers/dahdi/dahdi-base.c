@@ -1970,8 +1970,11 @@ static void dahdi_chan_unreg(struct dahdi_chan *chan)
 	/* In the case of surprise removal of hardware, make sure any open
 	 * file handles to this channel are disassociated with the actual
 	 * dahdi_chan. */
-	if (chan->file)
+	if (chan->file) {
 		chan->file->private_data = NULL;
+		if (chan->span)
+			module_put(chan->span->ops->owner);
+	}
 
 	release_echocan(chan->ec_factory);
 
