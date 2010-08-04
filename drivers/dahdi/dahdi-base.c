@@ -2899,7 +2899,6 @@ static int dahdi_open(struct file *file)
 
 static ssize_t dahdi_read(struct file *file, char __user *usrbuf, size_t count, loff_t *ppos)
 {
-	int unit = UNIT(file);
 	struct dahdi_chan *chan;
 
 	/* Can't read from control */
@@ -2932,7 +2931,6 @@ static ssize_t dahdi_read(struct file *file, char __user *usrbuf, size_t count, 
 
 static ssize_t dahdi_write(struct file *file, const char __user *usrbuf, size_t count, loff_t *ppos)
 {
-	int unit = UNIT(file);
 	struct dahdi_chan *chan;
 	/* Can't read from control */
 	if (IS_UNIT(file, DAHDI_CTL))
