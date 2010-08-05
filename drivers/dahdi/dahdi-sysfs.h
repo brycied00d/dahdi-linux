@@ -32,26 +32,17 @@ extern int debug;
 #endif
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 14)
-#define	DEVICE_ATTR_READER(name, dev, buf)	\
-		ssize_t name(struct device *dev, struct device_attribute *attr,\
+#define	ATTR_READER(name, kobj, buf)	\
+		ssize_t name(struct kobject *kobj, struct kobj_attribute *attr,\
 				char *buf)
-#define	DEVICE_ATTR_WRITER(name, dev, buf, count)	\
-		ssize_t name(struct device *dev, struct device_attribute *attr,\
+#define	ATTR_WRITER(name, kobj, buf, count)	\
+		ssize_t name(struct kobject *kobj, struct kobj_attribute *attr,\
 				const char *buf, size_t count)
-#define BUS_ATTR_READER(name, dev, buf) \
-   ssize_t name(struct device *dev, struct device_attribute *attr, char *buf)
-#define BUS_ATTR_WRITER(name, dev, buf, count) \
-   ssize_t name(struct device *dev, struct device_attribute *attr, \
-		   const char *buf, size_t count)
 #else
 #define	DEVICE_ATTR_READER(name, dev, buf)	\
 		ssize_t name(struct device *dev, char *buf)
 #define	DEVICE_ATTR_WRITER(name, dev, buf, count)	\
 		ssize_t name(struct device *dev, const char *buf, size_t count)
-#define BUS_ATTR_READER(name, dev, buf) \
-   ssize_t name(struct device *dev, char *buf)
-#define BUS_ATTR_WRITER(name, dev, buf, count) \
-   ssize_t name(struct device *dev, const char *buf, size_t count)
 #endif
 
 #define	DRIVER_ATTR_READER(name, drv, buf)	\

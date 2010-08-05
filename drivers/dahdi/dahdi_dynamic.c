@@ -488,9 +488,7 @@ static int destroy_dynamic(struct dahdi_dynamic_span *zds)
 	spin_unlock_irqrestore(&dspan_lock, flags);
 	synchronize_rcu();
 
-	/* Destroy it */
-	dynamic_destroy(z);
-
+	dahdi_unregister(&z->span);
 	return 0;
 }
 
@@ -527,13 +525,25 @@ static int ztd_close(struct dahdi_chan *chan)
 	return 0;
 }
 
+static void ztd_release(struct dahdi_span *span)
+{
+	device_unregister(&(dynamic_from_span(span)->dev));
+}
+
 static const struct dahdi_span_ops dynamic_ops = {
 	.owner = THIS_MODULE,
 	.rbsbits = ztd_rbsbits,
 	.open = ztd_open,
 	.close = ztd_close,
 	.chanconfig = ztd_chanconfig,
+	.release = ztd_release,
 };
+
+static void dynamic_device_release(struct device *dev)
+{
+	struct dahdi_dynamic *z = container_of(dev, struct dahdi_dynamic, dev);
+	dynamic_destroy(z);
+}
 
 static int create_dynamic(struct dahdi_dynamic_span *zds)
 {
@@ -542,6 +552,7 @@ static int create_dynamic(struct dahdi_dynamic_span *zds)
 	unsigned long flags;
 	int x;
 	int bufsize;
+	int res;
 
 	if (zds->numchans < 1) {
 		printk(KERN_NOTICE "Can't be less than 1 channel (%d)!\n", zds->numchans);
@@ -643,10 +654,20 @@ static int create_dynamic(struct dahdi_dynamic_span *zds)
 	/* Remember the driver */
 	z->driver = ztd;
 
+	/* TODO need to implement a release method */
+	z->dev.release = dynamic_device_release;
+	z->dev.init_name = z->span.name;
+	res = device_register(&z->dev);
+	if (res) {
+		put_device(&z->dev);
+		return res;
+	}
+
 	/* Whee!  We're created.  Now register the span */
+	z->span.parent = &z->dev;
 	if (dahdi_register(&z->span, 0)) {
 		printk(KERN_NOTICE "Unable to register span '%s'\n", z->span.name);
-		dynamic_destroy(z);
+		device_unregister(&z->dev);
 		return -EINVAL;
 	}
 

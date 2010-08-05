@@ -6080,7 +6080,10 @@ int dahdi_unregister(struct dahdi_span *span)
 	clear_bit(DAHDI_FLAGBIT_REGISTERED, &span->flags);
 	for (x=0;x<span->channels;x++)
 		dahdi_chan_unreg(span->chans[x]);
+
 	span_sysfs_remove(span);
+	/* The memory backing the span may be gone at this point... */
+
 	new_maxspans = 0;
 	new_master = master; /* FIXME: locking */
 	if (master == span)

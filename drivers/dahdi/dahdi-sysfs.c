@@ -47,11 +47,13 @@ extern int debug;
 static char *initdir = "/usr/share/dahdi";
 module_param(initdir, charp, 0644);
 
+#if 0
 static int span_match(struct device *dev, struct device_driver *driver)
 {
 	//dev_info(dev, "SYSFS MATCH: driver->name = %s\n", driver->name);
 	return 1;
 }
+#endif
 
 #ifdef OLD_HOTPLUG_SUPPORT
 static int span_hotplug(struct device *dev, char **envp, int envnum,
@@ -61,7 +63,7 @@ static int span_hotplug(struct device *dev, char **envp, int envnum,
 
 	if (!dev)
 		return -ENODEV;
-	span = dev_to_span(dev);
+	span = kobj_to_span(dev);
 	envp[0] = buff;
 	if (snprintf(buff, bufsize, "SPAN_NAME=%s", span->name) >= bufsize)
 		return -ENOMEM;
@@ -96,7 +98,7 @@ static int span_uevent(struct device *dev, char **envp, int num_envp,
 
 	if (!dev)
 		return -ENODEV;
-	span = dev_to_span(dev);
+	span = kobj_to_span(dev);
 	dahdi_dbg(GENERAL, "SYFS dev_name=%s span=%s\n",
 			dev_name(dev), span->name);
 	SPAN_VAR_BLOCK;
@@ -112,29 +114,31 @@ static int span_uevent(struct device *dev, char **envp, int num_envp,
 			return err;				\
 	} while (0)
 
-static int span_uevent(struct device *dev, struct kobj_uevent_env *kenv)
+#if 0
+static int span_uevent(struct kobject *kobj, struct kobj_uevent_env *kenv)
 {
 	struct dahdi_span *span;
 
-	if (!dev)
+	if (!kobj)
 		return -ENODEV;
-	span = dev_to_span(dev);
+	span = kobj_to_span(kobj);
 	dahdi_dbg(GENERAL, "SYFS dev_name=%s span=%s\n",
-			dev_name(dev), span->name);
+			kobject_name(kobj), span->name);
 	SPAN_VAR_BLOCK;
 	return 0;
 }
+#endif
 
 #endif
 
 #endif	/* OLD_HOTPLUG_SUPPORT */
 
 #define span_attr(field, format_string)				\
-static BUS_ATTR_READER(field##_show, dev, buf)			\
+static ATTR_READER(field##_show, kobj, buf)		\
 {								\
 	struct dahdi_span *span;				\
 								\
-	span = dev_to_span(dev);				\
+	span = kobj_to_span(kobj);				\
 	return sprintf(buf, format_string, span->field);	\
 }
 
@@ -152,12 +156,12 @@ span_attr(irqmisses, "%d\n");
 span_attr(lbo, "%d\n");
 span_attr(syncsrc, "%d\n");
 
-static BUS_ATTR_READER(is_digital_show, dev, buf)
+static ATTR_READER(is_digital_show, kobj, buf)
 {
 	struct dahdi_span *span;
 	int is_digital;
 
-	span = dev_to_span(dev);
+	span = kobj_to_span(kobj);
 	is_digital = span->linecompat && (
 		/* TODO: is this mask too liberal? */
 		DAHDI_CONFIG_AMI | DAHDI_CONFIG_B8ZS | DAHDI_CONFIG_D4 |
@@ -167,11 +171,11 @@ static BUS_ATTR_READER(is_digital_show, dev, buf)
 	return sprintf(buf, "%d\n", is_digital);
 }
 
-static BUS_ATTR_READER(is_sync_master_show, dev, buf)
+static ATTR_READER(is_sync_master_show, kobj, buf)
 {
 	struct dahdi_span *span;
 
-	span = dev_to_span(dev);
+	span = kobj_to_span(kobj);
 	return sprintf(buf, "%d\n", dahdi_is_sync_master(span));
 }
 
@@ -195,11 +199,11 @@ static int configured_channels(struct dahdi_span *span)
 	return ready;
 }
 
-static BUS_ATTR_READER(configured_channels_show, dev, buf)
+static ATTR_READER(configured_channels_show, kobj, buf)
 {
 	struct dahdi_span *span;
 
-	span = dev_to_span(dev);
+	span = kobj_to_span(kobj);
 	return sprintf(buf, "%d\t%d/%d\t%s\n",
 		span->spanno,
 		configured_channels(span),
@@ -207,11 +211,11 @@ static BUS_ATTR_READER(configured_channels_show, dev, buf)
 		span->name);
 }
 
-static BUS_ATTR_WRITER(user_ready_store, dev, buf, count)
+static ATTR_WRITER(user_ready_store, kobj, buf, count)
 {
 	struct dahdi_span *span;
 
-	span = dev_to_span(dev);
+	span = kobj_to_span(kobj);
 	span->user_ready++;
 	span_dbg(DEVICES, span, "Got user_ready(%s)\n", buf);
 	wake_up_interruptible(&span->wait_user);
@@ -220,12 +224,12 @@ static BUS_ATTR_WRITER(user_ready_store, dev, buf, count)
 
 #define	SPAN_WAIT_TIMEOUT	(20*HZ)
 
-static BUS_ATTR_READER(user_ready_show, dev, buf)
+static ATTR_READER(user_ready_show, kobj, buf)
 {
 	struct dahdi_span *span;
 	int ret;
 
-	span = dev_to_span(dev);
+	span = kobj_to_span(kobj);
 	ret = wait_event_interruptible_timeout(
 		span->wait_user,
 		span->user_ready,
@@ -244,7 +248,7 @@ static BUS_ATTR_READER(user_ready_show, dev, buf)
 		span->name);
 }
 
-static struct device_attribute span_dev_attrs[] = {
+static struct kobj_attribute span_attrs[] = {
 	__ATTR_RO(name),
 	__ATTR_RO(desc),
 	__ATTR_RO(spantype),
@@ -266,11 +270,17 @@ static struct device_attribute span_dev_attrs[] = {
 	__ATTR_NULL,
 };
 
+/* TODO */
+EXPORT_SYMBOL(span_attrs);
 
+#if 0
 static struct driver_attribute dahdi_attrs[] = {
 	__ATTR_NULL,
 };
+#endif
 
+#if 0 
+/* !!!TODO */
 static struct bus_type spans_bus_type = {
 	.name           = "dahdi_spans",
 	.match          = span_match,
@@ -288,7 +298,7 @@ static int span_probe(struct device *dev)
 {
 	struct dahdi_span *span;
 
-	span = dev_to_span(dev);
+	span = kobj_to_span(dev);
 	//dev_info(dev, "span %d\n", span->spanno);
 	return 0;
 }
@@ -297,7 +307,7 @@ static int span_remove(struct device *dev)
 {
 	struct dahdi_span *span;
 
-	span = dev_to_span(dev);
+	span = kobj_to_span(dev);
 	//dev_info(dev, "span %d\n", span->spanno);
 	return 0;
 }
@@ -312,14 +322,15 @@ static struct device_driver dahdi_driver = {
 #endif
 };
 
+#endif
 
 static void span_uevent_send(struct dahdi_span *span, enum kobject_action act)
 {
 	struct kobject	*kobj;
 
-	kobj = &span->span_device.kobj;
+	kobj = &span->kobj;
 	span_dbg(DEVICES, span, "SYFS dev_name=%s action=%d\n",
-		dev_name(&span->span_device), act);
+		kobject_name(&span->kobj), act);
 
 #if defined(OLD_HOTPLUG_SUPPORT_269)
 	{
@@ -342,50 +353,47 @@ static void span_uevent_send(struct dahdi_span *span, enum kobject_action act)
 #endif
 }
 
-static void span_release(struct device *dev)
+static void span_release(struct kobject *kobj)
 {
-	dahdi_dbg(DEVICES, "%s: %s\n", __func__, dev_name(dev));
+	struct dahdi_span *s = kobj_to_span(kobj);
+	dahdi_dbg(DEVICES, "%s: %s\n", __func__, kobject_name(kobj));
+	if (s->ops && s->ops->release)
+		s->ops->release(s);
 }
+
+static struct kobj_type dahdi_span_ktype = {
+	.release = span_release,
+};
 
 void span_sysfs_remove(struct dahdi_span *span)
 {
-	struct device	*span_device;
 	int		x;
 
 	BUG_ON(!span);
 	span_dbg(DEVICES, span, "\n");
-	span_device = &span->span_device;
-	BUG_ON(!span_device);
 	for (x = 0; x < span->channels; x++) {
 		struct dahdi_chan *chan = span->chans[x];
 		chan_sysfs_remove(chan);
 	}
-	if (!dev_get_drvdata(span_device))
-		return;
-	BUG_ON(dev_get_drvdata(span_device) != span);
-	span_uevent_send(span, KOBJ_OFFLINE);
-	device_unregister(&span->span_device);
+	kobject_put(&span->kobj);
 }
 
 int span_sysfs_create(struct dahdi_span *span)
 {
-	struct device	*span_device;
 	int		res = 0;
 	int		x;
 
 	BUG_ON(!span);
-	span_device = &span->span_device;
-	BUG_ON(!span_device);
 	span_dbg(DEVICES, span, "\n");
 
-	span_device->bus = &spans_bus_type;
-	span_device->parent = (span->parent)
-		? span->parent
-		: NULL;
-	dev_set_name(span_device, "span-%d", span->spanno);
-	dev_set_drvdata(span_device, span);
-	span_device->release = span_release;
-	res = device_register(span_device);
+	/* The board driver needs to set the parent before registering the
+	 * device. */
+	if (!span->parent)
+		return -EINVAL;
+
+	res = kobject_init_and_add(&span->kobj, &dahdi_span_ktype,
+				   &span->parent->kobj, "span-%d",
+				   span->spanno);
 	if (res) {
 		span_err(span, "%s: device_register failed: %d\n", __func__,
 				res);
@@ -409,10 +417,8 @@ err_chan_device_register:
 		struct dahdi_chan *chan = span->chans[x];
 		chan_sysfs_remove(chan);
 	}
-	device_unregister(span_device);
+	kobject_put(&span->kobj);
 err_device_register:
-	dev_set_drvdata(span_device, NULL);
-	span_device->parent = NULL;
 	return res;
 }
 
@@ -421,6 +427,7 @@ int __init dahdi_driver_init(const struct file_operations *fops)
 	int	res;
 
 	dahdi_dbg(DEVICES, "SYSFS\n");
+#if 0
 	res = bus_register(&spans_bus_type);
 	if (res != 0) {
 		dahdi_err("%s: bus_register(%s) failed. Error number %d",
@@ -433,15 +440,18 @@ int __init dahdi_driver_init(const struct file_operations *fops)
 			__func__, dahdi_driver.name, res);
 		goto failed_driver;
 	}
+#endif
 	res = dahdi_driver_chan_init(fops);
 	if (res < 0)
 		goto failed_chan_bus;
 	return 0;
 failed_chan_bus:
+#if 0
 	driver_unregister(&dahdi_driver);
 failed_driver:
 	bus_unregister(&spans_bus_type);
 failed_bus:
+#endif
 	return res;
 }
 
@@ -449,6 +459,8 @@ void dahdi_driver_exit(void)
 {
 	dahdi_dbg(DEVICES, "SYSFS\n");
 	dahdi_driver_chan_exit();
+#if 0
 	driver_unregister(&dahdi_driver);
 	bus_unregister(&spans_bus_type);
+#endif
 }

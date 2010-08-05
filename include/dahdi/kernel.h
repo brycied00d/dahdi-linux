@@ -53,6 +53,8 @@
 #include <linux/skbuff.h>
 #include <linux/interrupt.h>
 #endif
+
+#include <linux/kobject.h>
 #include <linux/device.h>
 
 #include <linux/poll.h>
@@ -589,8 +591,9 @@ struct dahdi_chan {
 #else
 	unsigned char *lin2x;
 #endif
-	struct device chan_device; /*!< Kernel object for this span */
-#define dev_to_chan(dev)    container_of(dev, struct dahdi_chan, chan_device)
+	struct kobject kobj; /*!< Kernel object for this chan. */
+#define kobj_to_chan(dev)    container_of(kobj, struct dahdi_chan, kobj)
+	dev_t devt;
 };
 
 #ifdef CONFIG_DAHDI_NET
@@ -830,6 +833,8 @@ struct dahdi_span_ops {
 			      struct dahdi_echocanparams *ecp,
 			      struct dahdi_echocanparam *p,
 			      struct dahdi_echocan_state **ec);
+
+	void (*release)(struct dahdi_span *span);
 };
 
 struct dahdi_span {
@@ -869,12 +874,12 @@ struct dahdi_span {
 	const struct dahdi_span_ops *ops;	/*!< span callbacks. */
 
 	/* Used by DAHDI only -- no user servicable parts inside */
-	struct device span_device; /*!< Kernel object for this span */
+	struct kobject kobj; /*!< Kernel object for this span */
 	/* FIXME: placing the span in the device tree should be done by the
 	 * low-level driver, right?
 	 */
 	struct device *parent; /*!< The device that is exporting this span. */
-#define dev_to_span(dev)  container_of(dev, struct dahdi_span, span_device)
+#define kobj_to_span(kobj)  container_of(kobj, struct dahdi_span, kobj)
 	int spanno;			/*!< Span number for DAHDI */
 	int offset;			/*!< Offset within a given card */
 	int lastalarms;			/*!< Previous alarms */
