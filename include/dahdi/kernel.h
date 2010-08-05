@@ -53,6 +53,8 @@
 #include <linux/skbuff.h>
 #include <linux/interrupt.h>
 #endif
+
+#include <linux/kobject.h>
 #include <linux/device.h>
 
 #include <linux/poll.h>
@@ -382,6 +384,8 @@ struct dahdi_echocan_state {
 	} events;
 };
 
+struct dahdi_chan_kobject;
+
 struct dahdi_chan {
 #ifdef CONFIG_DAHDI_NET
 	/*! \note Must be first */
@@ -439,13 +443,13 @@ struct dahdi_chan {
 	struct file *file;	/*!< File structure */
 	
 	
-	struct dahdi_span	*span;			/*!< Span we're a member of */
 	int		sig;			/*!< Signalling */
 	int		sigcap;			/*!< Capability for signalling */
 	__u32		chan_alarms;		/*!< alarms status */
 
 	/* Used only by DAHDI -- NO DRIVER SERVICEABLE PARTS BELOW */
 	/* Buffer declarations */
+	struct dahdi_span	*span;			/*!< Span we're a member of */
 	u_char		*readbuf[DAHDI_MAX_NUM_BUFS];	/*!< read buffer */
 	int		inreadbuf;
 	int		outreadbuf;
@@ -592,8 +596,9 @@ struct dahdi_chan {
 #else
 	unsigned char *lin2x;
 #endif
-	struct device chan_device; /*!< Kernel object for this span */
-#define dev_to_chan(dev)    container_of(dev, struct dahdi_chan, chan_device)
+	struct dahdi_chan_kobject *kobj; /*!< Kernel object for this chan. */
+	dev_t 	devt;
+	struct list_head span_node;
 };
 
 #ifdef CONFIG_DAHDI_NET
@@ -754,6 +759,28 @@ struct dahdi_count {
 #define DAHDI_FLAG_MTP2		DAHDI_FLAG(MTP2)
 #define DAHDI_FLAG_HDLC56	DAHDI_FLAG(HDLC56)
 
+/**
+ * dahdi_device - Represents a physical device that implements spans.
+ *
+ * These are the logical devices that belong to the "dahdi" class, and also
+ * represent a device that may implement one or more spans that have a
+ * relationship to one another.
+ *
+ */
+struct dahdi_device {
+	struct device *dev;
+	spinlock_t lock;
+	const char *manufacturer;	/*!< span's device manufacturer */
+	char location[40];		/*!< span device's location in system */
+	char hardware_id[40];		/*!< span device's unique id (serial) */
+	char devicetype[80];		/*!< span's device type */
+};
+
+static inline const char *dahdi_dev_name(const struct dahdi_device *dev)
+{
+	return dev_name(dev->dev);
+}
+
 struct dahdi_span_ops {
 	struct module *owner;		/*!< Which module is exporting this span. */
 
@@ -833,15 +860,12 @@ struct dahdi_span_ops {
 			      struct dahdi_echocan_state **ec);
 };
 
+struct dahdi_span_kobject;
 struct dahdi_span {
 	spinlock_t lock;
 	char name[40];			/*!< Span name */
 	char desc[80];			/*!< Span description */
 	const char *spantype;		/*!< span type in text form */
-	const char *manufacturer;	/*!< span's device manufacturer */
-	char devicetype[80];		/*!< span's device type */
-	char location[40];		/*!< span device's location in system */
-	char hardware_id[40];		/*!< span device's unique id (serial) */
 	int span_id;			/*!< span unique number on its device */
 	int user_ready;			/*!< Got confirmation from user-space */
 	wait_queue_head_t wait_user;	/*!< wait until span->user_ready == 1 */
@@ -871,12 +895,8 @@ struct dahdi_span {
 	const struct dahdi_span_ops *ops;	/*!< span callbacks. */
 
 	/* Used by DAHDI only -- no user servicable parts inside */
-	struct device span_device; /*!< Kernel object for this span */
-	/* FIXME: placing the span in the device tree should be done by the
-	 * low-level driver, right?
-	 */
-	struct device *parent_device; /*!< Location in the devices tree */
-#define dev_to_span(dev)  container_of(dev, struct dahdi_span, span_device)
+	struct dahdi_span_kobject *kobj;
+	const struct dahdi_device *parent; /*!< The physical device that is providing this span. */
 	int spanno;			/*!< Span number for DAHDI */
 	int offset;			/*!< Offset within a given card */
 	int lastalarms;			/*!< Previous alarms */
@@ -1038,6 +1058,14 @@ int dahdi_hdlc_getbuf(struct dahdi_chan *ss, unsigned char *bufptr, unsigned int
    we should have preference in being the master device */
 int dahdi_register(struct dahdi_span *span, int prefmaster);
 
+int dahdi_device_register(struct dahdi_device *dev, struct device *parent,
+			  const char *fmt, ...);
+void dahdi_device_unregister(struct dahdi_device *dev);
+
+int dahdi_device_online(struct dahdi_device *dev);
+int dahdi_device_offline(struct dahdi_device *dev);
+bool dahdi_core_assigns_span_numbers(void);
+
 /*! Allocate / free memory for a transcoder */
 struct dahdi_transcoder *dahdi_transcoder_alloc(int numchans);
 void dahdi_transcoder_free(struct dahdi_transcoder *ztc);
@@ -1052,7 +1080,7 @@ int dahdi_transcoder_unregister(struct dahdi_transcoder *tc);
 int dahdi_transcoder_alert(struct dahdi_transcoder_channel *ztc);
 
 /*! \brief Unregister a span */
-int dahdi_unregister(struct dahdi_span *span);
+void dahdi_unregister(struct dahdi_span *span);
 
 /*! \brief Gives a name to an LBO */
 char *dahdi_lboname(int lbo);
@@ -1188,6 +1216,10 @@ static inline short dahdi_txtone_nextsample(struct dahdi_chan *ss)
 #define DAHDI_LIN2X(a,c) ((c)->lin2x[((unsigned short)(a)) >> 2])
 
 #endif /* CONFIG_CALC_XLAW */
+
+#ifndef DEFINE_SPINLOCK
+#define DEFINE_SPINLOCK(x) spinlock_t x = SPIN_LOCK_UNLOCKED
+#endif
 
 /* Data formats for capabilities and frames alike (from Asterisk) */
 /*! G.723.1 compression */

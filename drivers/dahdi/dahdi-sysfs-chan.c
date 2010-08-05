@@ -31,12 +31,15 @@
 
 #define DAHDI_PRINK_MACROS_USE_debug
 #include <linux/kernel.h>
+#include <linux/slab.h>
 #include <linux/module.h>
 #include <linux/errno.h>
 #include <linux/workqueue.h>
 #include <linux/delay.h>	/* for msleep() to debug */
-#include <dahdi/kernel.h>
+#include <linux/device.h>
 #include <linux/cdev.h>
+
+#include <dahdi/kernel.h>
 #include "dahdi-sysfs.h"
 
 static const char rcsid[] = "$Id$";
@@ -77,14 +80,22 @@ static struct cdev dahdi_channels_cdev;
 	class_simple_device_remove(class, devt)
 #endif
 
+struct dahdi_chan_kobject {
+	struct kobject kobj;
+	struct dahdi_chan *chan;
+};
+
+#define to_chan(_kobj) (container_of((_kobj), struct dahdi_chan_kobject, kobj)->chan)
+
 /*--------- Sysfs channel handling ----*/
 
 #define chan_attr(field, format_string)				\
-static BUS_ATTR_READER(field##_show, dev, buf)			\
+static ATTR_READER(field##_show, kobj, buf)			\
 {								\
 	struct dahdi_chan	*chan;				\
-								\
-	chan = dev_to_chan(dev);				\
+	chan = to_chan(kobj);					\
+	if (!chan)						\
+		return -ENODEV;					\
 	return sprintf(buf, format_string, chan->field);	\
 }
 
@@ -97,47 +108,71 @@ chan_attr(blocksize, "%d\n");
 chan_attr(chanmute, "%d\n");
 #endif
 
-static BUS_ATTR_READER(sig_show, dev, buf)
+static ATTR_READER(sig_show, kobj, buf)
 {
 	struct dahdi_chan	*chan;
 
-	chan = dev_to_chan(dev);
+	chan = to_chan(kobj);
 	return sprintf(buf, "%s\n", sigstr(chan->sig));
 }
 
-static BUS_ATTR_READER(in_use_show, dev, buf)
+static ATTR_READER(in_use_show, kobj, buf)
 {
 	struct dahdi_chan	*chan;
 
-	chan = dev_to_chan(dev);
+	chan = to_chan(kobj);
 	return sprintf(buf, "%d\n", test_bit(DAHDI_FLAGBIT_OPEN, &chan->flags));
 }
 
-static BUS_ATTR_READER(alarms_show, dev, buf)
+static ATTR_READER(alarms_show, kobj, buf)
 {
 	struct dahdi_chan	*chan;
 	int			len;
 
-	chan = dev_to_chan(dev);
+	chan = to_chan(kobj);
 	len = fill_alarm_string(buf, PAGE_SIZE, chan->chan_alarms);
 	buf[len++] = '\n';
 	return len;
 }
 
+static ATTR_READER(dev_show, kobj, buf)
+{
+	struct dahdi_chan *chan = to_chan(kobj);
+	if (!chan)
+		return -ENODEV;
 
-static struct device_attribute chan_dev_attrs[] = {
-	__ATTR_RO(name),
-	__ATTR_RO(channo),
-	__ATTR_RO(chanpos),
-	__ATTR_RO(sig),
-	__ATTR_RO(sigcap),
-	__ATTR_RO(alarms),
-	__ATTR_RO(blocksize),
+	return snprintf(buf, PAGE_SIZE, "%d:%d\n",
+			MAJOR(chan->devt),
+			MINOR(chan->devt));
+}
+
+DECLARE_ATTR_RO(name);
+DECLARE_ATTR_RO(channo);
+DECLARE_ATTR_RO(chanpos);
+DECLARE_ATTR_RO(sig);
+DECLARE_ATTR_RO(sigcap);
+DECLARE_ATTR_RO(alarms);
+DECLARE_ATTR_RO(blocksize);
 #ifdef OPTIMIZE_CHANMUTE
-	__ATTR_RO(chanmute),
+DECLARE_ATTR_RO(chanmute);
 #endif
-	__ATTR_RO(in_use),
-	__ATTR_NULL,
+DECLARE_ATTR_RO(in_use);
+DECLARE_ATTR_RO(dev);
+
+static struct attribute *chan_attrs[] = {
+	__ATTR_PTR(name),
+	__ATTR_PTR(channo),
+	__ATTR_PTR(chanpos),
+	__ATTR_PTR(sig),
+	__ATTR_PTR(sigcap),
+	__ATTR_PTR(alarms),
+	__ATTR_PTR(blocksize),
+#ifdef OPTIMIZE_CHANMUTE
+	__ATTR_PTR(chanmute),
+#endif
+	__ATTR_PTR(in_use),
+	__ATTR_PTR(dev),
+	NULL
 };
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 13)
@@ -148,105 +183,80 @@ static struct class_simple *chan_class;
 #define class_destroy class_simple_destroy
 #endif
 
-
-static void chan_release(struct device *dev)
+static void chan_release(struct kobject *kobj)
 {
-	struct dahdi_chan	*chan;
-
-	BUG_ON(!dev);
-	chan = dev_to_chan(dev);
-	chan_dbg(DEVICES, chan, "SYSFS\n");
+	struct dahdi_chan_kobject *dkobj;
+	dkobj = container_of(kobj, struct dahdi_chan_kobject, kobj);
+	/* The chan should have already been unlinked before this release is
+	 * called.... */
+	WARN_ON(dkobj->chan);
+	kfree(dkobj);
 }
 
-static int chan_match(struct device *dev, struct device_driver *driver)
-{
-	struct dahdi_chan	*chan;
-
-	chan = dev_to_chan(dev);
-	chan_dbg(DEVICES, chan, "%s: SYSFS\n", __func__);
-	return 1;
-}
-
-static struct bus_type chan_bus_type = {
-	.name           = "dahdi_chans",
-	.match          = chan_match,
-	.dev_attrs	= chan_dev_attrs,
+static struct kobj_type dahdi_chan_ktype = {
+	.release = chan_release,
+	.sysfs_ops = &dahdi_sysfs_ops,
+	.default_attrs = chan_attrs,
 };
 
-static int chan_probe(struct device *dev)
+static struct dahdi_chan_kobject *
+create_dahdi_chan_kobject(struct dahdi_chan *chan, struct dahdi_span *span)
 {
-	struct dahdi_chan	*chan;
-
-	chan = dev_to_chan(dev);
-	return 0;
+	struct dahdi_chan_kobject *dkobj;
+	dkobj = kzalloc(sizeof(*dkobj), GFP_KERNEL);
+	if (!dkobj)
+		return NULL;
+	kobject_init(&dkobj->kobj, &dahdi_chan_ktype);
+	dkobj->chan = chan;
+	chan->devt = MKDEV(MAJOR(dahdi_channels_devt), chan->channo);
+	return dkobj;
 }
 
-static int chan_remove(struct device *dev)
+int chan_sysfs_create(struct dahdi_chan *chan, struct dahdi_span *span)
 {
-	struct dahdi_chan	*chan;
+	struct dahdi_chan_kobject *kobj;
+	int res;
 
-	chan = dev_to_chan(dev);
-	return 0;
-}
+	if (!chan || !span)
+		return -EINVAL;
 
-static struct device_driver	chan_driver = {
-	.name = "generic_chan",
-	.bus = &chan_bus_type,
-#ifndef OLD_HOTPLUG_SUPPORT
-	.owner = THIS_MODULE,
-#endif
-	.probe = chan_probe,
-	.remove = chan_remove
-};
+	kobj = create_dahdi_chan_kobject(chan, span);
+	if (!kobj)
+		return -ENOMEM;
+	chan->kobj = kobj;
 
-int chan_sysfs_create(struct dahdi_chan *chan)
-{
-	struct device		*dev = &chan->chan_device;
-	struct dahdi_span	*span;
-	int			res;
-	dev_t			devt;
-
-	BUG_ON(!chan);
-	span = chan->span;
-	BUG_ON(!span);
-	devt = MKDEV(MAJOR(dahdi_channels_devt), chan->channo);
-	chan_dbg(DEVICES, chan, "SYSFS\n");
-	dev = &chan->chan_device;
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 18)
-	dev->devt = devt;
-	dev->class = NULL;
-#endif
-	dev->bus = &chan_bus_type;
-	dev->parent = &span->span_device;
 	/*
 	 * WARNING: the name cannot be longer than KOBJ_NAME_LEN
 	 */
-	dev_set_name(dev, "dahdi!spans!%d!%d", span->spanno, chan->chanpos);
-	dev_set_drvdata(dev, chan);
-	dev->release = chan_release;
-	res = device_register(dev);
+	BUG_ON(chan->chanpos == 0);
+	res = kobject_add(&kobj->kobj, &span->kobj->kobj, "chan:%d",
+			  chan->chanpos - 1);
 	if (res) {
 		chan_err(chan, "%s: device_register failed: %d\n",
 				__func__, res);
 		return res;
 	}
-	return 0;
+
+	chan_dbg(DEVICES, chan, "SYSFS\n");
+	return res;
 }
 
 void chan_sysfs_remove(struct dahdi_chan *chan)
 {
-	struct device	*dev = &chan->chan_device;
+	struct dahdi_chan_kobject *dkobj;
+	unsigned long flags;
 
 	chan_dbg(DEVICES, chan, "SYSFS\n");
 	chan_dbg(DEVICES, chan, "Destroying channel %d\n", chan->channo);
-	dev = &chan->chan_device;
-	if (!dev_get_drvdata(dev))
-		return;
-	BUG_ON(dev_get_drvdata(dev) != chan);
-	device_unregister(dev);
-	dev_set_drvdata(dev, NULL);
-	/* FIXME: should have been done earlier in dahdi_chan_unreg */
 	chan->channo = -1;
+	dkobj = chan->kobj;
+
+	spin_lock_irqsave(&chan->lock, flags);
+	chan->kobj = NULL;
+	dkobj->chan = NULL;
+	spin_unlock_irqrestore(&chan->lock, flags);
+
+	kobject_put(&dkobj->kobj);
 }
 
 int dahdi_register_chardev(struct dahdi_chardev *dev)
@@ -272,18 +282,6 @@ int __init dahdi_driver_chan_init(const struct file_operations *fops)
 	int	res;
 
 	dahdi_dbg(DEVICES, "SYSFS\n");
-	res = bus_register(&chan_bus_type);
-	if (res != 0) {
-		dahdi_err("%s: bus_register(%s) failed. Error number %d",
-			__func__, chan_bus_type.name, res);
-		goto failed_bus;
-	}
-	res = driver_register(&chan_driver);
-	if (res < 0) {
-		dahdi_err("%s: driver_register(%s) failed. Error number %d",
-			__func__, chan_driver.name, res);
-		goto failed_driver;
-	}
 	chan_class = class_create(THIS_MODULE, "dahdi");
 	if (IS_ERR(chan_class)) {
 		res = PTR_ERR(chan_class);
@@ -296,9 +294,9 @@ int __init dahdi_driver_chan_init(const struct file_operations *fops)
 	if (res) {
 		dahdi_err("%s: Failed allocating chrdev for %d channels (%d)",
 			__func__, DAHDI_MAX_CHANNELS, res);
-		driver_unregister(&chan_driver);
 		goto failed_chrdev_region;
 	}
+
 #if LINUX_VERSION_CODE <= KERNEL_VERSION(2, 6, 17)
 	cdev_init(&dahdi_channels_cdev, (struct file_operations *)fops);
 #else
@@ -311,7 +309,6 @@ int __init dahdi_driver_chan_init(const struct file_operations *fops)
 		goto failed_cdev_add;
 	}
 
-	/* NULL parent, NULL drvdata */
 	/* FIXME: error handling */
 	create_dev_file(chan_class, MKDEV(DAHDI_MAJOR, DAHDI_TIMER),
 			"dahdi!timer");
@@ -328,10 +325,6 @@ failed_cdev_add:
 failed_chrdev_region:
 	class_destroy(chan_class);
 failed_class:
-	driver_unregister(&chan_driver);
-failed_driver:
-	bus_unregister(&chan_bus_type);
-failed_bus:
 	return res;
 }
 
@@ -345,6 +338,38 @@ void dahdi_driver_chan_exit(void)
 	cdev_del(&dahdi_channels_cdev);
 	unregister_chrdev_region(dahdi_channels_devt, DAHDI_MAX_CHANNELS);
 	class_destroy(chan_class);
-	driver_unregister(&chan_driver);
-	bus_unregister(&chan_bus_type);
 }
+
+int dahdi_device_register(struct dahdi_device *dev, struct device *parent,
+			  const char *fmt, ...)
+{
+	int ret = 0;
+	va_list vargs;
+	va_start(vargs, fmt);
+	dev->dev = device_create(chan_class, parent, 0, dev, fmt, vargs);
+	va_end(vargs);
+	return ret;
+}
+EXPORT_SYMBOL(dahdi_device_register);
+
+void dahdi_device_unregister(struct dahdi_device *dev)
+{
+	struct device *_dev;
+	_dev = dev->dev;
+	dev->dev = NULL;
+	dev_set_drvdata(_dev, NULL);
+	device_unregister(_dev);
+}
+EXPORT_SYMBOL(dahdi_device_unregister);
+
+int dahdi_device_online(struct dahdi_device *dev)
+{
+	return kobject_uevent(&dev->dev->kobj, KOBJ_ONLINE);
+}
+EXPORT_SYMBOL(dahdi_device_online);
+
+int dahdi_device_offline(struct dahdi_device *dev)
+{
+	return kobject_uevent(&dev->dev->kobj, KOBJ_OFFLINE);
+}
+EXPORT_SYMBOL(dahdi_device_offline);

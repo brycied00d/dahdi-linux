@@ -3756,7 +3756,6 @@ static struct wctdm_chan *wctdm_init_chan(struct wctdm *wc, struct wctdm_span *s
 	}
 
 	c->chan.chanpos = channo+1;
-	c->chan.span = &s->span;
 	c->chan.pvt = wc;
 	c->timeslot = chanoffset + channo;
 	return c;
@@ -3807,11 +3806,6 @@ static struct wctdm_span *wctdm_init_span(struct wctdm *wc, int spanno, int chan
 		sprintf(s->span.name, "WCTDM/%d", wc->pos);
 
 	snprintf(s->span.desc, sizeof(s->span.desc) - 1, "%s Board %d", wc->desc->name, wc->pos + 1);
-	snprintf(s->span.location, sizeof(s->span.location) - 1,
-		 "PCI%s Bus %02d Slot %02d", (wc->flags[0] & FLAG_EXPRESS) ? " Express" : "",
-		 pdev->bus->number, PCI_SLOT(pdev->devfn) + 1);
-	s->span.manufacturer = "Digium";
-	strncpy(s->span.devicetype, wc->desc->name, sizeof(s->span.devicetype) - 1);
 
 	if (wc->companding == DAHDI_LAW_DEFAULT) {
 		if (wc->digi_mods || digital_span)
@@ -3921,10 +3915,6 @@ static void wctdm_fixup_analog_span(struct wctdm *wc, int spanno)
 	for (x = 0; x < MAX_SPANS; x++) {
 		if (!wc->spans[x])
 			continue;
-		if (wc->vpm100)
-			strncat(wc->spans[x]->span.devicetype, " (VPM100M)", sizeof(wc->spans[x]->span.devicetype) - 1);
-		else if (wc->vpmadt032)
-			strncat(wc->spans[x]->span.devicetype, " (VPMADT032)", sizeof(wc->spans[x]->span.devicetype) - 1);
 	}
 }
 
@@ -5031,6 +5021,12 @@ __wctdm_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
  */
 	anamods = digimods = 0;
 	curchan = curspan = 0;
+
+	snprintf(wc->dev.location, sizeof(wc->dev.location) - 1,
+		 "PCI%s Bus %02d Slot %02d", (wc->flags[0] & FLAG_EXPRESS) ? " Express" : "",
+		 pdev->bus->number, PCI_SLOT(pdev->devfn) + 1);
+	wc->dev.manufacturer = "Digium";
+	strncpy(wc->dev.devicetype, wc->desc->name, sizeof(wc->dev.devicetype) - 1);
 	
 	for (i = 0; i < wc->mods_per_board; i++) {
 		struct b400m *b4;
@@ -5117,11 +5113,23 @@ __wctdm_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 #ifdef USE_ASYNC_INIT
 		async_synchronize_cookie(cookie);
 #endif
+	if (wc->vpm100)
+		strncat(wc->dev.devicetype, " (VPM100M)", sizeof(wc->dev.devicetype) - 1);
+	else if (wc->vpmadt032)
+		strncat(wc->dev.devicetype, " (VPMADT032)", sizeof(wc->dev.devicetype) - 1);
+
+	ret = dahdi_device_register(&wc->dev, &pdev->dev, dev_name(&pdev->dev));
+	if (ret) {
+		wctdm_back_out_gracefully(wc);
+		return -1;
+	}
+
 	/* We should be ready for DAHDI to come in now. */
 	for (i = 0; i < MAX_SPANS; ++i) {
 		if (!wc->spans[i])
 			continue;
 
+		wc->spans[i]->span.parent = &wc->dev;
 		if (dahdi_register(&wc->spans[i]->span, 0)) {
 			dev_notice(&wc->vb.pdev->dev, "Unable to register span %d with DAHDI\n", i);
 			while (i)
@@ -5141,6 +5149,8 @@ __wctdm_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 	ret = 0;
 
 	voicebus_unlock_latency(&wc->vb);
+
+	dahdi_device_online(&wc->dev);
 	return 0;
 }
 

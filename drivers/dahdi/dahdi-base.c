@@ -190,6 +190,7 @@ static struct proc_dir_entry *root_proc_entry;
 static int deftaps = 64;
 
 int debug;
+int default_ordering = 1;
 
 /*!
  * \brief states for transmit signalling
@@ -805,7 +806,6 @@ static int dahdi_proc_read(char *page, char **start, off_t off, int count, int *
 	int x, len = 0, real_count;
 	long spanno;
 	struct dahdi_span *s;
-
 
 	/* In Linux 2.6, page is always PROC_BLOCK_SIZE=(PAGE_SIZE-1024) bytes.
 	 * 0<count<=PROC_BLOCK_SIZE . count=1 will produce an error in
@@ -2898,9 +2898,9 @@ static int dahdi_specchan_open(struct file *file)
 				return res;
 			}
 			spin_lock_irqsave(&chan->lock, flags);
-			if (is_pseudo_chan(chan))
+			if (is_pseudo_chan(chan)) {
 				chan->flags |= DAHDI_FLAG_AUDIO;
-			if (chan->span) {
+			} else {
 				if (!try_module_get(chan->span->ops->owner))
 					res = -ENXIO;
 				else if (chan->span->ops->open)
@@ -2919,17 +2919,17 @@ static int dahdi_specchan_open(struct file *file)
 				close_channel(chan);
 				clear_bit(DAHDI_FLAGBIT_OPEN, &chan->flags);
 			}
+			spin_unlock_irqrestore(&chan->lock, flags);
 		} else {
 			res = -EBUSY;
 		}
-	} else
-		res = -ENXIO;
+	}
 	return res;
 }
 
 static int dahdi_specchan_release(struct file *file)
 {
-	int res=0;
+	int res = 0;
 	unsigned long flags;
 	struct dahdi_chan *chan = chan_from_file(file);
 
@@ -3055,6 +3055,7 @@ static void dahdi_free_pseudo(struct dahdi_chan *chan)
 static int dahdi_open(struct inode *inode, struct file *file)
 {
 	struct dahdi_chan *chan;
+
 	/* Minor 0: Special "control" descriptor */
 	if (IS_UNIT(file, DAHDI_CTL))
 		return dahdi_ctl_open(file);
@@ -3095,7 +3096,7 @@ static int dahdi_open(struct inode *inode, struct file *file)
 			file->private_data = chan;
 			return dahdi_specchan_open(file);
 		} else {
-			return -ENXIO;
+			return -ENOMEM;
 		}
 	}
 	return dahdi_specchan_open(file);
@@ -3773,8 +3774,8 @@ static int dahdi_ioctl_setgains(struct file *file, unsigned long data)
 	int j;
 	unsigned long flags;
 	const int GAIN_TABLE_SIZE = sizeof(defgain);
-	void __user * const user_data = (void __user *)data;
 	struct dahdi_chan *chan;
+	void __user * const user_data = (void __user *)data;
 
 	gain = kzalloc(sizeof(*gain), GFP_KERNEL);
 	if (!gain)
@@ -4059,6 +4060,7 @@ static int dahdi_ioctl_spanstat(struct file *file, unsigned long data)
 {
 	struct dahdi_spaninfo spaninfo;
 	struct dahdi_span *s;
+	const struct dahdi_device *parent;
 	int j;
 	size_t size_to_copy;
 
@@ -4077,6 +4079,7 @@ static int dahdi_ioctl_spanstat(struct file *file, unsigned long data)
 	if (!s)
 		return -EINVAL;
 
+	parent = s->parent;
 	spaninfo.spanno = s->spanno; /* put the span # in here */
 	spaninfo.totalspans = span_count();
 	dahdi_copy_string(spaninfo.desc, s->desc, sizeof(spaninfo.desc));
@@ -4109,15 +4112,15 @@ static int dahdi_ioctl_spanstat(struct file *file, unsigned long data)
 	spaninfo.linecompat = s->linecompat;
 	dahdi_copy_string(spaninfo.lboname, dahdi_lboname(s->lbo),
 			  sizeof(spaninfo.lboname));
-	if (s->manufacturer) {
-		dahdi_copy_string(spaninfo.manufacturer, s->manufacturer,
+	if (parent->manufacturer) {
+		dahdi_copy_string(spaninfo.manufacturer, parent->manufacturer,
 				  sizeof(spaninfo.manufacturer));
 	}
-	if (s->devicetype) {
-		dahdi_copy_string(spaninfo.devicetype, s->devicetype,
+	if (parent->devicetype) {
+		dahdi_copy_string(spaninfo.devicetype, parent->devicetype,
 				  sizeof(spaninfo.devicetype));
 	}
-	dahdi_copy_string(spaninfo.location, s->location,
+	dahdi_copy_string(spaninfo.location, parent->location,
 			  sizeof(spaninfo.location));
 	if (s->spantype) {
 		dahdi_copy_string(spaninfo.spantype, s->spantype,
@@ -4137,6 +4140,7 @@ static int dahdi_ioctl_spanstat_v1(struct file *file, unsigned long data)
 {
 	struct dahdi_spaninfo_v1 spaninfo_v1;
 	struct dahdi_span *s;
+	const struct dahdi_device *parent;
 	int j;
 
 	if (copy_from_user(&spaninfo_v1, (void __user *)data,
@@ -4157,6 +4161,7 @@ static int dahdi_ioctl_spanstat_v1(struct file *file, unsigned long data)
 	if (!s)
 		return -EINVAL;
 
+	parent = s->parent;
 	spaninfo_v1.spanno = s->spanno; /* put the span # in here */
 	spaninfo_v1.totalspans = 0;
 	spaninfo_v1.totalspans = span_count();
@@ -4189,20 +4194,20 @@ static int dahdi_ioctl_spanstat_v1(struct file *file, unsigned long data)
 			  dahdi_lboname(s->lbo),
 			  sizeof(spaninfo_v1.lboname));
 
-	if (s->manufacturer) {
+	if (parent->manufacturer) {
 		dahdi_copy_string(spaninfo_v1.manufacturer,
-			s->manufacturer,
+			parent->manufacturer,
 			sizeof(spaninfo_v1.manufacturer));
 	}
 
-	if (s->devicetype) {
+	if (parent->devicetype) {
 		dahdi_copy_string(spaninfo_v1.devicetype,
-				  s->devicetype,
+				  parent->devicetype,
 				  sizeof(spaninfo_v1.devicetype));
 	}
 
 	dahdi_copy_string(spaninfo_v1.location,
-			  s->location,
+			  parent->location,
 			  sizeof(spaninfo_v1.location));
 
 	if (s->spantype) {
@@ -6124,19 +6129,19 @@ static int dahdi_prechan_ioctl(struct file *file, unsigned int cmd, unsigned lon
 {
 	int channo;
 	int res;
+	void *old;
 
 	if (file->private_data) {
 		module_printk(KERN_NOTICE, "Huh?  Prechan already has private data??\n");
 	}
+
 	switch(cmd) {
 	case DAHDI_SPECIFY:
 		get_user(channo, (int __user *)data);
+		old = file->private_data;
 		file->private_data = chan_from_num(channo);
-		if (!file->private_data)
-			return -EINVAL;
 		res = dahdi_specchan_open(file);
-		if (res)
-			file->private_data = NULL;
+		file->private_data = old;
 		return res;
 	default:
 		return -ENOSYS;
@@ -6373,7 +6378,7 @@ err_sysfs_span:
  * Unregisters a span that has been previously registered with
  * dahdi_register().
  */
-int dahdi_unregister(struct dahdi_span *span)
+void dahdi_unregister(struct dahdi_span *span)
 {
 	int x;
 	static struct dahdi_span *new_master;
@@ -6381,7 +6386,7 @@ int dahdi_unregister(struct dahdi_span *span)
 
 	if (span != find_span(span->spanno)) {
 		module_printk(KERN_ERR, "Span %s does not appear to be registered\n", span->name);
-		return -1;
+		return;
 	}
 
 	down(&registration_lock);
@@ -6408,6 +6413,7 @@ int dahdi_unregister(struct dahdi_span *span)
 		dahdi_chan_unreg(span->chans[x]);
 
 	span_sysfs_remove(span);
+	/* The memory backing the span may be gone at this point... */
 	new_master = master; /* FIXME: locking */
 	if (master == span)
 		new_master = NULL;
@@ -6425,7 +6431,7 @@ int dahdi_unregister(struct dahdi_span *span)
 	master = new_master;
 
 	up(&registration_lock);
-	return 0;
+	return;
 }
 
 /*
@@ -8885,6 +8891,21 @@ int dahdi_receive(struct dahdi_span *span)
 	return 0;
 }
 
+/**
+ * dadhi_core_assigns_span_numbers() - True if spanno is automatic.
+ *
+ * If false it's expected that user space will respond to hotplug events
+ * and assign the span numbers.  This means that board drivers can register
+ * all their supported devices in parallel and user space will sort out the
+ * order.
+ *
+ */
+bool dahdi_core_assigns_span_numbers(void)
+{
+	return !(default_ordering == 0);
+}
+EXPORT_SYMBOL(dahdi_core_assigns_span_numbers);
+
 MODULE_AUTHOR("Mark Spencer <markster@digium.com>");
 MODULE_DESCRIPTION("DAHDI Telephony Interface");
 MODULE_LICENSE("GPL v2");
@@ -8896,6 +8917,8 @@ MODULE_VERSION(DAHDI_VERSION);
 
 module_param(debug, int, 0644);
 module_param(deftaps, int, 0644);
+module_param(default_ordering, int, 0444);
+MODULE_PARM_DESC(default_ordering, "1: spans/channels are numbered in registration order. 0: User space numbers spans. Default=1");
 
 static const struct file_operations dahdi_fops = {
 	.owner   = THIS_MODULE,

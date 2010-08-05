@@ -33,6 +33,8 @@
 #include <linux/interrupt.h>
 #include <linux/moduleparam.h>
 
+#define HERE() do {printk(KERN_DEBUG "HERE: %s:%d\n", __FILE__, __LINE__); } while (0)
+
 #include <dahdi/kernel.h>
 
 /*
@@ -109,8 +111,8 @@ struct dahdi_dynamic {
 	int timing;
 	int master;
 	unsigned char *msgbuf;
-
 	struct list_head list;
+	struct dahdi_device dev;
 };
 
 static DEFINE_SPINLOCK(dspan_lock);
@@ -404,29 +406,28 @@ void dahdi_dynamic_receive(struct dahdi_span *span, unsigned char *msg, int msgl
 
 static void dynamic_destroy(struct dahdi_dynamic *z)
 {
-	unsigned int x;
+	int x;
+	void *pvt = z->pvt;
+	struct dahdi_dynamic_driver *driver = z->driver;
 
+	HERE();
 	/* Unregister span if appropriate */
-	if (test_bit(DAHDI_FLAGBIT_REGISTERED, &z->span.flags))
+	if (test_bit(DAHDI_FLAGBIT_REGISTERED, &z->span.flags)) {
+		dahdi_device_offline(&z->dev);
 		dahdi_unregister(&z->span);
-
-	/* Destroy the pvt stuff if there */
-	if (z->pvt)
-		z->driver->destroy(z->pvt);
-
-	/* Free message buffer if appropriate */
-	if (z->msgbuf)
-		kfree(z->msgbuf);
-
-	/* Free channels */
-	for (x = 0; x < z->span.channels; x++) {
-		kfree(z->chans[x]);
 	}
 
-	/* Free z */
-	kfree(z);
+	/* Destroy the pvt stuff if there */
+	if (pvt)
+		driver->destroy(pvt);
 
 	checkmaster();
+	HERE();
+	dahdi_device_unregister(&z->dev);
+	for (x = 0; x < z->span.channels; ++x)
+		kfree(z->chans[x]);
+
+	kfree(z);
 }
 
 static struct dahdi_dynamic *find_dynamic(struct dahdi_dynamic_span *zds)
@@ -435,6 +436,8 @@ static struct dahdi_dynamic *find_dynamic(struct dahdi_dynamic_span *zds)
 
 	rcu_read_lock();
 	list_for_each_entry_rcu(z, &dspan_list, list) {
+		printk(KERN_DEBUG "'%s':'%s' and '%s':'%s'\n",
+			z->dname, zds->driver, z->addr, zds->addr);
 		if (!strcmp(z->dname, zds->driver) &&
 				!strcmp(z->addr, zds->addr)) {
 			found = z;
@@ -468,6 +471,8 @@ static int destroy_dynamic(struct dahdi_dynamic_span *zds)
 	unsigned long flags;
 	struct dahdi_dynamic *z;
 
+	HERE();
+
 	z = find_dynamic(zds);
 	if (unlikely(!z)) {
 		return -EINVAL;
@@ -483,9 +488,7 @@ static int destroy_dynamic(struct dahdi_dynamic_span *zds)
 	spin_unlock_irqrestore(&dspan_lock, flags);
 	synchronize_rcu();
 
-	/* Destroy it */
 	dynamic_destroy(z);
-
 	return 0;
 }
 
@@ -522,6 +525,7 @@ static int ztd_close(struct dahdi_chan *chan)
 	return 0;
 }
 
+
 static const struct dahdi_span_ops dynamic_ops = {
 	.owner = THIS_MODULE,
 	.rbsbits = ztd_rbsbits,
@@ -537,6 +541,7 @@ static int create_dynamic(struct dahdi_dynamic_span *zds)
 	unsigned long flags;
 	int x;
 	int bufsize;
+	int res;
 
 	if (zds->numchans < 1) {
 		printk(KERN_NOTICE "Can't be less than 1 channel (%d)!\n", zds->numchans);
@@ -548,40 +553,33 @@ static int create_dynamic(struct dahdi_dynamic_span *zds)
 	}
 
 	z = find_dynamic(zds);
-	if (z)
+	if (z) {
+		HERE();
 		return -EEXIST;
+	}
+	HERE();
 
 	/* Allocate memory */
-	z = (struct dahdi_dynamic *) kmalloc(sizeof(struct dahdi_dynamic), GFP_KERNEL);
-	if (!z) {
+	z = kzalloc(sizeof(*z), GFP_KERNEL);
+	if (!z)
 		return -ENOMEM;
-	}
-
-	/* Zero it out */
-	memset(z, 0, sizeof(*z));
 
 	for (x = 0; x < zds->numchans; x++) {
-		if (!(z->chans[x] = kmalloc(sizeof(*z->chans[x]), GFP_KERNEL))) {
+		if (!(z->chans[x] = kzalloc(sizeof(*z->chans[x]), GFP_KERNEL))) {
 			dynamic_destroy(z);
 			return -ENOMEM;
 		}
-
-		memset(z->chans[x], 0, sizeof(*z->chans[x]));
 	}
 
 	/* Allocate message buffer with sample space and header space */
 	bufsize = zds->numchans * DAHDI_CHUNKSIZE + zds->numchans / 4 + 48;
 
-	z->msgbuf = kmalloc(bufsize, GFP_KERNEL);
-
+	z->msgbuf = kzalloc(bufsize, GFP_KERNEL);
 	if (!z->msgbuf) {
 		dynamic_destroy(z);
 		return -ENOMEM;
 	}
 	
-	/* Zero out -- probably not needed but why not */
-	memset(z->msgbuf, 0, bufsize);
-
 	/* Setup parameters properly assuming we're going to be okay. */
 	dahdi_copy_string(z->dname, zds->driver, sizeof(z->dname));
 	dahdi_copy_string(z->addr, zds->addr, sizeof(z->addr));
@@ -638,12 +636,19 @@ static int create_dynamic(struct dahdi_dynamic_span *zds)
 	/* Remember the driver */
 	z->driver = ztd;
 
+	res = dahdi_device_register(&z->dev, NULL, z->span.name);
+	if (res) 
+		return res;
+
 	/* Whee!  We're created.  Now register the span */
+	z->span.parent = &z->dev;
 	if (dahdi_register(&z->span, 0)) {
 		printk(KERN_NOTICE "Unable to register span '%s'\n", z->span.name);
-		dynamic_destroy(z);
+		dahdi_device_unregister(&z->dev);
 		return -EINVAL;
 	}
+
+	dahdi_device_online(&z->dev);
 
 	spin_lock_irqsave(&dspan_lock, flags);
 	list_add_rcu(&z->list, &dspan_list);
@@ -653,7 +658,6 @@ static int create_dynamic(struct dahdi_dynamic_span *zds)
 
 	/* All done */
 	return z->span.spanno;
-
 }
 
 #ifdef ENABLE_TASKLETS
@@ -686,8 +690,10 @@ static int ztdynamic_ioctl(unsigned int cmd, unsigned long data)
 		if (debug)
 			printk(KERN_DEBUG "Dynamic Create\n");
 		res = create_dynamic(&zds);
-		if (res < 0)
+		if (res < 0) {
+			HERE();
 			return res;
+		}
 		zds.spanno = res;
 		/* Let them know the new span number */
 		if (copy_to_user((__user void *) data, &zds, sizeof(zds)))
