@@ -873,7 +873,7 @@ struct dahdi_span {
 	/* FIXME: placing the span in the device tree should be done by the
 	 * low-level driver, right?
 	 */
-	struct device *parent_device; /*!< Location in the devices tree */
+	struct device *parent; /*!< The device that is exporting this span. */
 #define dev_to_span(dev)  container_of(dev, struct dahdi_span, span_device)
 	int spanno;			/*!< Span number for DAHDI */
 	int offset;			/*!< Offset within a given card */

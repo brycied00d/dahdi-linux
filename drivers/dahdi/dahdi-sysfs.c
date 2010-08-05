@@ -379,8 +379,8 @@ int span_sysfs_create(struct dahdi_span *span)
 	span_dbg(DEVICES, span, "\n");
 
 	span_device->bus = &spans_bus_type;
-	span_device->parent = (span->parent_device)
-		? span->parent_device
+	span_device->parent = (span->parent)
+		? span->parent
 		: NULL;
 	dev_set_name(span_device, "span-%d", span->spanno);
 	dev_set_drvdata(span_device, span);

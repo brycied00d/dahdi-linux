@@ -109,8 +109,8 @@ struct dahdi_dynamic {
 	int timing;
 	int master;
 	unsigned char *msgbuf;
-
 	struct list_head list;
+	struct device dev;
 };
 
 #ifdef DEFINE_SPINLOCK
