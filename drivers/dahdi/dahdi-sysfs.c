@@ -365,6 +365,8 @@ static struct kobj_type dahdi_span_ktype = {
 	.release = span_release,
 };
 
+static struct kset *dahdi_span_kset;
+
 void span_sysfs_remove(struct dahdi_span *span)
 {
 	int		x;
@@ -376,10 +378,9 @@ void span_sysfs_remove(struct dahdi_span *span)
 		struct dahdi_chan *chan = span->chans[x];
 		chan_sysfs_remove(chan);
 	}
+	sysfs_remove_link(&dahdi_span_kset->kobj, "test");
 	kobject_put(&span->kobj);
 }
-
-static struct kset *dahdi_span_kset;
 
 int span_sysfs_create(struct dahdi_span *span)
 {
@@ -397,8 +398,7 @@ int span_sysfs_create(struct dahdi_span *span)
 	kobject_init(&span->kobj, &dahdi_span_ktype);
 	span->kobj.kset = dahdi_span_kset;
 	res = kobject_add(&span->kobj, &span->parent->kobj,
-			  "%s:%d", dev_name(span->parent),
-			  span->spanno);
+			  "span:%d", span->spanno);
 	if (res) {
 		span_err(span, "%s: device_register failed: %d\n", __func__,
 				res);
@@ -413,6 +413,11 @@ int span_sysfs_create(struct dahdi_span *span)
 					res);
 			goto err_chan_device_register;
 		}
+	}
+	res = sysfs_create_link(&dahdi_span_kset->kobj, &span->kobj, "test");
+	if (res) {
+		res = -ENOMEM;
+		goto err_chan_device_register;
 	}
 	span_uevent_send(span, KOBJ_ADD);
 	return res;
