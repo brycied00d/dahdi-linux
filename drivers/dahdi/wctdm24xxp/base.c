@@ -231,6 +231,7 @@ static int _opermode = 0;
 static char *opermode = "FCC";
 static int fxshonormode = 0;
 static int alawoverride = 0;
+static char *companding = "ulaw";
 static int fxotxgain = 0;
 static int fxorxgain = 0;
 static int fxstxgain = 0;
@@ -2637,7 +2638,7 @@ static int wctdm_init_voicedaa(struct wctdm *wc, int card, int fast, int manual,
 	wait_just_a_bit(HZ/10);
 
 	/* Enable PCM, ulaw */
-	if (alawoverride) {
+	if (!strcasecmp(companding, "alaw")) {
 		wctdm_setreg(wc, card, 33, 0x20);
 	} else {
 		wctdm_setreg(wc, card, 33, 0x28);
@@ -2871,7 +2872,7 @@ static int wctdm_init_proslic(struct wctdm *wc, int card, int fast, int manual, 
 	}
 #endif
 
-    if (alawoverride)
+    if (!strcasecmp(companding, "alaw"))
     	wctdm_setreg(wc, card, 1, 0x20);
     else
     	wctdm_setreg(wc, card, 1, 0x28);
@@ -3801,7 +3802,7 @@ static struct wctdm_span *wctdm_init_span(struct wctdm *wc, int spanno, int chan
 	s->span.manufacturer = "Digium";
 	strncpy(s->span.devicetype, wc->desc->name, sizeof(s->span.devicetype) - 1);
 
-	if (alawoverride) {
+	if (!strcasecmp(companding, "alaw")) {
 		s->span.deflaw = DAHDI_LAW_ALAW;
 		if (first) {
 			dev_info(&wc->vb.pdev->dev, "ALAW override parameter detected.  Device will be operating in ALAW\n");
@@ -3811,7 +3812,8 @@ static struct wctdm_span *wctdm_init_span(struct wctdm *wc, int spanno, int chan
 		/* BRIs are in A-law */
 		s->span.deflaw = DAHDI_LAW_ALAW;
 	} else  {
-		/* Analog mods are ulaw unless alawoverride is used */
+		/* Analog mods are ulaw unless modparam
+		   companding="alaw" is used */
 		s->span.deflaw = DAHDI_LAW_MULAW;
 	}
 
@@ -3950,7 +3952,7 @@ static int wctdm_vpm_init(struct wctdm *wc)
 		/* Setup convergence rate */
 		reg = wctdm_vpm_in(wc,x,0x20);
 		reg &= 0xE0;
-		if (alawoverride) {
+		if (!strcasecmp(companding, "alaw")) {
 			if (!x)
 				dev_info(&wc->vb.pdev->dev, "VPM: A-law mode\n");
 			reg |= 0x01;
@@ -4889,7 +4891,6 @@ __wctdm_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 		return ret;
 	}
 
-
 	create_sysfs_files(wc);
 
 	voicebus_lock_latency(&wc->vb);
@@ -4900,6 +4901,13 @@ __wctdm_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 	wc->mods_per_board = NUM_MODULES;
 	wc->pos = i;
 	wc->txident = 1;
+
+	if (alawoverride) {
+		companding = "alaw";
+		dev_info(&wc->vb.pdev->dev, "The module parameter alawoverride"\
+					" has been deprecated. Please use the "\
+					"parameter companding=alaw instead");
+	}
 
 	for (i = 0; i < NUM_MODULES; i++) {
 		wc->flags[i] = wc->desc->flags;
@@ -5254,7 +5262,6 @@ module_param(fxshonormode, int, 0600);
 module_param(battdebounce, uint, 0600);
 module_param(battalarm, uint, 0600);
 module_param(battthresh, uint, 0600);
-module_param(alawoverride, int, 0400);
 module_param(nativebridge, int, 0600);
 module_param(fxotxgain, int, 0600);
 module_param(fxorxgain, int, 0600);
@@ -5296,6 +5303,14 @@ MODULE_PARM_DESC(timingcable, "Set to 1 for enabling timing cable.  This means t
 
 module_param(forceload, int, 0600);
 MODULE_PARM_DESC(forceload, "Set to 1 in order to force an FPGA reload after power on (currently only for HA8/HB8 cards).");
+
+module_param(alawoverride, int, 0400);
+MODULE_PARM_DESC(alawoverride, "This option has been deprecated. Please use"\
+			     "the parameter \"companding\" instead");
+
+module_param(companding, charp, 0400);
+MODULE_PARM_DESC(companding, "Change the companding to \"alaw\" or \"ulaw\""\
+				"(ulaw by default)");
 
 MODULE_DESCRIPTION("VoiceBus Driver for Wildcard Analog and Hybrid Cards");
 MODULE_AUTHOR("Digium Incorporated <support@digium.com>");
