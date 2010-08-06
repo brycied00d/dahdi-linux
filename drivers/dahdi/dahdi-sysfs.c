@@ -398,7 +398,7 @@ int span_sysfs_create(struct dahdi_span *span)
 	kobject_init(&span->kobj, &dahdi_span_ktype);
 	span->kobj.kset = dahdi_span_kset;
 	res = kobject_add(&span->kobj, &span->parent->kobj,
-			  "span:%d", span->spanno);
+			  "%d", span->spanno);
 	if (res) {
 		span_err(span, "%s: device_register failed: %d\n", __func__,
 				res);
