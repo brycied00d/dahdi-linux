@@ -2267,7 +2267,7 @@ static void __t4_set_sclk_src(struct t4 *wc, int mode, int master, int slave)
 	__t4_pci_out(wc, WC_DMACTRL, wc->dmactrl);
 }
 
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,18))
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 18))
 static ssize_t t4_timing_master_show(struct device *dev,
 				     struct device_attribute *attr,
 				     char *buf)
@@ -2283,19 +2283,19 @@ static DEVICE_ATTR(timing_master, 0400, t4_timing_master_show, NULL);
 
 static void create_sysfs_files(struct t4 *wc)
 {
-        int ret;
-        ret = device_create_file(&wc->dev->dev,
-                                 &dev_attr_timing_master);
-        if (ret) {
-                dev_info(&wc->dev->dev,
-                        "Failed to create device attributes.\n");
-        }
+	int ret;
+	ret = device_create_file(&wc->dev->dev,
+				 &dev_attr_timing_master);
+	if (ret) {
+		dev_info(&wc->dev->dev,
+			"Failed to create device attributes.\n");
+	}
 }
 
 static void remove_sysfs_files(struct t4 *wc)
 {
-        device_remove_file(&wc->dev->dev,
-                           &dev_attr_timing_master);
+	device_remove_file(&wc->dev->dev,
+			   &dev_attr_timing_master);
 }
 
 #else
