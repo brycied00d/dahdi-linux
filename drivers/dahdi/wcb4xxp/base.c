@@ -94,7 +94,7 @@ static int alarmdebounce = 500;
 static int vpmsupport = 1;
 static int timer_1_ms = 2000;
 static int timer_3_ms = 30000;
-static int alawoverride = 1;
+static char *companding = "alaw";
 
 #if !defined(mmiowb)
 #define mmiowb() barrier()
@@ -684,15 +684,18 @@ static void ec_init(struct b4xxp *b4)
 			ec_write(b4, i, 0x33 - j, (mask >> (j << 3)) & 0xff);
 
 /* Setup convergence rate */
-		if (DBG)
-			dev_info(b4->dev, "setting A-law mode\n");
-
 		b = ec_read(b4, i, 0x20);
 		b &= 0xe0;
 		b |= 0x12;
-		if (alawoverride) {
+		if (!strcasecmp(companding, "alaw")) {
+			if (DBG)
+				dev_info(b4->dev, "Setting alaw mode\n");
 			b |= 0x01;
+		} else {
+			if (DBG)
+				dev_info(b4->dev, "Setting ulaw mode");
 		}
+
 		ec_write(b4, i, 0x20, b);
 		if (DBG)
 			dev_info(b4->dev, "reg 0x20 is 0x%02x\n", b);
@@ -2343,10 +2346,10 @@ static void init_spans(struct b4xxp *b4)
 		bspan->span.channels = WCB4XXP_CHANNELS_PER_SPAN;
 		bspan->span.flags = 0;
 
-		if (alawoverride)
-			bspan->span.deflaw = DAHDI_LAW_ALAW;
-		else
+		if (!strcasecmp(companding, "ulaw"))
 			bspan->span.deflaw = DAHDI_LAW_MULAW;
+		else
+			bspan->span.deflaw = DAHDI_LAW_ALAW;
 		/* For simplicty, we'll accept all line modes since BRI
 		 * ignores this setting anyway.*/
 		bspan->span.linecompat = DAHDI_CONFIG_AMI | 
@@ -2961,7 +2964,7 @@ module_param(alarmdebounce, int, S_IRUGO | S_IWUSR);
 module_param(vpmsupport, int, S_IRUGO);
 module_param(timer_1_ms, int, S_IRUGO | S_IWUSR);
 module_param(timer_3_ms, int, S_IRUGO | S_IWUSR);
-module_param(alawoverride, int, S_IRUGO | S_IWUSR);
+module_param(companding, charp, S_IRUGO);
 
 MODULE_PARM_DESC(debug, "bitmap: 1=general 2=dtmf 4=regops 8=fops 16=ec 32=st state 64=hdlc 128=alarm");
 MODULE_PARM_DESC(spanfilter, "debug filter for spans. bitmap: 1=port 1, 2=port 2, 4=port 3, 8=port 4");
@@ -2975,6 +2978,8 @@ MODULE_PARM_DESC(alarmdebounce, "msec to wait before set/clear alarm condition")
 MODULE_PARM_DESC(vpmsupport, "1=enable hardware EC, 0=disable hardware EC");
 MODULE_PARM_DESC(timer_1_ms, "NT: msec to wait for link activation, TE: unused.");
 MODULE_PARM_DESC(timer_3_ms, "TE: msec to wait for link activation, NT: unused.");
+MODULE_PARM_DESC(companding, "Change the companding to \"alaw\" or \"ulaw\""\
+				"(alaw by default)");
 
 MODULE_AUTHOR("Digium Incorporated <support@digium.com>");
 MODULE_DESCRIPTION("B410P & Similars multi-port BRI module driver.");
