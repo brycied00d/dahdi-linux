@@ -378,6 +378,8 @@ void span_sysfs_remove(struct dahdi_span *span)
 	kobject_put(&span->kobj);
 }
 
+static struct kset *dahdi_span_kset;
+
 int span_sysfs_create(struct dahdi_span *span)
 {
 	int		res = 0;
@@ -391,9 +393,10 @@ int span_sysfs_create(struct dahdi_span *span)
 	if (!span->parent)
 		return -EINVAL;
 
-	res = kobject_init_and_add(&span->kobj, &dahdi_span_ktype,
-				   &span->parent->kobj, "span-%d",
-				   span->spanno);
+	kobject_init(&span->kobj, &dahdi_span_ktype);
+	span->kobj.kset = dahdi_span_kset;
+	res = kobject_add(&span->kobj, &span->parent->kobj,
+			  "span:%d", span->spanno);
 	if (res) {
 		span_err(span, "%s: device_register failed: %d\n", __func__,
 				res);
@@ -441,6 +444,10 @@ int __init dahdi_driver_init(const struct file_operations *fops)
 		goto failed_driver;
 	}
 #endif
+	dahdi_span_kset = kset_create_and_add("dahdi_spans", NULL, NULL);
+	if (!dahdi_span_kset)
+		return -ENOMEM;
+
 	res = dahdi_driver_chan_init(fops);
 	if (res < 0)
 		goto failed_chan_bus;
@@ -459,6 +466,7 @@ void dahdi_driver_exit(void)
 {
 	dahdi_dbg(DEVICES, "SYSFS\n");
 	dahdi_driver_chan_exit();
+	kset_unregister(dahdi_span_kset);
 #if 0
 	driver_unregister(&dahdi_driver);
 	bus_unregister(&spans_bus_type);

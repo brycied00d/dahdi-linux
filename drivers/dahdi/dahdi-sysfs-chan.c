@@ -77,6 +77,8 @@ static struct cdev dahdi_channels_cdev;
 	class_simple_device_remove(class, devt)
 #endif
 
+static struct kset *dahdi_chan_kset;
+
 /*--------- Sysfs channel handling ----*/
 
 #define chan_attr(field, format_string)				\
@@ -211,6 +213,7 @@ static struct sysfs_ops dahdi_sysfs_ops = {
 static struct kobj_type dahdi_chan_ktype = {
 	.release = chan_release,
 	.sysfs_ops = &dahdi_sysfs_ops,
+	.default_attrs = chan_attrs,
 };
 
 int chan_sysfs_create(struct dahdi_chan *chan)
@@ -227,17 +230,14 @@ int chan_sysfs_create(struct dahdi_chan *chan)
 	/*
 	 * WARNING: the name cannot be longer than KOBJ_NAME_LEN
 	 */
-	res = kobject_init_and_add(&chan->kobj, &dahdi_chan_ktype,
-				   &span->kobj, "%d", chan->chanpos);
+	kobject_init(&chan->kobj, &dahdi_chan_ktype);
+	chan->kobj.kset = dahdi_chan_kset;
+	res = kobject_add(&chan->kobj, &span->kobj, "chan:%d", chan->chanpos);
 	if (res) {
 		chan_err(chan, "%s: device_register failed: %d\n",
 				__func__, res);
 		return res;
 	}
-
-        res = sysfs_create_group(&chan->kobj, &chan_attrs_group);
-        if (res)
-                kobject_put(&chan->kobj);
 
 	return res;
 }
@@ -288,6 +288,13 @@ int __init dahdi_driver_chan_init(const struct file_operations *fops)
 			__func__, DAHDI_MAX_CHANNELS, res);
 		goto failed_chrdev_region;
 	}
+
+	dahdi_chan_kset = kset_create_and_add("dahdi_channels", NULL, NULL);
+	if (!dahdi_chan_kset) {
+		res = -ENOMEM;
+		goto failed_chrdev_region;
+	}
+
 #if LINUX_VERSION_CODE <= KERNEL_VERSION(2, 6, 17)
 	cdev_init(&dahdi_channels_cdev, (struct file_operations *)fops);
 #else
@@ -300,7 +307,6 @@ int __init dahdi_driver_chan_init(const struct file_operations *fops)
 		goto failed_cdev_add;
 	}
 
-	/* NULL parent, NULL drvdata */
 	/* FIXME: error handling */
 	create_dev_file(chan_class, MKDEV(DAHDI_MAJOR, DAHDI_TIMER),
 			"dahdi!timer");
@@ -329,6 +335,7 @@ void dahdi_driver_chan_exit(void)
 	destroy_dev_file(chan_class, MKDEV(DAHDI_MAJOR, DAHDI_TIMER));
 	cdev_del(&dahdi_channels_cdev);
 	unregister_chrdev_region(dahdi_channels_devt, DAHDI_MAX_CHANNELS);
+	kset_unregister(dahdi_chan_kset);
 	class_destroy(chan_class);
 #if 0
 	driver_unregister(&chan_driver);
