@@ -231,7 +231,7 @@ static int _opermode = 0;
 static char *opermode = "FCC";
 static int fxshonormode = 0;
 static int alawoverride = 0;
-static char *companding = "ulaw";
+static char *companding = "auto";
 static int fxotxgain = 0;
 static int fxorxgain = 0;
 static int fxstxgain = 0;
@@ -2637,10 +2637,18 @@ static int wctdm_init_voicedaa(struct wctdm *wc, int card, int fast, int manual,
 	/* Wait just a bit */
 	wait_just_a_bit(HZ/10);
 
-	/* Enable PCM, ulaw */
-	if (!strcasecmp(companding, "alaw")) {
+	if (wc->companding == DAHDI_LAW_DEFAULT) {
+		if (wc->digi_mods)
+			/* If we have a BRI module, Auto set to alaw */
+			wctdm_setreg(wc, card, 33, 0x20);
+		else
+			/* Auto set to ulaw */
+			wctdm_setreg(wc, card, 33, 0x28);
+	} else if (wc->companding == DAHDI_LAW_ALAW) {
+		/* Force everything to alaw */
 		wctdm_setreg(wc, card, 33, 0x20);
 	} else {
+		/* Auto set to ulaw */
 		wctdm_setreg(wc, card, 33, 0x28);
 	}
 
@@ -2872,10 +2880,20 @@ static int wctdm_init_proslic(struct wctdm *wc, int card, int fast, int manual, 
 	}
 #endif
 
-    if (!strcasecmp(companding, "alaw"))
-    	wctdm_setreg(wc, card, 1, 0x20);
-    else
-    	wctdm_setreg(wc, card, 1, 0x28);
+	if (wc->companding == DAHDI_LAW_DEFAULT) {
+		if (wc->digi_mods)
+			/* If we have a BRI module, Auto set to alaw */
+			wctdm_setreg(wc, card, 1, 0x20);
+		else
+			/* Auto set to ulaw */
+			wctdm_setreg(wc, card, 1, 0x28);
+	} else if (wc->companding == DAHDI_LAW_ALAW) {
+		/* Force everything to alaw */
+		wctdm_setreg(wc, card, 1, 0x20);
+	} else {
+		/* Auto set to ulaw */
+		wctdm_setreg(wc, card, 1, 0x28);
+	}
 
 	/* U-Law 8-bit interface */
     wctdm_proslic_set_ts(wc, card, card);
@@ -3773,7 +3791,6 @@ static int wctdm_span_count(const struct wctdm *wc)
 static struct wctdm_span *wctdm_init_span(struct wctdm *wc, int spanno, int chanoffset, int chancount, int digital_span)
 {
 	int x;
-	static int first = 1;
 	struct pci_dev *pdev = wc->vb.pdev;
 	struct wctdm_chan *c;
 	struct wctdm_span *s;
@@ -3802,18 +3819,18 @@ static struct wctdm_span *wctdm_init_span(struct wctdm *wc, int spanno, int chan
 	s->span.manufacturer = "Digium";
 	strncpy(s->span.devicetype, wc->desc->name, sizeof(s->span.devicetype) - 1);
 
-	if (!strcasecmp(companding, "alaw")) {
+	if (wc->companding == DAHDI_LAW_DEFAULT) {
+		if (wc->digi_mods || digital_span)
+			/* If we have a BRI module, Auto set to alaw */
+			s->span.deflaw = DAHDI_LAW_ALAW;
+		else
+			/* Auto set to ulaw */
+			s->span.deflaw = DAHDI_LAW_MULAW;
+	} else if (wc->companding == DAHDI_LAW_ALAW) {
+		/* Force everything to alaw */
 		s->span.deflaw = DAHDI_LAW_ALAW;
-		if (first) {
-			dev_info(&wc->vb.pdev->dev, "ALAW override parameter detected.  Device will be operating in ALAW\n");
-			first = 0;
-		}
-	} else if (digital_span) {
-		/* BRIs are in A-law */
-		s->span.deflaw = DAHDI_LAW_ALAW;
-	} else  {
-		/* Analog mods are ulaw unless modparam
-		   companding="alaw" is used */
+	} else {
+		/* Auto set to ulaw */
 		s->span.deflaw = DAHDI_LAW_MULAW;
 	}
 
@@ -3952,15 +3969,22 @@ static int wctdm_vpm_init(struct wctdm *wc)
 		/* Setup convergence rate */
 		reg = wctdm_vpm_in(wc,x,0x20);
 		reg &= 0xE0;
-		if (!strcasecmp(companding, "alaw")) {
-			if (!x)
-				dev_info(&wc->vb.pdev->dev, "VPM: A-law mode\n");
+
+		if (wc->companding == DAHDI_LAW_DEFAULT) {
+			if (wc->digi_mods)
+				/* If we have a BRI module, Auto set to alaw */
+				reg |= 0x01;
+			else
+				/* Auto set to ulaw */
+				reg &= ~0x01;
+		} else if (wc->companding == DAHDI_LAW_ALAW) {
+			/* Force everything to alaw */
 			reg |= 0x01;
 		} else {
-			if (!x)
-				dev_info(&wc->vb.pdev->dev, "VPM: U-law mode\n");
+			/* Auto set to ulaw */
 			reg &= ~0x01;
 		}
+
 		wctdm_vpm_out(wc,x,0x20,(reg | 0x20));
 
 		/* Initialize echo cans */
@@ -4909,6 +4933,16 @@ __wctdm_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 					"parameter companding=alaw instead");
 	}
 
+	if (!strcasecmp(companding, "alaw"))
+		/* Force this card's companding to alaw */
+		wc->companding = DAHDI_LAW_ALAW;
+	else if (!strcasecmp(companding, "ulaw"))
+		/* Force this card's companding to ulaw */
+		wc->companding = DAHDI_LAW_MULAW;
+	else
+		/* Auto detect this card's companding */
+		wc->companding = DAHDI_LAW_DEFAULT;
+
 	for (i = 0; i < NUM_MODULES; i++) {
 		wc->flags[i] = wc->desc->flags;
 		wc->dacssrc[i] = -1;
@@ -5001,6 +5035,8 @@ __wctdm_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 		}
 	}
 
+	wc->digi_mods = digimods;
+
 /* create an analog span if there are analog modules, or if there are no digital ones. */
 	if (anamods || !digimods) {
 		if (!digimods) {
@@ -5025,7 +5061,6 @@ __wctdm_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 		}
 	}
 
-	wc->digi_mods = digimods;
 
 	/* This shouldn't ever occur, but if we don't try to trap it, the driver
 	 * will be scribbling into memory it doesn't own. */
@@ -5309,8 +5344,9 @@ MODULE_PARM_DESC(alawoverride, "This option has been deprecated. Please use"\
 			     "the parameter \"companding\" instead");
 
 module_param(companding, charp, 0400);
-MODULE_PARM_DESC(companding, "Change the companding to \"alaw\" or \"ulaw\""\
-				"(ulaw by default)");
+MODULE_PARM_DESC(companding, "Change the companding to \"auto\" or \"alaw\" or"\
+		" \"ulaw\". Auto (default) will set everything to ulaw unless"\
+		" a BRI module is installed. It will use alaw in that case");
 
 MODULE_DESCRIPTION("VoiceBus Driver for Wildcard Analog and Hybrid Cards");
 MODULE_AUTHOR("Digium Incorporated <support@digium.com>");

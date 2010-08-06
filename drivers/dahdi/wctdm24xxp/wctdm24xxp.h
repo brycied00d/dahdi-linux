@@ -277,6 +277,7 @@ struct wctdm {
 
 	int initialized;				/* =1 when the entire card is ready to go */
 	unsigned long checkflag;			/* Internal state flags and task bits */
+	int companding;
 };
 
 /* Atomic flag bits for checkflag field */
