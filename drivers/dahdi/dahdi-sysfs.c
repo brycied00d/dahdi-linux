@@ -36,6 +36,7 @@
 #include <linux/sched.h>
 #include <linux/workqueue.h>
 #include <linux/delay.h>	/* for msleep() to debug */
+#include <linux/slab.h>
 #include <dahdi/kernel.h>
 #include "dahdi-sysfs.h"
 
@@ -370,6 +371,7 @@ static struct kset *dahdi_span_kset;
 void span_sysfs_remove(struct dahdi_span *span)
 {
 	int		x;
+	char		*link_name;
 
 	BUG_ON(!span);
 	span_dbg(DEVICES, span, "\n");
@@ -378,7 +380,12 @@ void span_sysfs_remove(struct dahdi_span *span)
 		struct dahdi_chan *chan = span->chans[x];
 		chan_sysfs_remove(chan);
 	}
-	sysfs_remove_link(&dahdi_span_kset->kobj, "test");
+	link_name = kasprintf(GFP_KERNEL, "%s:%d", dev_name(span->parent),
+			      span->spanno);
+	if (link_name) {
+		sysfs_remove_link(&dahdi_span_kset->kobj, link_name);
+		kfree(link_name);
+	}
 	kobject_put(&span->kobj);
 }
 
@@ -386,6 +393,7 @@ int span_sysfs_create(struct dahdi_span *span)
 {
 	int		res = 0;
 	int		x;
+	char 		*link_name;
 
 	BUG_ON(!span);
 	span_dbg(DEVICES, span, "\n");
@@ -414,7 +422,14 @@ int span_sysfs_create(struct dahdi_span *span)
 			goto err_chan_device_register;
 		}
 	}
-	res = sysfs_create_link(&dahdi_span_kset->kobj, &span->kobj, "test");
+	link_name = kasprintf(GFP_KERNEL, "%s:%d", dev_name(span->parent),
+			      span->spanno);
+	if (!link_name) {
+		res = -ENOMEM;
+		goto err_chan_device_register;
+	}
+	res = sysfs_create_link(&dahdi_span_kset->kobj, &span->kobj, link_name);
+	kfree(link_name);
 	if (res) {
 		res = -ENOMEM;
 		goto err_chan_device_register;
