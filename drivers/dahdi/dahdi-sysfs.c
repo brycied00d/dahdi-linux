@@ -412,7 +412,7 @@ int span_sysfs_create(struct dahdi_span *span)
 			goto err_chan_device_register;
 		}
 	}
-	span_uevent_send(span, KOBJ_ONLINE);
+	span_uevent_send(span, KOBJ_ADD);
 	return res;
 
 err_chan_device_register:
