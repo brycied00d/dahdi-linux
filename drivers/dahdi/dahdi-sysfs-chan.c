@@ -176,7 +176,6 @@ static void chan_release(struct kobject *kobj)
 	struct dahdi_chan	*chan;
 
 	BUG_ON(!kobj);
-	dahdi_uevent_send(kobj, KOBJ_REMOVE);
 	chan = kobj_to_chan(kobj);
         sysfs_remove_group(&chan->kobj, &chan_attrs_group);
 	chan_dbg(DEVICES, chan, "SYSFS\n");
@@ -250,6 +249,7 @@ void chan_sysfs_remove(struct dahdi_chan *chan)
 	chan_dbg(DEVICES, chan, "Destroying channel %d\n", chan->channo);
 	/* FIXME: should have been done earlier in dahdi_chan_unreg */
 	chan->channo = -1;
+	dahdi_uevent_send(&chan->kobj, KOBJ_REMOVE);
 	kobject_put(&chan->kobj);
 }
 

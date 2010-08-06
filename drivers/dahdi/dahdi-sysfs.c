@@ -360,7 +360,6 @@ static void span_release(struct kobject *kobj)
 {
 	struct dahdi_span *s = kobj_to_span(kobj);
 	dahdi_dbg(DEVICES, "%s: %s\n", __func__, kobject_name(kobj));
-	span_uevent_send(s, KOBJ_REMOVE);
 	if (s->ops && s->ops->release)
 		s->ops->release(s);
 }
@@ -391,6 +390,7 @@ void span_sysfs_remove(struct dahdi_span *span)
 		chan_sysfs_remove(chan);
 	}
 
+	span_uevent_send(span, KOBJ_REMOVE);
 	kobject_put(&span->kobj);
 }
 
