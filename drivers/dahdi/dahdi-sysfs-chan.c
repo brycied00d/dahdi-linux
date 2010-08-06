@@ -232,7 +232,9 @@ int chan_sysfs_create(struct dahdi_chan *chan)
 	 */
 	kobject_init(&chan->kobj, &dahdi_chan_ktype);
 	chan->kobj.kset = dahdi_chan_kset;
-	res = kobject_add(&chan->kobj, &span->kobj, "chan:%d", chan->chanpos);
+	res = kobject_add(&chan->kobj, &span->kobj, "%s:%d:%d",
+			  dev_name(chan->span->parent),
+			  chan->span->spanno, chan->chanpos);
 	if (res) {
 		chan_err(chan, "%s: device_register failed: %d\n",
 				__func__, res);
