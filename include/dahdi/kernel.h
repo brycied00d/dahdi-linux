@@ -1198,10 +1198,22 @@ static inline short dahdi_txtone_nextsample(struct dahdi_chan *ss)
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 25)
 
 /* Some distributions backported fatal_signal_pending so we'll use a macro to
- * override the inline functino definition. */
+ * override the inline function definition. */
 #define fatal_signal_pending(p) \
 	(signal_pending((p)) && sigismember(&(p)->pending.signal, SIGKILL))
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 22)
+#include <linux/ctype.h>
+static inline int strcasecmp(const char *s1, const char *s2)
+{
+	int c1, c2;
+
+	do {
+		c1 = tolower(*s1++);
+		c2 = tolower(*s2++);
+	} while (c1 == c2 && c1 != 0);
+	return c1 - c2;
+}
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 18)
 static inline void list_replace(struct list_head *old, struct list_head *new)
 {
@@ -1233,6 +1245,7 @@ wait_for_completion_timeout(struct completion *x, unsigned long timeout)
 #endif /* 2.6.12 */
 #endif /* 2.6.14 */
 #endif /* 2.6.18 */
+#endif /* 2.6.22 */
 #endif /* 2.6.25 */
 #endif /* 2.6.26 */
 #endif /* 2.6.31 */
