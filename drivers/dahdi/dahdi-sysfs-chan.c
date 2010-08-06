@@ -176,6 +176,7 @@ static void chan_release(struct kobject *kobj)
 	struct dahdi_chan	*chan;
 
 	BUG_ON(!kobj);
+	dahdi_uevent_send(kobj, KOBJ_REMOVE);
 	chan = kobj_to_chan(kobj);
         sysfs_remove_group(&chan->kobj, &chan_attrs_group);
 	chan_dbg(DEVICES, chan, "SYSFS\n");
@@ -239,6 +240,7 @@ int chan_sysfs_create(struct dahdi_chan *chan)
 		return res;
 	}
 
+	dahdi_uevent_send(&chan->kobj, KOBJ_ADD);
 	return res;
 }
 

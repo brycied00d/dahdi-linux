@@ -325,14 +325,8 @@ static struct device_driver dahdi_driver = {
 
 #endif
 
-static void span_uevent_send(struct dahdi_span *span, enum kobject_action act)
+void dahdi_uevent_send(struct kobject *kobj, enum kobject_action act)
 {
-	struct kobject	*kobj;
-
-	kobj = &span->kobj;
-	span_dbg(DEVICES, span, "SYFS dev_name=%s action=%d\n",
-		kobject_name(&span->kobj), act);
-
 #if defined(OLD_HOTPLUG_SUPPORT_269)
 	{
 		/* Copy from new kernels lib/kobject_uevent.c */
@@ -354,10 +348,19 @@ static void span_uevent_send(struct dahdi_span *span, enum kobject_action act)
 #endif
 }
 
+static void span_uevent_send(struct dahdi_span *span, enum kobject_action act)
+{
+	span_dbg(DEVICES, span, "SYFS dev_name=%s action=%d\n",
+		kobject_name(&span->kobj), act);
+
+	dahdi_uevent_send(&span->kobj, act);
+}
+
 static void span_release(struct kobject *kobj)
 {
 	struct dahdi_span *s = kobj_to_span(kobj);
 	dahdi_dbg(DEVICES, "%s: %s\n", __func__, kobject_name(kobj));
+	span_uevent_send(s, KOBJ_REMOVE);
 	if (s->ops && s->ops->release)
 		s->ops->release(s);
 }
@@ -375,17 +378,19 @@ void span_sysfs_remove(struct dahdi_span *span)
 
 	BUG_ON(!span);
 	span_dbg(DEVICES, span, "\n");
-	span_uevent_send(span, KOBJ_REMOVE);
-	for (x = 0; x < span->channels; x++) {
-		struct dahdi_chan *chan = span->chans[x];
-		chan_sysfs_remove(chan);
-	}
+
 	link_name = kasprintf(GFP_KERNEL, "%s:%d", dev_name(span->parent),
-			      span->spanno);
+			      span->offset);
 	if (link_name) {
 		sysfs_remove_link(&dahdi_span_kset->kobj, link_name);
 		kfree(link_name);
 	}
+
+	for (x = 0; x < span->channels; x++) {
+		struct dahdi_chan *chan = span->chans[x];
+		chan_sysfs_remove(chan);
+	}
+
 	kobject_put(&span->kobj);
 }
 

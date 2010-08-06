@@ -53,6 +53,7 @@ int __init dahdi_driver_init(const struct file_operations *fops);
 void dahdi_driver_exit(void);
 int __init dahdi_driver_chan_init(const struct file_operations *fops);
 void dahdi_driver_chan_exit(void);
+void dahdi_uevent_send(struct kobject *kobj, enum kobject_action act);
 
 /* per-span */
 int span_sysfs_create(struct dahdi_span *span);
