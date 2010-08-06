@@ -8563,7 +8563,7 @@ MODULE_DESCRIPTION("DAHDI Telephony Interface");
 MODULE_LICENSE("GPL v2");
 /* DAHDI now provides timing. If anybody wants dahdi_dummy it's probably
  * for that. So make dahdi provide it for now. This alias may be removed
- * in the future, and users are encoruged to to rely on it. */
+ * in the future, and users are encouraged not to rely on it. */
 MODULE_ALIAS("dahdi_dummy");
 MODULE_VERSION(DAHDI_VERSION);
 
