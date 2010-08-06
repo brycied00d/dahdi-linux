@@ -2267,6 +2267,44 @@ static void __t4_set_sclk_src(struct t4 *wc, int mode, int master, int slave)
 	__t4_pci_out(wc, WC_DMACTRL, wc->dmactrl);
 }
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,18))
+static ssize_t t4_timing_master_show(struct device *dev,
+				     struct device_attribute *attr,
+				     char *buf)
+{
+	struct t4 *wc = dev_get_drvdata(dev);
+	if (wc->dmactrl & (1 << 29))
+		return sprintf(buf, "%d\n", wc->syncsrc);
+	else
+		return sprintf(buf, "%d\n", -1);
+}
+
+static DEVICE_ATTR(timing_master, 0400, t4_timing_master_show, NULL);
+
+static void create_sysfs_files(struct t4 *wc)
+{
+        int ret;
+        ret = device_create_file(&wc->dev->dev,
+                                 &dev_attr_timing_master);
+        if (ret) {
+                dev_info(&wc->dev->dev,
+                        "Failed to create device attributes.\n");
+        }
+}
+
+static void remove_sysfs_files(struct t4 *wc)
+{
+        device_remove_file(&wc->dev->dev,
+                           &dev_attr_timing_master);
+}
+
+#else
+
+static inline void create_sysfs_files(struct t4 *wc) { return; }
+static inline void remove_sysfs_files(struct t4 *wc) { return; }
+
+#endif /* LINUX_KERNEL > 2.6.18 */
+
 static inline void __t4_update_timing(struct t4 *wc)
 {
 	int i;
@@ -4744,6 +4782,8 @@ static int __devinit t4_init_one(struct pci_dev *pdev, const struct pci_device_i
 	t4_pci_out(wc, WC_GPIO, wc->gpio);
 	t4_gpio_setdir(wc, (1 << 17), (1 << 17));
 	t4_gpio_setdir(wc, (0xff), (0xff));
+
+	create_sysfs_files(wc);
 	
 #if 0
 	for (x=0;x<0x10000;x++) {
@@ -4797,6 +4837,8 @@ static void __devexit t4_remove_one(struct pci_dev *pdev)
 	if (!wc) {
 		return;
 	}
+
+	remove_sysfs_files(wc);
 
 	/* Stop hardware */
 	t4_hardware_stop(wc);
