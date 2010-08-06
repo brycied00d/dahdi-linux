@@ -126,6 +126,13 @@ static ATTR_READER(alarms_show, kobj, buf)
 	return len;
 }
 
+static ATTR_READER(dev_show, kobj, buf)
+{
+	struct dahdi_chan *chan = kobj_to_chan(kobj);
+	return snprintf(buf, PAGE_SIZE, "%d:%d\n",
+			MAJOR(chan->devt), MINOR(chan->devt));
+}
+
 #define DECLARE_ATTR_RO(_field) \
 	static struct kobj_attribute attr_##_field  = __ATTR_RO(_field)
 
@@ -143,6 +150,7 @@ DECLARE_ATTR_RO(blocksize);
 DECLARE_ATTR_RO(chanmute);
 #endif
 DECLARE_ATTR_RO(in_use);
+DECLARE_ATTR_RO(dev);
 
 static struct attribute *chan_attrs[] = {
 	__ATTR_PTR(name),
@@ -156,6 +164,7 @@ static struct attribute *chan_attrs[] = {
 	__ATTR_PTR(chanmute),
 #endif
 	__ATTR_PTR(in_use),
+	__ATTR_PTR(dev),
 	NULL
 };
 
@@ -231,6 +240,7 @@ int chan_sysfs_create(struct dahdi_chan *chan)
 	 * WARNING: the name cannot be longer than KOBJ_NAME_LEN
 	 */
 	kobject_init(&chan->kobj, &dahdi_chan_ktype);
+	chan->devt = MKDEV(DAHDI_MAJOR, chan->channo);
 	chan->kobj.kset = dahdi_chan_kset;
 	res = kobject_add(&chan->kobj, &span->kobj, "%d", chan->chanpos);
 	if (res) {
@@ -248,8 +258,8 @@ void chan_sysfs_remove(struct dahdi_chan *chan)
 	chan_dbg(DEVICES, chan, "SYSFS\n");
 	chan_dbg(DEVICES, chan, "Destroying channel %d\n", chan->channo);
 	/* FIXME: should have been done earlier in dahdi_chan_unreg */
-	chan->channo = -1;
 	dahdi_uevent_send(&chan->kobj, KOBJ_REMOVE);
+	chan->channo = -1;
 	kobject_put(&chan->kobj);
 }
 
