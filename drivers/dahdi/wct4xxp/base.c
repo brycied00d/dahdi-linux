@@ -168,6 +168,14 @@ static inline int t4_queue_work(struct workqueue_struct *wq, struct work_struct 
 
 #endif
 
+/*
+ * Define CONFIG_EXTENDED_RESET to allow the qfalc framer extra time
+ * to reset itself upon hardware initialization. This exits for rare
+ * cases for customers who are seeing the qfalc returning unexpected
+ * information at initialization
+ */
+#undef CONFIG_EXTENDED_RESET
+
 static int pedanticpci = 1;
 static int debug=0;
 static int timingcable = 0;
@@ -179,7 +187,6 @@ static int losalarmdebounce = 2500;/* LOS def to 2.5s AT&T TR54016*/
 static int aisalarmdebounce = 2500;/* AIS(blue) def to 2.5s AT&T TR54016*/
 static int yelalarmdebounce = 500;/* RAI(yellow) def to 0.5s AT&T devguide */
 static int max_latency = GEN5_MAX_LATENCY;  /* Used to set a maximum latency (if you don't wish it to hard cap it at a certain value) in milliseconds */
-static int extendedreset;
 #ifdef VPM_SUPPORT
 static int vpmsupport = 1;
 /* If set to auto, vpmdtmfsupport is enabled for VPM400M and disabled for VPM450M */
@@ -4357,7 +4364,7 @@ static void t4_tsi_unassign(struct t4 *wc, int tospan, int tochan)
 	__t4_pci_out(wc, WC_DMACTRL, wc->dmactrl);
 	spin_unlock_irqrestore(&wc->reglock, flags);
 }
-
+#ifdef CONFIG_EXTENDED_RESET
 static void t4_extended_reset(struct t4 *wc)
 {
 	unsigned int oldreg = t4_pci_in(wc, 0x4);
@@ -4384,6 +4391,7 @@ static void t4_extended_reset(struct t4 *wc)
 
 	udelay(1000);
 }
+#endif
 
 static int t4_hardware_init_1(struct t4 *wc, unsigned int cardflags)
 {
@@ -4397,10 +4405,9 @@ static int t4_hardware_init_1(struct t4 *wc, unsigned int cardflags)
 	dev_info(&wc->dev->dev, "Work Queues: Enabled\n");
 #endif
 
-	if (extendedreset) {
-		t4_extended_reset(wc);
-	}
-
+#ifdef CONFIG_EXTENDED_RESET
+	t4_extended_reset(wc);
+#endif
 
 	/* Make sure DMA engine is not running and interrupts are acknowledged */
 	wc->dmactrl = 0x0;
@@ -4919,7 +4926,6 @@ module_param(j1mode, int, 0600);
 module_param(sigmode, int, 0600);
 module_param(latency, int, 0600);
 module_param(ms_per_irq, int, 0600);
-module_param(extendedreset, int, 0600);
 #ifdef VPM_SUPPORT
 module_param(vpmsupport, int, 0600);
 module_param(vpmdtmfsupport, int, 0600);
