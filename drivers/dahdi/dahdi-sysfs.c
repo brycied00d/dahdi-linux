@@ -374,6 +374,16 @@ static struct kobj_type dahdi_span_ktype = {
 
 static struct kset *dahdi_span_kset;
 
+static const char *dahdi_span_kset_name(struct kset *kset,
+					struct kobject *kobj)
+{
+	return "dahdi_spans";
+}
+
+static struct kset_uevent_ops dahdi_span_kset_ops = {
+	.name = dahdi_span_kset_name,
+};
+
 void span_sysfs_remove(struct dahdi_span *span)
 {
 	int		x;
@@ -483,7 +493,8 @@ int __init dahdi_driver_init(const struct file_operations *fops)
 	if (res < 0)
 		goto failed_chan_bus;
 
-	dahdi_span_kset = kset_create_and_add("dahdi_spans", NULL, NULL);
+	dahdi_span_kset = kset_create_and_add("dahdi_spans",
+					&dahdi_span_kset_ops, NULL);
 	if (!dahdi_span_kset)
 		return -ENOMEM;
 
