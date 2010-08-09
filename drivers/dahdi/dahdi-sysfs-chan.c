@@ -133,12 +133,6 @@ static ATTR_READER(dev_show, kobj, buf)
 			MAJOR(chan->devt), MINOR(chan->devt));
 }
 
-#define DECLARE_ATTR_RO(_field) \
-	static struct kobj_attribute attr_##_field  = __ATTR_RO(_field)
-
-#define __ATTR_PTR(_field)\
-	&attr_##_field.attr
-
 DECLARE_ATTR_RO(name);
 DECLARE_ATTR_RO(channo);
 DECLARE_ATTR_RO(chanpos);
@@ -189,35 +183,6 @@ static void chan_release(struct kobject *kobj)
         sysfs_remove_group(&chan->kobj, &chan_attrs_group);
 	chan_dbg(DEVICES, chan, "SYSFS\n");
 }
-
-static ssize_t dahdi_attr_show(struct kobject *kobj, struct attribute *attr,
-			       char *buf)
-{
-        struct kobj_attribute *kattr;
-        ssize_t ret = -EIO;
-
-        kattr = container_of(attr, struct kobj_attribute, attr);
-        if (kattr->show)
-                ret = kattr->show(kobj, kattr, buf);
-        return ret;
-}
-
-static ssize_t dahdi_attr_store(struct kobject *kobj, struct attribute *attr,
-				const char *buf, size_t count)
-{
-        struct kobj_attribute *kattr;
-        ssize_t ret = -EIO;
-
-        kattr = container_of(attr, struct kobj_attribute, attr);
-        if (kattr->store)
-                ret = kattr->store(kobj, kattr, buf, count);
-        return ret;
-}
-
-static struct sysfs_ops dahdi_sysfs_ops = {
-        .show   = dahdi_attr_show,
-        .store  = dahdi_attr_store,
-};
 
 static struct kobj_type dahdi_chan_ktype = {
 	.release = chan_release,

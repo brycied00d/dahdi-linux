@@ -48,12 +48,24 @@ extern int debug;
 #define	DRIVER_ATTR_READER(name, drv, buf)	\
 		ssize_t name(struct device_driver *drv, char * buf)
 
+#define DECLARE_ATTR_RO(_field) \
+	static struct kobj_attribute attr_##_field  = __ATTR_RO(_field)
+
+#define __ATTR_PTR(_field)\
+	&attr_##_field.attr
+
 /* Global */
 int __init dahdi_driver_init(const struct file_operations *fops);
 void dahdi_driver_exit(void);
 int __init dahdi_driver_chan_init(const struct file_operations *fops);
 void dahdi_driver_chan_exit(void);
 void dahdi_uevent_send(struct kobject *kobj, enum kobject_action act);
+ssize_t dahdi_attr_show(struct kobject *kobj, struct attribute *attr,
+			char *buf);
+ssize_t dahdi_attr_store(struct kobject *kobj, struct attribute *attr,
+			 const char *buf, size_t count);
+
+extern struct sysfs_ops dahdi_sysfs_ops;
 
 /* per-span */
 int span_sysfs_create(struct dahdi_span *span);

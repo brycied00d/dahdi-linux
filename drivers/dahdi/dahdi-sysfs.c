@@ -37,6 +37,8 @@
 #include <linux/workqueue.h>
 #include <linux/delay.h>	/* for msleep() to debug */
 #include <linux/slab.h>
+#include <linux/kobject.h>
+
 #include <dahdi/kernel.h>
 #include "dahdi-sysfs.h"
 
@@ -135,7 +137,7 @@ static int span_uevent(struct kobject *kobj, struct kobj_uevent_env *kenv)
 #endif	/* OLD_HOTPLUG_SUPPORT */
 
 #define span_attr(field, format_string)				\
-static ATTR_READER(field##_show, kobj, buf)		\
+static ATTR_READER(field##_show, kobj, buf)			\
 {								\
 	struct dahdi_span *span;				\
 								\
@@ -212,6 +214,7 @@ static ATTR_READER(configured_channels_show, kobj, buf)
 		span->name);
 }
 
+#if 0
 static ATTR_WRITER(user_ready_store, kobj, buf, count)
 {
 	struct dahdi_span *span;
@@ -248,82 +251,31 @@ static ATTR_READER(user_ready_show, kobj, buf)
 		span->channels,
 		span->name);
 }
+#endif
 
-static struct kobj_attribute span_attrs[] = {
-	__ATTR_RO(name),
-	__ATTR_RO(desc),
-	__ATTR_RO(spantype),
-	__ATTR_RO(manufacturer),
-	__ATTR_RO(devicetype),
-	__ATTR_RO(location),
-	__ATTR_RO(hardware_id),
-	__ATTR_RO(span_id),
-	__ATTR_RO(alarms),
-	__ATTR_RO(irq),
-	__ATTR_RO(irqmisses),
-	__ATTR_RO(lbo),
-	__ATTR_RO(syncsrc),
-	__ATTR_RO(is_digital),
-	__ATTR_RO(is_sync_master),
-	__ATTR_RO(configured_channels),
+DECLARE_ATTR_RO(name);
+DECLARE_ATTR_RO(desc);
+DECLARE_ATTR_RO(spantype);
+DECLARE_ATTR_RO(manufacturer);
+DECLARE_ATTR_RO(devicetype);
+DECLARE_ATTR_RO(location);
+DECLARE_ATTR_RO(hardware_id);
+DECLARE_ATTR_RO(span_id);
+DECLARE_ATTR_RO(alarms);
+DECLARE_ATTR_RO(irq);
+DECLARE_ATTR_RO(irqmisses);
+DECLARE_ATTR_RO(lbo);
+DECLARE_ATTR_RO(syncsrc);
+DECLARE_ATTR_RO(is_digital);
+DECLARE_ATTR_RO(is_sync_master);
+DECLARE_ATTR_RO(configured_channels);
+
+#if 0
 	__ATTR(user_ready, S_IRUGO | S_IWUSR, user_ready_show,
 			user_ready_store),
 	__ATTR_NULL,
-};
-
-/* TODO */
-EXPORT_SYMBOL(span_attrs);
-
-#if 0
-static struct driver_attribute dahdi_attrs[] = {
-	__ATTR_NULL,
-};
 #endif
 
-#if 0 
-/* !!!TODO */
-static struct bus_type spans_bus_type = {
-	.name           = "dahdi_spans",
-	.match          = span_match,
-#ifdef OLD_HOTPLUG_SUPPORT
-	.hotplug	= span_hotplug,
-#else
-	.uevent         = span_uevent,
-#endif
-	.dev_attrs	= span_dev_attrs,
-	.drv_attrs	= dahdi_attrs,
-};
-
-
-static int span_probe(struct device *dev)
-{
-	struct dahdi_span *span;
-
-	span = kobj_to_span(dev);
-	//dev_info(dev, "span %d\n", span->spanno);
-	return 0;
-}
-
-static int span_remove(struct device *dev)
-{
-	struct dahdi_span *span;
-
-	span = kobj_to_span(dev);
-	//dev_info(dev, "span %d\n", span->spanno);
-	return 0;
-}
-
-static struct device_driver dahdi_driver = {
-	.name		= "generic_lowlevel",
-	.bus		= &spans_bus_type,
-	.probe		= span_probe,
-	.remove		= span_remove,
-#ifndef OLD_HOTPLUG_SUPPORT
-	.owner		= THIS_MODULE
-#endif
-};
-
-#endif
 
 void dahdi_uevent_send(struct kobject *kobj, enum kobject_action act)
 {
@@ -364,8 +316,59 @@ static void span_release(struct kobject *kobj)
 		s->ops->release(s);
 }
 
+ssize_t dahdi_attr_show(struct kobject *kobj, struct attribute *attr,
+			       char *buf)
+{
+        struct kobj_attribute *kattr;
+        ssize_t ret = -EIO;
+
+        kattr = container_of(attr, struct kobj_attribute, attr);
+        if (kattr->show)
+                ret = kattr->show(kobj, kattr, buf);
+        return ret;
+}
+
+ssize_t dahdi_attr_store(struct kobject *kobj, struct attribute *attr,
+				const char *buf, size_t count)
+{
+        struct kobj_attribute *kattr;
+        ssize_t ret = -EIO;
+
+        kattr = container_of(attr, struct kobj_attribute, attr);
+        if (kattr->store)
+                ret = kattr->store(kobj, kattr, buf, count);
+        return ret;
+}
+
+struct sysfs_ops dahdi_sysfs_ops = {
+        .show   = dahdi_attr_show,
+        .store  = dahdi_attr_store,
+};
+
+static struct attribute *dahdi_span_attrs[] = {
+	__ATTR_PTR(name),
+	__ATTR_PTR(desc),
+	__ATTR_PTR(spantype),
+	__ATTR_PTR(manufacturer),
+	__ATTR_PTR(devicetype),
+	__ATTR_PTR(location),
+	__ATTR_PTR(hardware_id),
+	__ATTR_PTR(span_id),
+	__ATTR_PTR(alarms),
+	__ATTR_PTR(irq),
+	__ATTR_PTR(irqmisses),
+	__ATTR_PTR(lbo),
+	__ATTR_PTR(syncsrc),
+	__ATTR_PTR(is_digital),
+	__ATTR_PTR(is_sync_master),
+	__ATTR_PTR(configured_channels),
+	NULL
+};
+
 static struct kobj_type dahdi_span_ktype = {
 	.release = span_release,
+	.sysfs_ops = &dahdi_sysfs_ops,
+	.default_attrs = dahdi_span_attrs,
 };
 
 static struct kset *dahdi_span_kset;
