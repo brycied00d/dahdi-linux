@@ -268,8 +268,7 @@ int __init dahdi_driver_chan_init(const struct file_operations *fops)
 		goto failed_chrdev_region;
 	}
 
-	dahdi_chan_kset = kset_create_and_add("dahdi_channels", NULL,
-					      chan_class->dev_kobj);
+	dahdi_chan_kset = kset_create_and_add("dahdi_channels", NULL, NULL);
 	if (!dahdi_chan_kset) {
 		res = -ENOMEM;
 		goto failed_chrdev_region;

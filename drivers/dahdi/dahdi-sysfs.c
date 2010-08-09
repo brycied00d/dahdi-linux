@@ -461,6 +461,10 @@ int __init dahdi_driver_init(const struct file_operations *fops)
 	int	res;
 
 	dahdi_dbg(DEVICES, "SYSFS\n");
+
+	dahdi_dbg(DEVICES, "sizeof(struct dahdi_chan): %Zd\n", sizeof(struct dahdi_chan));
+	dahdi_dbg(DEVICES, "sizeof(struct device): %Zd\n", sizeof(struct device));
+
 #if 0
 	res = bus_register(&spans_bus_type);
 	if (res != 0) {
