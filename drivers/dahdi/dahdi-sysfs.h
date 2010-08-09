@@ -65,6 +65,7 @@ ssize_t dahdi_attr_show(struct kobject *kobj, struct attribute *attr,
 ssize_t dahdi_attr_store(struct kobject *kobj, struct attribute *attr,
 			 const char *buf, size_t count);
 
+extern struct class dahdi_chan_class;
 extern struct sysfs_ops dahdi_sysfs_ops;
 
 /* per-span */

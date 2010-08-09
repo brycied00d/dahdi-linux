@@ -35,8 +35,10 @@
 #include <linux/errno.h>
 #include <linux/workqueue.h>
 #include <linux/delay.h>	/* for msleep() to debug */
-#include <dahdi/kernel.h>
+#include <linux/device.h>
 #include <linux/cdev.h>
+
+#include <dahdi/kernel.h>
 #include "dahdi-sysfs.h"
 
 static const char rcsid[] = "$Id$";
@@ -266,7 +268,8 @@ int __init dahdi_driver_chan_init(const struct file_operations *fops)
 		goto failed_chrdev_region;
 	}
 
-	dahdi_chan_kset = kset_create_and_add("dahdi_channels", NULL, NULL);
+	dahdi_chan_kset = kset_create_and_add("dahdi_channels", NULL,
+					      chan_class->dev_kobj);
 	if (!dahdi_chan_kset) {
 		res = -ENOMEM;
 		goto failed_chrdev_region;

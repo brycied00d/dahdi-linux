@@ -38,6 +38,7 @@
 #include <linux/delay.h>	/* for msleep() to debug */
 #include <linux/slab.h>
 #include <linux/kobject.h>
+#include <linux/device.h>
 
 #include <dahdi/kernel.h>
 #include "dahdi-sysfs.h"
@@ -474,13 +475,14 @@ int __init dahdi_driver_init(const struct file_operations *fops)
 		goto failed_driver;
 	}
 #endif
+	res = dahdi_driver_chan_init(fops);
+	if (res < 0)
+		goto failed_chan_bus;
+
 	dahdi_span_kset = kset_create_and_add("dahdi_spans", NULL, NULL);
 	if (!dahdi_span_kset)
 		return -ENOMEM;
 
-	res = dahdi_driver_chan_init(fops);
-	if (res < 0)
-		goto failed_chan_bus;
 	return 0;
 failed_chan_bus:
 #if 0
