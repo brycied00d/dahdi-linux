@@ -1204,6 +1204,15 @@ static inline short dahdi_txtone_nextsample(struct dahdi_chan *ss)
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 22)
 #include <linux/ctype.h>
+/* A define of 'clamp_val' happened to be added in the patch
+ * linux-2.6-sata-prep-work-for-rhel5-3.patch kernel-2.6.spec that also
+ * backported support for strcasecmp to some later RHEL/Centos kernels.
+ * If you have an older kernel that breaks because strcasecmp is already
+ * defined, somebody out-smarted us. In that case, replace the line below
+ * with '#if 0' to get the code building, and file a bug report at
+ * https://issues.asterisk.org/ .
+ */
+#ifndef clamp_val
 static inline int strcasecmp(const char *s1, const char *s2)
 {
 	int c1, c2;
@@ -1214,6 +1223,7 @@ static inline int strcasecmp(const char *s1, const char *s2)
 	} while (c1 == c2 && c1 != 0);
 	return c1 - c2;
 }
+#endif /* clamp_val */
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 18)
 static inline void list_replace(struct list_head *old, struct list_head *new)
 {
