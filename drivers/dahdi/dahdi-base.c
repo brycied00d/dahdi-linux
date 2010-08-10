@@ -6109,7 +6109,7 @@ int dahdi_unregister(struct dahdi_span *span)
  */
 int dahdi_device_add(struct device *dev)
 {
-	return 0;
+	return device_add(dev);
 }
 
 void dahdi_device_unregister(struct device *dev)
