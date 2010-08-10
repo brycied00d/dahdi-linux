@@ -6111,6 +6111,7 @@ int dahdi_device_add(struct device *dev)
 {
 	return device_add(dev);
 }
+EXPORT_SYMBOL(dahdi_device_add);
 
 void dahdi_device_unregister(struct device *dev)
 {
