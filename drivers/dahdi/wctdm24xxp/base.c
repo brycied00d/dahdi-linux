@@ -462,7 +462,7 @@ static int config_vpmadt032(struct vpmadt032 *vpm, struct wctdm *wc)
 		vpm->curecstate[i].nlp_type = vpm->options.vpmnlptype;
 		vpm->curecstate[i].nlp_threshold = vpm->options.vpmnlpthresh;
 		vpm->curecstate[i].nlp_max_suppress = vpm->options.vpmnlpmaxsupp;
-		vpm->curecstate[i].companding = (wc->chans[i]->chan.span->deflaw == DAHDI_LAW_ALAW) ? ADT_COMP_ALAW : ADT_COMP_ULAW;
+		vpm->curecstate[i].companding = (span_from_chan(&wc->chans[i]->chan)->deflaw == DAHDI_LAW_ALAW) ? ADT_COMP_ALAW : ADT_COMP_ULAW;
 		/* set_vpmadt032_chanconfig_from_state(&vpm->curecstate[i], &vpm->options, i, &chanconfig); !!! */
 		vpm->setchanconfig_from_state(vpm, i, &chanconfig);
 		if ((res = gpakConfigureChannel(vpm->dspid, i, tdmToTdm, &chanconfig, &cstatus))) {
@@ -2016,7 +2016,7 @@ static int wctdm_echocan_create(struct dahdi_chan *chan,
 	} else if (wc->vpmadt032) {
 		enum adt_companding comp;
 
-		comp = (DAHDI_LAW_ALAW == chan->span->deflaw) ?
+		comp = (DAHDI_LAW_ALAW == span_from_chan(chan)->deflaw) ?
 					ADT_COMP_ALAW : ADT_COMP_ULAW;
 
 		return vpmadt032_echocan_create(wc->vpmadt032,
@@ -3743,7 +3743,6 @@ static struct wctdm_chan *wctdm_init_chan(struct wctdm *wc, struct wctdm_span *s
 	}
 
 	c->chan.chanpos = channo+1;
-	c->chan.span = &s->span;
 	c->chan.pvt = wc;
 	c->timeslot = chanoffset + channo;
 	return c;

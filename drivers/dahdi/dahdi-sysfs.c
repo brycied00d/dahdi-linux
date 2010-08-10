@@ -434,6 +434,7 @@ int span_sysfs_create(struct dahdi_span *span)
 
 	for (x = 0; x < span->channels; x++) {
 		struct dahdi_chan *chan = span->chans[x];
+		chan->_span = span;
 		res = chan_sysfs_create(chan);
 		if (res) {
 			chan_err(chan, "Failed registering in sysfs: %d.\n",

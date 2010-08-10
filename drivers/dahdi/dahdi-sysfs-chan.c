@@ -198,7 +198,7 @@ int chan_sysfs_create(struct dahdi_chan *chan)
 	int			res;
 
 	BUG_ON(!chan);
-	span = chan->span;
+	span = chan->_span;
 	BUG_ON(!span);
 	chan->devt = MKDEV(MAJOR(dahdi_channels_devt), chan->channo);
 	chan_dbg(DEVICES, chan, "SYSFS\n");

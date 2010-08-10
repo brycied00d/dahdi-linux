@@ -439,13 +439,13 @@ struct dahdi_chan {
 	struct file *file;	/*!< File structure */
 	
 	
-	struct dahdi_span	*span;			/*!< Span we're a member of */
 	int		sig;			/*!< Signalling */
 	int		sigcap;			/*!< Capability for signalling */
 	__u32		chan_alarms;		/*!< alarms status */
 
 	/* Used only by DAHDI -- NO DRIVER SERVICEABLE PARTS BELOW */
 	/* Buffer declarations */
+	struct dahdi_span	*_span;			/*!< Span we're a member of */
 	u_char		*readbuf[DAHDI_MAX_NUM_BUFS];	/*!< read buffer */
 	int		inreadbuf;
 	int		outreadbuf;
@@ -595,6 +595,11 @@ struct dahdi_chan {
 #define kobj_to_chan(dev)    container_of(kobj, struct dahdi_chan, kobj)
 	dev_t devt;
 };
+
+static inline struct dahdi_span *span_from_chan(struct dahdi_chan *c)
+{
+	return c->_span;
+}
 
 #ifdef CONFIG_DAHDI_NET
 struct dahdi_hdlc {
@@ -759,7 +764,10 @@ struct dahdi_count {
 /**
  * dahdi_device - Represents a physical device that implements spans.
  *
- * These are the logical devices that belong to the "dahdi" class.
+ * These are the logical devices that belong to the "dahdi" class, and also
+ * represent a device that may implement one or more spans that have a
+ * relationship to one another.
+ *
  */
 struct dahdi_device {
 	struct device dev;
