@@ -24,14 +24,6 @@ enum kobject_action {
 
 extern int debug;
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 13)
-extern struct class *chan_class;
-#else
-extern struct class_simple *chan_class;
-#define class_create class_simple_create
-#define class_destroy class_simple_destroy
-#endif
-
 /*
  * Hotplug replaced with uevent in 2.6.16
  */

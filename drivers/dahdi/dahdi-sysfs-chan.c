@@ -169,9 +169,9 @@ static struct attribute_group chan_attrs_group = {
 };
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 13)
-struct class *chan_class;
+static struct class *chan_class;
 #else
-struct class_simple *chan_class;
+static struct class_simple *chan_class;
 #define class_create class_simple_create
 #define class_destroy class_simple_destroy
 #endif

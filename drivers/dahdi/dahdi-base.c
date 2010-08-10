@@ -5943,6 +5943,7 @@ int dahdi_register(struct dahdi_span *span, int prefmaster)
 	if (!span->ops->owner)
 		return -EINVAL;
 
+
 	if (test_bit(DAHDI_FLAGBIT_REGISTERED, &span->flags)) {
 		module_printk(KERN_ERR, "Span %s already appears to be registered\n", span->name);
 		return -EBUSY;
@@ -6037,6 +6038,7 @@ unreg_channels:
 	return res;
 }
 
+
 /**
  * dahdi_unregister() - unregister a DAHDI span
  * @span:	the DAHDI span
@@ -6101,19 +6103,6 @@ int dahdi_unregister(struct dahdi_span *span)
 	master = new_master;
 
 	return 0;
-}
-
-/**
- * dahdi_device_register: Register a dahdi_device with the system.
- *
- */
-int dahdi_device_add(struct device *dev)
-{
-	return 0;
-}
-
-void dahdi_device_unregister(struct device *dev)
-{
 }
 
 /*

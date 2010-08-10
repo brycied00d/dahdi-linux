@@ -657,7 +657,11 @@ static int create_dynamic(struct dahdi_dynamic_span *zds)
 	/* TODO need to implement a release method */
 	z->dev.release = dynamic_device_release;
 	z->dev.init_name = z->span.name;
-	dahdi_device_initialize(&z->dev);
+	res = device_register(&z->dev);
+	if (res) {
+		put_device(&z->dev);
+		return res;
+	}
 
 	/* Whee!  We're created.  Now register the span */
 	z->span.parent = &z->dev;
@@ -665,12 +669,6 @@ static int create_dynamic(struct dahdi_dynamic_span *zds)
 		printk(KERN_NOTICE "Unable to register span '%s'\n", z->span.name);
 		device_unregister(&z->dev);
 		return -EINVAL;
-	}
-
-	res = dahdi_device_add(&z->dev);
-	if (res) {
-		put_device(&z->dev);
-		return res;
 	}
 
 	spin_lock_irqsave(&dspan_lock, flags);
