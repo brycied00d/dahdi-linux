@@ -515,7 +515,7 @@ static int dahdi_chan_dacs(struct dahdi_chan *chan1, struct dahdi_chan *chan2)
 		    (chan1->span->ops->dacs == chan2->span->ops->dacs)) {
 			return chan1->span->ops->dacs(chan1, chan2);
 		} else {
-			module_printk(KERN_ERR, "Unable cross connect '%s' "
+			module_printk(KERN_ERR, "Unable to cross connect '%s' "
 				      "with '%s'\n", chan2->name, chan1->name);
 			return -ENOSYS;
 		}
