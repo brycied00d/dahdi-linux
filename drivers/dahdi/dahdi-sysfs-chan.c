@@ -321,3 +321,10 @@ void dahdi_driver_chan_exit(void)
 	bus_unregister(&chan_bus_type);
 #endif
 }
+
+int dahdi_device_register(struct device *dev)
+{
+	dev->class = chan_class;
+	return device_register(dev);
+}
+EXPORT_SYMBOL(dahdi_device_register);

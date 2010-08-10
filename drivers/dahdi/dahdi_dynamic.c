@@ -657,7 +657,7 @@ static int create_dynamic(struct dahdi_dynamic_span *zds)
 	/* TODO need to implement a release method */
 	z->dev.release = dynamic_device_release;
 	z->dev.init_name = z->span.name;
-	res = device_register(&z->dev);
+	res = dahdi_device_register(&z->dev);
 	if (res) {
 		put_device(&z->dev);
 		return res;
