@@ -511,11 +511,14 @@ static inline void rotate_sums(void)
 static int dahdi_chan_dacs(struct dahdi_chan *chan1, struct dahdi_chan *chan2)
 {
 	if (chan2) {
-		if (chan1->span && chan2->span &&
-		    (chan1->span->ops->dacs == chan2->span->ops->dacs))
+		if (chan1->span && chan2->span && chan1->span->ops->dacs &&
+		    (chan1->span->ops->dacs == chan2->span->ops->dacs)) {
 			return chan1->span->ops->dacs(chan1, chan2);
-		else
+		} else {
+			module_printk(KERN_ERR, "Unable cross connect '%s' "
+				      "with '%s'\n", chan2->name, chan1->name);
 			return -ENOSYS;
+		}
 	} else {
 		if (chan1->span && chan1->span->ops->dacs)
 			return chan1->span->ops->dacs(chan1, NULL);
@@ -4309,9 +4312,10 @@ static int dahdi_ctl_ioctl(struct file *file, unsigned int cmd, unsigned long da
 				/* Setup conference properly */
 				chans[ch.chan]->confmode = DAHDI_CONF_DIGITALMON;
 				chans[ch.chan]->confna = ch.idlebits;
-				dahdi_chan_dacs(chans[ch.chan], chans[ch.idlebits]);
+				res = dahdi_chan_dacs(chans[ch.chan],
+						      chans[ch.idlebits]);
 			} else {
-				dahdi_chan_dacs(chans[ch.chan], NULL);
+				res = dahdi_chan_dacs(chans[ch.chan], NULL);
 			}
 			chans[ch.chan]->master = newmaster;
 			/* Note new slave if we are not our own master */
