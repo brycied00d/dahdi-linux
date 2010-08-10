@@ -110,7 +110,7 @@ struct dahdi_dynamic {
 	int master;
 	unsigned char *msgbuf;
 	struct list_head list;
-	struct device dev;
+	struct dahdi_device dev;
 };
 
 #ifdef DEFINE_SPINLOCK
@@ -527,7 +527,6 @@ static int ztd_close(struct dahdi_chan *chan)
 
 static void ztd_release(struct dahdi_span *span)
 {
-	device_unregister(&(dynamic_from_span(span)->dev));
 }
 
 static const struct dahdi_span_ops dynamic_ops = {
@@ -538,12 +537,6 @@ static const struct dahdi_span_ops dynamic_ops = {
 	.chanconfig = ztd_chanconfig,
 	.release = ztd_release,
 };
-
-static void dynamic_device_release(struct device *dev)
-{
-	struct dahdi_dynamic *z = container_of(dev, struct dahdi_dynamic, dev);
-	dynamic_destroy(z);
-}
 
 static int create_dynamic(struct dahdi_dynamic_span *zds)
 {
@@ -655,11 +648,10 @@ static int create_dynamic(struct dahdi_dynamic_span *zds)
 	z->driver = ztd;
 
 	/* TODO need to implement a release method */
-	z->dev.release = dynamic_device_release;
-	z->dev.init_name = z->span.name;
+	z->dev.dev.init_name = z->span.name;
 	res = dahdi_device_register(&z->dev);
 	if (res) {
-		put_device(&z->dev);
+		put_device(&z->dev.dev);
 		return res;
 	}
 
@@ -667,7 +659,7 @@ static int create_dynamic(struct dahdi_dynamic_span *zds)
 	z->span.parent = &z->dev;
 	if (dahdi_register(&z->span, 0)) {
 		printk(KERN_NOTICE "Unable to register span '%s'\n", z->span.name);
-		device_unregister(&z->dev);
+		dahdi_device_unregister(&z->dev);
 		return -EINVAL;
 	}
 

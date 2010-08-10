@@ -756,6 +756,20 @@ struct dahdi_count {
 #define DAHDI_FLAG_MTP2		DAHDI_FLAG(MTP2)
 #define DAHDI_FLAG_HDLC56	DAHDI_FLAG(HDLC56)
 
+/**
+ * dahdi_device - Represents a physical device that implements spans.
+ *
+ * These are the logical devices that belong to the "dahdi" class.
+ */
+struct dahdi_device {
+	struct device dev;
+};
+
+static inline const char *dahdi_dev_name(const struct dahdi_device *dev)
+{
+	return dev_name(&dev->dev);
+}
+
 struct dahdi_span_ops {
 	struct module *owner;		/*!< Which module is exporting this span. */
 
@@ -878,7 +892,7 @@ struct dahdi_span {
 	/* FIXME: placing the span in the device tree should be done by the
 	 * low-level driver, right?
 	 */
-	struct device *parent; /*!< The device that is exporting this span. */
+	struct dahdi_device *parent; /*!< The physical device that is providing this span. */
 #define kobj_to_span(kobj)  container_of(kobj, struct dahdi_span, kobj)
 	int spanno;			/*!< Span number for DAHDI */
 	int offset;			/*!< Offset within a given card */
@@ -1036,7 +1050,12 @@ int dahdi_hdlc_getbuf(struct dahdi_chan *ss, unsigned char *bufptr, unsigned int
    we should have preference in being the master device */
 int dahdi_register(struct dahdi_span *span, int prefmaster);
 
-int dahdi_device_register(struct device *dev);
+int dahdi_device_register(struct dahdi_device *dev);
+
+static inline void dahdi_device_unregister(struct dahdi_device *dev)
+{
+	device_unregister(&dev->dev);
+}
 
 /*! Allocate / free memory for a transcoder */
 struct dahdi_transcoder *dahdi_transcoder_alloc(int numchans);

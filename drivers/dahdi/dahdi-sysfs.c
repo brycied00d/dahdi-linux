@@ -392,7 +392,7 @@ void span_sysfs_remove(struct dahdi_span *span)
 	BUG_ON(!span);
 	span_dbg(DEVICES, span, "\n");
 
-	link_name = kasprintf(GFP_KERNEL, "%s:%d", dev_name(span->parent),
+	link_name = kasprintf(GFP_KERNEL, "%s:%d", dahdi_dev_name(span->parent),
 			      span->offset);
 	if (link_name) {
 		sysfs_remove_link(&dahdi_span_kset->kobj, link_name);
@@ -424,7 +424,7 @@ int span_sysfs_create(struct dahdi_span *span)
 
 	kobject_init(&span->kobj, &dahdi_span_ktype);
 	span->kobj.kset = dahdi_span_kset;
-	res = kobject_add(&span->kobj, &span->parent->kobj,
+	res = kobject_add(&span->kobj, &span->parent->dev.kobj,
 			  "%d", span->spanno);
 	if (res) {
 		span_err(span, "%s: device_register failed: %d\n", __func__,
@@ -441,8 +441,8 @@ int span_sysfs_create(struct dahdi_span *span)
 			goto err_chan_device_register;
 		}
 	}
-	link_name = kasprintf(GFP_KERNEL, "%s:%d", dev_name(span->parent),
-			      span->spanno);
+	link_name = kasprintf(GFP_KERNEL, "%s:%d",
+			      dahdi_dev_name(span->parent), span->spanno);
 	if (!link_name) {
 		res = -ENOMEM;
 		goto err_chan_device_register;
