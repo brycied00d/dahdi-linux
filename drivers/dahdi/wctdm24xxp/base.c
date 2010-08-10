@@ -5029,6 +5029,10 @@ __wctdm_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 #ifdef USE_ASYNC_INIT
 		async_synchronize_cookie(cookie);
 #endif
+
+	wc->dev.parent = &pdev->dev;
+	dahdi_device_register(&wc->dev);
+
 	/* We should be ready for DAHDI to come in now. */
 	for (i = 0; i < MAX_SPANS; ++i) {
 		if (!wc->spans[i])
