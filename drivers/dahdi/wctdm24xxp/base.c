@@ -5038,7 +5038,7 @@ __wctdm_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 		if (!wc->spans[i])
 			continue;
 
-		wc->spans[i]->span.parent = &pdev->dev;
+		wc->spans[i]->span.parent = &wc->dev;
 		if (dahdi_register(&wc->spans[i]->span, 0)) {
 			dev_notice(&wc->vb.pdev->dev, "Unable to register span %d with DAHDI\n", i);
 			while (i)
