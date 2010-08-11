@@ -409,17 +409,18 @@ void dahdi_dynamic_receive(struct dahdi_span *span, unsigned char *msg, int msgl
 
 static void dynamic_destroy(struct dahdi_dynamic *z)
 {
+	void *pvt = z->pvt;
+	struct dahdi_dynamic_driver *driver = z->driver;
+
+	dahdi_device_unregister(&z->dev);
+
 	/* Unregister span if appropriate */
 	if (test_bit(DAHDI_FLAGBIT_REGISTERED, &z->span.flags))
 		dahdi_unregister(&z->span);
 
 	/* Destroy the pvt stuff if there */
-	if (z->pvt)
-		z->driver->destroy(z->pvt);
-
-	/* Free message buffer if appropriate */
-	if (z->msgbuf)
-		kfree(z->msgbuf);
+	if (pvt)
+		driver->destroy(pvt);
 
 	checkmaster();
 }
@@ -519,6 +520,7 @@ static void ztd_span_release(struct dahdi_span *span)
 {
 	struct dahdi_dynamic *z;
 	z = container_of(span, struct dahdi_dynamic, span);
+	kfree(z->msgbuf);
 	kfree(z);
 }
 
