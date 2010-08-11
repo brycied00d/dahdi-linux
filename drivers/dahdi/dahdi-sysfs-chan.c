@@ -175,11 +175,16 @@ static struct class_simple *chan_class;
 static void chan_release(struct kobject *kobj)
 {
 	struct dahdi_chan	*chan;
+	struct dahdi_span 	*s;
 
 	BUG_ON(!kobj);
 	chan = kobj_to_chan(kobj);
 	chan_dbg(DEVICES, chan, "SYSFS\n");
+	s = span_from_chan(chan);
+	if (s && s->ops->chan_release)
+		s->ops->chan_release(chan);
 }
+
 
 static struct kobj_type dahdi_chan_ktype = {
 	.release = chan_release,
