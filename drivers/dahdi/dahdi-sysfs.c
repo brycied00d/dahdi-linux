@@ -313,8 +313,8 @@ static void span_release(struct kobject *kobj)
 {
 	struct dahdi_span *s = kobj_to_span(kobj);
 	dahdi_dbg(DEVICES, "%s: %s\n", __func__, kobject_name(kobj));
-	if (s->ops && s->ops->release)
-		s->ops->release(s);
+	if (s->ops && s->ops->span_release)
+		s->ops->span_release(s);
 }
 
 ssize_t dahdi_attr_show(struct kobject *kobj, struct attribute *attr,

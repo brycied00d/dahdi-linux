@@ -423,14 +423,6 @@ static void dynamic_destroy(struct dahdi_dynamic *z)
 	if (z->msgbuf)
 		kfree(z->msgbuf);
 
-	/* Free channels */
-	for (x = 0; x < z->span.channels; x++) {
-		kfree(z->chans[x]);
-	}
-
-	/* Free z */
-	kfree(z);
-
 	checkmaster();
 }
 
@@ -489,6 +481,7 @@ static int destroy_dynamic(struct dahdi_dynamic_span *zds)
 	synchronize_rcu();
 
 	dahdi_unregister(&z->span);
+	dynamic_destroy(z);
 	return 0;
 }
 
@@ -525,8 +518,16 @@ static int ztd_close(struct dahdi_chan *chan)
 	return 0;
 }
 
-static void ztd_release(struct dahdi_span *span)
+static void ztd_span_release(struct dahdi_span *span)
 {
+	struct dahdi_dynamic *z;
+	z = container_of(span, struct dahdi_dynamic, span);
+	kfree(z);
+}
+
+static void ztd_chan_release(struct dahdi_chan *chan)
+{
+	kfree(chan);
 }
 
 static const struct dahdi_span_ops dynamic_ops = {
@@ -535,7 +536,8 @@ static const struct dahdi_span_ops dynamic_ops = {
 	.open = ztd_open,
 	.close = ztd_close,
 	.chanconfig = ztd_chanconfig,
-	.release = ztd_release,
+	.span_release = ztd_span_release,
+	.chan_release = ztd_chan_release,
 };
 
 static int create_dynamic(struct dahdi_dynamic_span *zds)
@@ -661,7 +663,6 @@ static int create_dynamic(struct dahdi_dynamic_span *zds)
 
 	/* All done */
 	return z->span.spanno;
-
 }
 
 #ifdef ENABLE_TASKLETS
