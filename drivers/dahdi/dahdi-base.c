@@ -6046,7 +6046,7 @@ unreg_channels:
  * Unregisters a span that has been previously registered with
  * dahdi_register().
  */
-int dahdi_unregister(struct dahdi_span *span)
+void dahdi_unregister(struct dahdi_span *span)
 {
 	int x;
 	int new_maxspans;
@@ -6054,7 +6054,7 @@ int dahdi_unregister(struct dahdi_span *span)
 
 	if (!test_bit(DAHDI_FLAGBIT_REGISTERED, &span->flags)) {
 		module_printk(KERN_ERR, "Span %s does not appear to be registered\n", span->name);
-		return -1;
+		return;
 	}
 	/* Shutdown the span if it's running */
 	if (span->flags & DAHDI_FLAG_RUNNING)
@@ -6063,7 +6063,7 @@ int dahdi_unregister(struct dahdi_span *span)
 
 	if (spans[span->spanno] != span) {
 		module_printk(KERN_ERR, "Span %s has spanno %d which is something else\n", span->name, span->spanno);
-		return -1;
+		return;
 	}
 	if (debug)
 		module_printk(KERN_NOTICE, "Unregistering Span '%s' with %d channels\n", span->name, span->channels);
@@ -6101,8 +6101,6 @@ int dahdi_unregister(struct dahdi_span *span)
 			module_printk(KERN_NOTICE, "%s: Span ('%s') is new master\n", __FUNCTION__,
 				      (new_master)? new_master->name: "no master");
 	master = new_master;
-
-	return 0;
 }
 
 /*

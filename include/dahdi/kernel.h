@@ -1099,7 +1099,7 @@ int dahdi_transcoder_unregister(struct dahdi_transcoder *tc);
 int dahdi_transcoder_alert(struct dahdi_transcoder_channel *ztc);
 
 /*! \brief Unregister a span */
-int dahdi_unregister(struct dahdi_span *span);
+void dahdi_unregister(struct dahdi_span *span);
 
 /*! \brief Gives a name to an LBO */
 char *dahdi_lboname(int lbo);
