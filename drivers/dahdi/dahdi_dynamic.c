@@ -517,12 +517,20 @@ static int ztd_close(struct dahdi_chan *chan)
 	return 0;
 }
 
-static void ztd_span_release(struct dahdi_span *span)
+/* TODO change this... */
+static void ztd_device_release(struct device *dev)
 {
 	struct dahdi_dynamic *z;
-	z = container_of(span, struct dahdi_dynamic, span);
-	kfree(z->msgbuf);
+	struct dahdi_device *ddev;
+	ddev = container_of(dev, struct dahdi_device, dev);
+	z = container_of(ddev, struct dahdi_dynamic, dev);
+	dahdi_put_span(&z->span);
 	kfree(z);
+}
+
+/* Nothing to do...the span will be released when the device is released */
+static void ztd_span_release(struct dahdi_span *span)
+{
 }
 
 static void ztd_chan_release(struct dahdi_chan *chan)
@@ -641,6 +649,7 @@ static int create_dynamic(struct dahdi_dynamic_span *zds)
 
 	/* TODO need to implement a release method */
 	z->dev.dev.init_name = z->span.name;
+	z->dev.dev.release = ztd_device_release;
 	res = dahdi_device_register(&z->dev);
 	if (res) {
 		put_device(&z->dev.dev);
