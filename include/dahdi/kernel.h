@@ -1066,6 +1066,7 @@ int dahdi_device_register(struct dahdi_device *dev);
 static inline void dahdi_device_unregister(struct dahdi_device *dev)
 {
 	device_unregister(&dev->dev);
+	put_device(&dev->dev);
 }
 
 static inline void dahdi_put_span(struct dahdi_span *s)
