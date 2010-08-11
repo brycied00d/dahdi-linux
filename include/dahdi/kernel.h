@@ -768,6 +768,8 @@ struct dahdi_count {
  * represent a device that may implement one or more spans that have a
  * relationship to one another.
  *
+ * TODO: this may not be necessary.
+ *
  */
 struct dahdi_device {
 	struct device dev;
