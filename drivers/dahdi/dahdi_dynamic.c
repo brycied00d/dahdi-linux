@@ -412,8 +412,6 @@ static void dynamic_destroy(struct dahdi_dynamic *z)
 	void *pvt = z->pvt;
 	struct dahdi_dynamic_driver *driver = z->driver;
 
-	dahdi_device_unregister(&z->dev);
-
 	/* Unregister span if appropriate */
 	if (test_bit(DAHDI_FLAGBIT_REGISTERED, &z->span.flags))
 		dahdi_unregister(&z->span);
@@ -423,7 +421,7 @@ static void dynamic_destroy(struct dahdi_dynamic *z)
 		driver->destroy(pvt);
 
 	checkmaster();
-	dahdi_put_span(&z->span);
+	dahdi_device_unregister(&z->dev);
 }
 
 static struct dahdi_dynamic *find_dynamic(struct dahdi_dynamic_span *zds)
