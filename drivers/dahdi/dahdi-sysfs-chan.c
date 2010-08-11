@@ -164,10 +164,6 @@ static struct attribute *chan_attrs[] = {
 	NULL
 };
 
-static struct attribute_group chan_attrs_group = {
-	.attrs = chan_attrs,
-};
-
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 13)
 static struct class *chan_class;
 #else
@@ -182,7 +178,6 @@ static void chan_release(struct kobject *kobj)
 
 	BUG_ON(!kobj);
 	chan = kobj_to_chan(kobj);
-        sysfs_remove_group(&chan->kobj, &chan_attrs_group);
 	chan_dbg(DEVICES, chan, "SYSFS\n");
 }
 
