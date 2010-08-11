@@ -507,24 +507,38 @@ static inline void rotate_sums(void)
 	pos = (pos + 1) % 3;
 	memset(conf_sums_next, 0, maxconfs * sizeof(sumtype));
 }
-
-static int dahdi_chan_dacs(struct dahdi_chan *chan1, struct dahdi_chan *chan2)
+/**
+ * dahdi_chan_dacs() - Cross (or uncross) connect two channels.
+ * @dst:	Channel on which to transmit the src data.
+ * @src:	NULL to disable cross connect, otherwise the source of the
+ *		data.
+ *
+ * This allows those boards that support it to cross connect one channel to
+ * another in hardware.
+ *
+ */
+static int dahdi_chan_dacs(struct dahdi_chan *dst, struct dahdi_chan *src)
 {
-	if (chan2) {
-		if (chan1->span && chan2->span && chan1->span->ops->dacs &&
-		    (chan1->span->ops->dacs == chan2->span->ops->dacs)) {
-			return chan1->span->ops->dacs(chan1, chan2);
+	int ret = 0;
+	if (src) {
+		if (dst->span && src->span && dst->span->ops->dacs &&
+		    (dst->span->ops->dacs == src->span->ops->dacs)) {
+			ret = dst->span->ops->dacs(dst, src);
 		} else {
 			module_printk(KERN_ERR, "Unable to cross connect '%s' "
-				      "with '%s'\n", chan2->name, chan1->name);
-			return -ENOSYS;
+				      "with '%s'\n", src->name, dst->name);
+			ret = -ENOSYS;
 		}
 	} else {
-		if (chan1->span && chan1->span->ops->dacs)
-			return chan1->span->ops->dacs(chan1, NULL);
-		else
-			return -ENOSYS;
+		if (dst->span && dst->span->ops->dacs)
+			ret = dst->span->ops->dacs(dst, NULL);
 	}
+	return ret;
+}
+
+static void dahdi_disable_dacs(struct dahdi_chan *chan)
+{
+	dahdi_chan_dacs(chan, NULL);
 }
 
 static int dahdi_chan_echocan_create(struct dahdi_chan *chan,
@@ -1346,7 +1360,7 @@ static void close_channel(struct dahdi_chan *chan)
 	memset(chan->conflast2, 0, sizeof(chan->conflast2));
 
 	if (chan->span && oldconf)
-		dahdi_chan_dacs(chan, NULL);
+		dahdi_disable_dacs(chan);
 
 	if (ec_state) {
 		ec_state->ops->echocan_free(chan, ec_state);
@@ -2011,7 +2025,7 @@ static void dahdi_chan_unreg(struct dahdi_chan *chan)
 				if (chans[x]->confna) {
 					dahdi_check_conf(chans[x]->confna);
 					if (chans[x]->span)
-						dahdi_chan_dacs(chans[x], NULL);
+						dahdi_disable_dacs(chans[x]);
 				}
 				chans[x]->confna = 0;
 				chans[x]->_confn = 0;
@@ -2613,7 +2627,7 @@ static int initialize_channel(struct dahdi_chan *chan)
 	if ((chan->sig & __DAHDI_SIG_DACS) != __DAHDI_SIG_DACS) {
 		chan->confna = 0;
 		chan->confmode = 0;
-		dahdi_chan_dacs(chan, NULL);
+		dahdi_disable_dacs(chan);
 	}
 	chan->_confn = 0;
 	memset(chan->conflast, 0, sizeof(chan->conflast));
@@ -4315,7 +4329,7 @@ static int dahdi_ctl_ioctl(struct file *file, unsigned int cmd, unsigned long da
 				res = dahdi_chan_dacs(chans[ch.chan],
 						      chans[ch.idlebits]);
 			} else {
-				res = dahdi_chan_dacs(chans[ch.chan], NULL);
+				dahdi_disable_dacs(chans[ch.chan]);
 			}
 			chans[ch.chan]->master = newmaster;
 			/* Note new slave if we are not our own master */
@@ -4988,7 +5002,7 @@ dahdi_chanandpseudo_ioctl(struct file *file, unsigned int cmd,
 			    chans[stack.conf.confno]->rxgain == defgain) {
 				dahdi_chan_dacs(chans[i], chans[stack.conf.confno]);
 			} else {
-				dahdi_chan_dacs(chans[i], NULL);
+				dahdi_disable_dacs(chans[i]);
 			}
 		}
 		/* if we are going onto a conf */
@@ -5447,7 +5461,7 @@ static int dahdi_chan_ioctl(struct file *file, unsigned int cmd, unsigned long d
 			  /* initialize conference variables */
 			chan->_confn = 0;
 			chan->confna = 0;
-			dahdi_chan_dacs(chan, NULL);
+			dahdi_disable_dacs(chan);
 			chan->confmode = 0;
 			chan->confmute = 0;
 			memset(chan->conflast, 0, sizeof(chan->conflast));
