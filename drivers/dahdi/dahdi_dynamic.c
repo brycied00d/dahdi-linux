@@ -423,6 +423,7 @@ static void dynamic_destroy(struct dahdi_dynamic *z)
 		driver->destroy(pvt);
 
 	checkmaster();
+	dahdi_put_span(&z->span);
 }
 
 static struct dahdi_dynamic *find_dynamic(struct dahdi_dynamic_span *zds)
@@ -634,6 +635,8 @@ static int create_dynamic(struct dahdi_dynamic_span *zds)
 		/* Creation failed */
 		return -EINVAL;
 	}
+
+	dahdi_get_span(&z->span);
 
 	/* Remember the driver */
 	z->driver = ztd;

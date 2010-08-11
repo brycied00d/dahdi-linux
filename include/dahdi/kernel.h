@@ -1068,6 +1068,22 @@ static inline void dahdi_device_unregister(struct dahdi_device *dev)
 	device_unregister(&dev->dev);
 }
 
+static inline void dahdi_put_span(struct dahdi_span *s)
+{
+	int x;
+	for (x = 0; x < s->channels; ++x)
+		kobject_put(&s->chans[x]->kobj);
+	kobject_put(&s->kobj);
+}
+
+static inline void dahdi_get_span(struct dahdi_span *s)
+{
+	int x;
+	kobject_get(&s->kobj);
+	for (x = 0; x < s->channels; ++x)
+		kobject_get(&s->chans[x]->kobj);
+}
+
 /*! Allocate / free memory for a transcoder */
 struct dahdi_transcoder *dahdi_transcoder_alloc(int numchans);
 void dahdi_transcoder_free(struct dahdi_transcoder *ztc);
