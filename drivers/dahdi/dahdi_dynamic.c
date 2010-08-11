@@ -409,8 +409,6 @@ void dahdi_dynamic_receive(struct dahdi_span *span, unsigned char *msg, int msgl
 
 static void dynamic_destroy(struct dahdi_dynamic *z)
 {
-	unsigned int x;
-
 	/* Unregister span if appropriate */
 	if (test_bit(DAHDI_FLAGBIT_REGISTERED, &z->span.flags))
 		dahdi_unregister(&z->span);
@@ -480,7 +478,6 @@ static int destroy_dynamic(struct dahdi_dynamic_span *zds)
 	spin_unlock_irqrestore(&dspan_lock, flags);
 	synchronize_rcu();
 
-	dahdi_unregister(&z->span);
 	dynamic_destroy(z);
 	return 0;
 }
