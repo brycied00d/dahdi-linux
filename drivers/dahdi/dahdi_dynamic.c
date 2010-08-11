@@ -424,6 +424,7 @@ static void dynamic_destroy(struct dahdi_dynamic *z)
 		driver->destroy(pvt);
 
 	checkmaster();
+	HERE();
 	dahdi_device_unregister(&z->dev);
 }
 
@@ -531,6 +532,7 @@ static void ztd_device_release(struct device *dev)
 	z = container_of(ddev, struct dahdi_dynamic, dev);
 	dahdi_put_span(&z->span);
 	kfree(z);
+	module_put(THIS_MODULE);
 }
 
 /* Nothing to do...the span will be released when the device is released */
@@ -657,6 +659,9 @@ static int create_dynamic(struct dahdi_dynamic_span *zds)
 	/* TODO need to implement a release method */
 	z->dev.dev.init_name = z->span.name;
 	z->dev.dev.release = ztd_device_release;
+	/* We don't want this module to unload until all the callbacks are
+	 * cleaned up. */
+	__module_get(THIS_MODULE);
 	res = dahdi_device_register(&z->dev);
 	if (res) {
 		put_device(&z->dev.dev);
