@@ -33,6 +33,8 @@
 #include <linux/interrupt.h>
 #include <linux/moduleparam.h>
 
+#define HERE() do {printk(KERN_DEBUG "HERE: %s:%d\n", __FILE__, __LINE__); } while (0)
+
 #include <dahdi/kernel.h>
 
 /*
@@ -412,6 +414,7 @@ static void dynamic_destroy(struct dahdi_dynamic *z)
 	void *pvt = z->pvt;
 	struct dahdi_dynamic_driver *driver = z->driver;
 
+	HERE();
 	/* Unregister span if appropriate */
 	if (test_bit(DAHDI_FLAGBIT_REGISTERED, &z->span.flags))
 		dahdi_unregister(&z->span);
@@ -462,6 +465,8 @@ static int destroy_dynamic(struct dahdi_dynamic_span *zds)
 {
 	unsigned long flags;
 	struct dahdi_dynamic *z;
+
+	HERE();
 
 	z = find_dynamic(zds);
 	if (unlikely(!z)) {
@@ -515,11 +520,13 @@ static int ztd_close(struct dahdi_chan *chan)
 	return 0;
 }
 
+
 /* TODO change this... */
 static void ztd_device_release(struct device *dev)
 {
 	struct dahdi_dynamic *z;
 	struct dahdi_device *ddev;
+	HERE();
 	ddev = container_of(dev, struct dahdi_device, dev);
 	z = container_of(ddev, struct dahdi_dynamic, dev);
 	dahdi_put_span(&z->span);
@@ -529,10 +536,12 @@ static void ztd_device_release(struct device *dev)
 /* Nothing to do...the span will be released when the device is released */
 static void ztd_span_release(struct dahdi_span *span)
 {
+	HERE();
 }
 
 static void ztd_chan_release(struct dahdi_chan *chan)
 {
+	HERE();
 	kfree(chan);
 }
 
