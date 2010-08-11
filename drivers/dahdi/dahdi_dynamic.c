@@ -636,8 +636,6 @@ static int create_dynamic(struct dahdi_dynamic_span *zds)
 		return -EINVAL;
 	}
 
-	dahdi_get_span(&z->span);
-
 	/* Remember the driver */
 	z->driver = ztd;
 
@@ -656,6 +654,8 @@ static int create_dynamic(struct dahdi_dynamic_span *zds)
 		dahdi_device_unregister(&z->dev);
 		return -EINVAL;
 	}
+
+	dahdi_get_span(&z->span);
 
 	spin_lock_irqsave(&dspan_lock, flags);
 	list_add_rcu(&z->list, &dspan_list);
