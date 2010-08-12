@@ -382,6 +382,8 @@ struct dahdi_echocan_state {
 	} events;
 };
 
+struct dahdi_chan_kobject;
+
 struct dahdi_chan {
 #ifdef CONFIG_DAHDI_NET
 	/*! \note Must be first */
@@ -591,9 +593,7 @@ struct dahdi_chan {
 #else
 	unsigned char *lin2x;
 #endif
-	struct kobject kobj; /*!< Kernel object for this chan. */
-#define kobj_to_chan(dev)    container_of(kobj, struct dahdi_chan, kobj)
-	dev_t devt;
+	struct dahdi_chan_kobject *kobj; /*!< Kernel object for this chan. */
 };
 
 static inline struct dahdi_span *span_from_chan(struct dahdi_chan *c)
@@ -862,6 +862,7 @@ struct dahdi_span_ops {
 	void (*chan_release)(struct dahdi_chan *chan);
 };
 
+struct dahdi_span_kobject;
 struct dahdi_span {
 	spinlock_t lock;
 	char name[40];			/*!< Span name */
@@ -899,12 +900,8 @@ struct dahdi_span {
 	const struct dahdi_span_ops *ops;	/*!< span callbacks. */
 
 	/* Used by DAHDI only -- no user servicable parts inside */
-	struct kobject kobj; /*!< Kernel object for this span */
-	/* FIXME: placing the span in the device tree should be done by the
-	 * low-level driver, right?
-	 */
+	struct dahdi_span_kobject *kobj;
 	struct dahdi_device *parent; /*!< The physical device that is providing this span. */
-#define kobj_to_span(kobj)  container_of(kobj, struct dahdi_span, kobj)
 	int spanno;			/*!< Span number for DAHDI */
 	int offset;			/*!< Offset within a given card */
 	int lastalarms;			/*!< Previous alarms */
@@ -1067,22 +1064,6 @@ static inline void dahdi_device_unregister(struct dahdi_device *dev)
 {
 	device_unregister(&dev->dev);
 	put_device(&dev->dev);
-}
-
-static inline void dahdi_put_span(struct dahdi_span *s)
-{
-	int x;
-	for (x = 0; x < s->channels; ++x)
-		kobject_put(&s->chans[x]->kobj);
-	kobject_put(&s->kobj);
-}
-
-static inline void dahdi_get_span(struct dahdi_span *s)
-{
-	int x;
-	kobject_get(&s->kobj);
-	for (x = 0; x < s->channels; ++x)
-		kobject_get(&s->chans[x]->kobj);
 }
 
 /*! Allocate / free memory for a transcoder */

@@ -22,6 +22,13 @@ enum kobject_action {
 };
 #endif
 
+struct dahdi_span_kobject {
+	struct kobject	kobj;
+	struct dahdi_span *span;
+};
+#define kobj_to_span(_kobj) \
+	(container_of(_kobj, struct dahdi_span_kobject, kobj)->span)
+
 extern int debug;
 
 /*
@@ -72,7 +79,7 @@ int span_sysfs_create(struct dahdi_span *span);
 void span_sysfs_remove(struct dahdi_span *span);
 
 /* For use in dahdi-base only: */
-int chan_sysfs_create(struct dahdi_chan *chan);
+int chan_sysfs_create(struct dahdi_chan *chan, struct dahdi_span *span);
 void chan_sysfs_remove(struct dahdi_chan *chan);
 
 #endif	/* DAHDI_SYSFS_H */

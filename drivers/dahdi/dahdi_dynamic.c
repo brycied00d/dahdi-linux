@@ -530,7 +530,6 @@ static void ztd_device_release(struct device *dev)
 	HERE();
 	ddev = container_of(dev, struct dahdi_device, dev);
 	z = container_of(ddev, struct dahdi_dynamic, dev);
-	dahdi_put_span(&z->span);
 	kfree(z);
 	module_put(THIS_MODULE);
 }
@@ -675,8 +674,6 @@ static int create_dynamic(struct dahdi_dynamic_span *zds)
 		dahdi_device_unregister(&z->dev);
 		return -EINVAL;
 	}
-
-	dahdi_get_span(&z->span);
 
 	spin_lock_irqsave(&dspan_lock, flags);
 	list_add_rcu(&z->list, &dspan_list);

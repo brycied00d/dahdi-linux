@@ -304,9 +304,9 @@ void dahdi_uevent_send(struct kobject *kobj, enum kobject_action act)
 static void span_uevent_send(struct dahdi_span *span, enum kobject_action act)
 {
 	span_dbg(DEVICES, span, "SYFS dev_name=%s action=%d\n",
-		kobject_name(&span->kobj), act);
+		kobject_name(&span->kobj->kobj), act);
 
-	dahdi_uevent_send(&span->kobj, act);
+	dahdi_uevent_send(&span->kobj->kobj, act);
 }
 
 static void span_release(struct kobject *kobj)
@@ -405,7 +405,7 @@ void span_sysfs_remove(struct dahdi_span *span)
 	}
 
 	span_uevent_send(span, KOBJ_REMOVE);
-	kobject_put(&span->kobj);
+	kobject_put(&span->kobj->kobj);
 }
 
 int span_sysfs_create(struct dahdi_span *span)
@@ -422,9 +422,12 @@ int span_sysfs_create(struct dahdi_span *span)
 	if (!span->parent)
 		return -EINVAL;
 
-	kobject_init(&span->kobj, &dahdi_span_ktype);
-	span->kobj.kset = dahdi_span_kset;
-	res = kobject_add(&span->kobj, &span->parent->dev.kobj,
+	span->kobj = kzalloc(sizeof(*span->kobj), GFP_KERNEL);
+	span->kobj->span = span;
+	kobject_init(&span->kobj->kobj, &dahdi_span_ktype);
+	span->kobj->kobj.kset = dahdi_span_kset;
+
+	res = kobject_add(&span->kobj->kobj, &span->parent->dev.kobj,
 			  "%d", span->spanno);
 	if (res) {
 		span_err(span, "%s: device_register failed: %d\n", __func__,
@@ -435,7 +438,7 @@ int span_sysfs_create(struct dahdi_span *span)
 	for (x = 0; x < span->channels; x++) {
 		struct dahdi_chan *chan = span->chans[x];
 		chan->_span = span;
-		res = chan_sysfs_create(chan);
+		res = chan_sysfs_create(chan, span);
 		if (res) {
 			chan_err(chan, "Failed registering in sysfs: %d.\n",
 					res);
@@ -448,7 +451,7 @@ int span_sysfs_create(struct dahdi_span *span)
 		res = -ENOMEM;
 		goto err_chan_device_register;
 	}
-	res = sysfs_create_link(&dahdi_span_kset->kobj, &span->kobj, link_name);
+	res = sysfs_create_link(&dahdi_span_kset->kobj, &span->kobj->kobj, link_name);
 	kfree(link_name);
 	if (res) {
 		res = -ENOMEM;
@@ -462,7 +465,7 @@ err_chan_device_register:
 		struct dahdi_chan *chan = span->chans[x];
 		chan_sysfs_remove(chan);
 	}
-	kobject_put(&span->kobj);
+	kobject_put(&span->kobj->kobj);
 err_device_register:
 	return res;
 }
