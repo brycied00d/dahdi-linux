@@ -390,17 +390,9 @@ void span_sysfs_remove(struct dahdi_span *span)
 {
 	struct dahdi_span_kobject *dkobj;
 	int		x;
-	char		*link_name;
 
 	BUG_ON(!span);
 	span_dbg(DEVICES, span, "\n");
-
-	link_name = kasprintf(GFP_KERNEL, "%s:%d", dahdi_dev_name(span->parent),
-			      span->offset);
-	if (link_name) {
-		sysfs_remove_link(&dahdi_span_kset->kobj, link_name);
-		kfree(link_name);
-	}
 
 	for (x = 0; x < span->channels; x++) {
 		struct dahdi_chan *chan = span->chans[x];
@@ -418,7 +410,6 @@ int span_sysfs_create(struct dahdi_span *span)
 {
 	int		res = 0;
 	int		x;
-	char 		*link_name;
 
 	BUG_ON(!span);
 	span_dbg(DEVICES, span, "\n");
@@ -450,18 +441,6 @@ int span_sysfs_create(struct dahdi_span *span)
 					res);
 			goto err_chan_device_register;
 		}
-	}
-	link_name = kasprintf(GFP_KERNEL, "%s:%d",
-			      dahdi_dev_name(span->parent), span->spanno);
-	if (!link_name) {
-		res = -ENOMEM;
-		goto err_chan_device_register;
-	}
-	res = sysfs_create_link(&dahdi_span_kset->kobj, &span->kobj->kobj, link_name);
-	kfree(link_name);
-	if (res) {
-		res = -ENOMEM;
-		goto err_chan_device_register;
 	}
 	span_uevent_send(span, KOBJ_ADD);
 	return res;
