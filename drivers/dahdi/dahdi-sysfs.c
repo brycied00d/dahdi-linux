@@ -320,7 +320,7 @@ static void span_kobj_release(struct kobject *kobj)
 }
 
 ssize_t dahdi_attr_show(struct kobject *kobj, struct attribute *attr,
-			       char *buf)
+			char *buf)
 {
         struct kobj_attribute *kattr;
         ssize_t ret = -EIO;

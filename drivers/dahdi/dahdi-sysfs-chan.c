@@ -142,6 +142,9 @@ static ATTR_READER(alarms_show, kobj, buf)
 static ATTR_READER(dev_show, kobj, buf)
 {
 	struct dahdi_chan *chan = kobj_to_chan(kobj);
+	if (!chan)
+		return -ENODEV;
+
 	return snprintf(buf, PAGE_SIZE, "%d:%d\n",
 			MAJOR(chan->kobj->devt),
 			MINOR(chan->kobj->devt));
@@ -209,26 +212,23 @@ create_dahdi_chan_kobject(struct dahdi_chan *chan, struct dahdi_span *span)
 		return NULL;
 	kobject_init(&dkobj->kobj, &dahdi_chan_ktype);
 	dkobj->kobj.kset = dahdi_chan_kset;
+	dkobj->devt = MKDEV(MAJOR(dahdi_channels_devt), chan->channo);
 	return dkobj;
 }
 
 int chan_sysfs_create(struct dahdi_chan *chan, struct dahdi_span *span)
 {
 	struct dahdi_chan_kobject *kobj;
-	int			res;
+	int res;
 
-	BUG_ON(!chan);
-	BUG_ON(!span);
+	if (!chan || !span)
+		return -EINVAL;
 
 	kobj = create_dahdi_chan_kobject(chan, span);
 	if (!kobj)
 		return -ENOMEM;
-
-	kobj->devt = MKDEV(MAJOR(dahdi_channels_devt), chan->channo);
-
-	chan_dbg(DEVICES, chan, "SYSFS\n");
-
 	chan->kobj = kobj;
+
 	/*
 	 * WARNING: the name cannot be longer than KOBJ_NAME_LEN
 	 */
@@ -239,6 +239,7 @@ int chan_sysfs_create(struct dahdi_chan *chan, struct dahdi_span *span)
 		return res;
 	}
 
+	chan_dbg(DEVICES, chan, "SYSFS\n");
 	dahdi_uevent_send(&kobj->kobj, KOBJ_ADD);
 	return res;
 }
@@ -246,14 +247,20 @@ int chan_sysfs_create(struct dahdi_chan *chan, struct dahdi_span *span)
 void chan_sysfs_remove(struct dahdi_chan *chan)
 {
 	struct dahdi_chan_kobject *dkobj;
+	unsigned long flags;
+
 	chan_dbg(DEVICES, chan, "SYSFS\n");
 	chan_dbg(DEVICES, chan, "Destroying channel %d\n", chan->channo);
 	/* FIXME: should have been done earlier in dahdi_chan_unreg */
 	dahdi_uevent_send(&chan->kobj->kobj, KOBJ_REMOVE);
 	chan->channo = -1;
 	dkobj = chan->kobj;
+
+	spin_lock_irqsave(&chan->lock, flags);
 	chan->kobj = NULL;
 	dkobj->chan = NULL;
+	spin_unlock_irqrestore(&chan->lock, flags);
+
 	kobject_put(&dkobj->kobj);
 }
 
