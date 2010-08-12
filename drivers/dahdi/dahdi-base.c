@@ -152,7 +152,7 @@ EXPORT_SYMBOL(dahdi_unregister_echocan_factory);
 EXPORT_SYMBOL(dahdi_set_hpec_ioctl);
 
 #ifdef CONFIG_PROC_FS
-static struct proc_dir_entry *proc_entries[DAHDI_MAX_SPANS];
+static struct proc_dir_entry *root_proc_entry;
 #endif
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,27)
@@ -5897,25 +5897,6 @@ static long dahdi_ioctl_compat(struct file *file, unsigned int cmd,
 }
 #endif
 
-#ifdef CONFIG_PROC_FS
-static void cleanup_proc(void)
-{
-	int	i;
-
-	if (proc_entries[0]) {
-		for (i = 1; i < ARRAY_SIZE(proc_entries); i++) {
-			if (proc_entries[i]) {
-				remove_proc_entry(proc_entries[i]->name,
-						proc_entries[0]);
-				proc_entries[i] = NULL;
-			}
-		}
-		remove_proc_entry(proc_entries[0]->name, NULL);
-		proc_entries[0] = NULL;
-	}
-}
-#endif
-
 /**
  * dahdi_register() - unregister a new DAHDI span
  * @span:	the DAHDI span
@@ -6003,8 +5984,9 @@ int dahdi_register(struct dahdi_span *span, int prefmaster)
 	{
 		char tempfile[17];
 		snprintf(tempfile, sizeof(tempfile), "dahdi/%d", span->spanno);
-		proc_entries[span->spanno] = create_proc_read_entry(tempfile, 0444,
-				NULL, dahdi_proc_read, (int *) (long) span->spanno);
+		span->proc_entry = create_proc_read_entry(tempfile, 0444,
+					NULL, dahdi_proc_read,
+					(int *) (long) span->spanno);
 	}
 #endif
 
@@ -6069,11 +6051,11 @@ void dahdi_unregister(struct dahdi_span *span)
 	}
 	if (debug)
 		module_printk(KERN_NOTICE, "Unregistering Span '%s' with %d channels\n", span->name, span->channels);
+
 #ifdef CONFIG_PROC_FS
-	if (proc_entries[span->spanno] && proc_entries[0]) {
-		remove_proc_entry(proc_entries[span->spanno]->name,
-				proc_entries[0]);
-		proc_entries[span->spanno] = NULL;
+	if (span->proc_entry) {
+		remove_proc_entry(span->proc_entry->name, root_proc_entry);
+		span->proc_entry = NULL;
 	}
 #endif /* CONFIG_PROC_FS */
 
@@ -8688,8 +8670,8 @@ static int __init dahdi_init(void)
 	int res = 0;
 
 #ifdef CONFIG_PROC_FS
-	proc_entries[0] = proc_mkdir("dahdi", NULL);
-	if (proc_entries[0] == NULL) {
+	root_proc_entry = proc_mkdir("dahdi", NULL);
+	if (root_proc_entry == NULL) {
 		module_printk(KERN_ERR, "Failed creating /proc/dahdi\n");
 		res = -ENOENT;
 		goto fail_proc;
@@ -8722,7 +8704,9 @@ static int __init dahdi_init(void)
 fail_driverinit:
 	unregister_chrdev(DAHDI_MAJOR, "dahdi");
 fail_chrdev:
-	cleanup_proc();
+#ifdef CONFIG_PROC_FS
+	remove_proc_entry("dahdi", NULL);
+#endif
 fail_proc:
 	return res;
 }
@@ -8736,7 +8720,7 @@ static void __exit dahdi_cleanup(void)
 	unregister_chrdev(DAHDI_MAJOR, "dahdi");
 
 #ifdef CONFIG_PROC_FS
-	cleanup_proc();
+	remove_proc_entry("dahdi", NULL);
 #endif
 
 	module_printk(KERN_INFO, "Telephony Interface Unloaded\n");
