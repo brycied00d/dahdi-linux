@@ -374,11 +374,6 @@ static struct kobj_type dahdi_span_ktype = {
 	.default_attrs = dahdi_span_attrs,
 };
 
-static struct kset *dahdi_span_kset;
-
-static struct kset_uevent_ops dahdi_span_kset_ops = {
-};
-
 void span_sysfs_remove(struct dahdi_span *span)
 {
 	struct dahdi_span_kobject *dkobj;
@@ -415,7 +410,6 @@ int span_sysfs_create(struct dahdi_span *span)
 	span->kobj = kzalloc(sizeof(*span->kobj), GFP_KERNEL);
 	span->kobj->span = span;
 	kobject_init(&span->kobj->kobj, &dahdi_span_ktype);
-	span->kobj->kobj.kset = dahdi_span_kset;
 
 	res = kobject_add(&span->kobj->kobj, &span->parent->dev.kobj,
 			  "%d", span->spanno);
@@ -475,10 +469,6 @@ int __init dahdi_driver_init(const struct file_operations *fops)
 	if (res < 0)
 		goto failed_chan_bus;
 
-	dahdi_span_kset = kset_create_and_add(NULL, &dahdi_span_kset_ops, NULL);
-	if (!dahdi_span_kset)
-		return -ENOMEM;
-
 	return 0;
 failed_chan_bus:
 #if 0
@@ -494,7 +484,6 @@ void dahdi_driver_exit(void)
 {
 	dahdi_dbg(DEVICES, "SYSFS\n");
 	dahdi_driver_chan_exit();
-	kset_unregister(dahdi_span_kset);
 #if 0
 	driver_unregister(&dahdi_driver);
 	bus_unregister(&spans_bus_type);
