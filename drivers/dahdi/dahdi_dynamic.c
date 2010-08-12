@@ -652,13 +652,17 @@ static int create_dynamic(struct dahdi_dynamic_span *zds)
 	/* Remember the driver */
 	z->driver = ztd;
 
-	dahdi_device_initialize(&z->dev);
 	/* TODO need to implement a release method */
 	z->dev.dev.init_name = z->span.name;
 	z->dev.dev.release = ztd_device_release;
 	/* We don't want this module to unload until all the callbacks are
 	 * cleaned up. */
 	__module_get(THIS_MODULE);
+	res = dahdi_device_register(&z->dev);
+	if (res) {
+		put_device(&z->dev.dev);
+		return res;
+	}
 
 	/* Whee!  We're created.  Now register the span */
 	z->span.parent = &z->dev;
@@ -668,11 +672,6 @@ static int create_dynamic(struct dahdi_dynamic_span *zds)
 		return -EINVAL;
 	}
 
-	res = dahdi_device_add(&z->dev);
-	if (res) {
-		dahdi_device_unregister(&z->dev);
-		return res;
-	}
 	spin_lock_irqsave(&dspan_lock, flags);
 	list_add_rcu(&z->list, &dspan_list);
 	spin_unlock_irqrestore(&dspan_lock, flags);

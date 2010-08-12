@@ -1060,8 +1060,7 @@ int dahdi_hdlc_getbuf(struct dahdi_chan *ss, unsigned char *bufptr, unsigned int
    we should have preference in being the master device */
 int dahdi_register(struct dahdi_span *span, int prefmaster);
 
-void dahdi_device_initialize(struct dahdi_device *dev);
-int dahdi_device_add(struct dahdi_device *dev);
+int dahdi_device_register(struct dahdi_device *dev);
 
 static inline void dahdi_device_unregister(struct dahdi_device *dev)
 {
