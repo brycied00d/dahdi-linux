@@ -86,7 +86,7 @@ struct dahdi_chan_kobject {
 	struct dahdi_chan *chan;
 };
 
-#define kobj_to_chan(_kobj) (container_of((_kobj), struct dahdi_chan_kobject, kobj)->chan)
+#define to_chan(_kobj) (container_of((_kobj), struct dahdi_chan_kobject, kobj)->chan)
 
 static struct kset *dahdi_chan_kset;
 
@@ -96,8 +96,7 @@ static struct kset *dahdi_chan_kset;
 static ATTR_READER(field##_show, kobj, buf)			\
 {								\
 	struct dahdi_chan	*chan;				\
-								\
-	chan = kobj_to_chan(kobj);				\
+	chan = to_chan(kobj);					\
 	if (!chan)						\
 		return -ENODEV;					\
 	return sprintf(buf, format_string, chan->field);	\
@@ -116,7 +115,7 @@ static ATTR_READER(sig_show, kobj, buf)
 {
 	struct dahdi_chan	*chan;
 
-	chan = kobj_to_chan(kobj);
+	chan = to_chan(kobj);
 	return sprintf(buf, "%s\n", sigstr(chan->sig));
 }
 
@@ -124,7 +123,7 @@ static ATTR_READER(in_use_show, kobj, buf)
 {
 	struct dahdi_chan	*chan;
 
-	chan = kobj_to_chan(kobj);
+	chan = to_chan(kobj);
 	return sprintf(buf, "%d\n", test_bit(DAHDI_FLAGBIT_OPEN, &chan->flags));
 }
 
@@ -133,7 +132,7 @@ static ATTR_READER(alarms_show, kobj, buf)
 	struct dahdi_chan	*chan;
 	int			len;
 
-	chan = kobj_to_chan(kobj);
+	chan = to_chan(kobj);
 	len = fill_alarm_string(buf, PAGE_SIZE, chan->chan_alarms);
 	buf[len++] = '\n';
 	return len;
@@ -141,7 +140,7 @@ static ATTR_READER(alarms_show, kobj, buf)
 
 static ATTR_READER(dev_show, kobj, buf)
 {
-	struct dahdi_chan *chan = kobj_to_chan(kobj);
+	struct dahdi_chan *chan = to_chan(kobj);
 	if (!chan)
 		return -ENODEV;
 
@@ -303,11 +302,13 @@ int __init dahdi_driver_chan_init(const struct file_operations *fops)
 		goto failed_chrdev_region;
 	}
 
+	/*
 	dahdi_chan_kset = kset_create_and_add("dahdi_channels", NULL, NULL);
 	if (!dahdi_chan_kset) {
 		res = -ENOMEM;
 		goto failed_chrdev_region;
 	}
+	*/
 
 #if LINUX_VERSION_CODE <= KERNEL_VERSION(2, 6, 17)
 	cdev_init(&dahdi_channels_cdev, (struct file_operations *)fops);
@@ -349,12 +350,10 @@ void dahdi_driver_chan_exit(void)
 	destroy_dev_file(chan_class, MKDEV(DAHDI_MAJOR, DAHDI_TIMER));
 	cdev_del(&dahdi_channels_cdev);
 	unregister_chrdev_region(dahdi_channels_devt, DAHDI_MAX_CHANNELS);
+	/*
 	kset_unregister(dahdi_chan_kset);
+	*/
 	class_destroy(chan_class);
-#if 0
-	driver_unregister(&chan_driver);
-	bus_unregister(&chan_bus_type);
-#endif
 }
 
 int dahdi_device_register(struct dahdi_device *dev)
