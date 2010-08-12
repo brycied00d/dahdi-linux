@@ -213,6 +213,7 @@ create_dahdi_chan_kobject(struct dahdi_chan *chan, struct dahdi_span *span)
 	kobject_init(&dkobj->kobj, &dahdi_chan_ktype);
 	dkobj->kobj.kset = dahdi_chan_kset;
 	dkobj->devt = MKDEV(MAJOR(dahdi_channels_devt), chan->channo);
+	dkobj->chan = chan;
 	return dkobj;
 }
 
