@@ -430,11 +430,9 @@ static bool valid_channo(const int channo)
 			false : true;
 }
 
-/* Protected by chan_lock. */
-static struct dahdi_span *spans[DAHDI_MAX_SPANS];
-static struct dahdi_chan *chans[DAHDI_MAX_CHANNELS];
+static LIST_HEAD(span_list);
 
-static int maxspans = 0;
+static struct dahdi_chan *chans[DAHDI_MAX_CHANNELS];
 
 static inline struct dahdi_chan *chan_from_num(unsigned int channo)
 {
@@ -449,12 +447,30 @@ static inline struct dahdi_chan *chan_from_file(struct file *file)
 
 static struct dahdi_span *find_span(int spanno)
 {
-	return (spanno > 0 && spanno < DAHDI_MAX_SPANS) ? spans[spanno] : NULL;
+	struct dahdi_span *found = NULL;
+	struct dahdi_span *s;
+	unsigned long flags;
+	read_lock_irqsave(&chan_lock, flags);
+	list_for_each_entry(s, &span_list, node) {
+		if (s->spanno == spanno) {
+			found = s;
+			break;
+		}
+	}
+	read_unlock_irqrestore(&chan_lock, flags);
+	return found;
 }
 
-static inline unsigned int span_count(void)
+static unsigned int span_count(void)
 {
-	return maxspans;
+	unsigned int count = 0;
+	struct dahdi_span *s;
+	unsigned long flags;
+	read_lock_irqsave(&chan_lock, flags);
+	list_for_each_entry(s, &span_list, node)
+		++count;
+	read_unlock_irqrestore(&chan_lock, flags);
+	return count;
 }
 
 static int maxchans = 0;
@@ -730,8 +746,6 @@ static int dahdi_proc_read(char *page, char **start, off_t off, int count, int *
 		return 0;
 
 	s = find_span(spanno);
-	if (!s)
-		return -ENODEV;
 
 	if (s->name)
 		len += snprintf(page + len, count - len, "Span %d: %s ",
@@ -2884,9 +2898,11 @@ static int can_open_timer(void)
 #ifdef CONFIG_DAHDI_CORE_TIMER
 	return 1;
 #else
-	return maxspans > 0;
+	return (list_empty(&span_list)) ? 0 : 1;
 #endif
 }
+
+static DECLARE_MUTEX(registration_lock);
 
 static struct dahdi_chan *dahdi_alloc_pseudo(void)
 {
@@ -3509,6 +3525,7 @@ void dahdi_alarm_channel(struct dahdi_chan *chan, int alarms)
 void dahdi_alarm_notify(struct dahdi_span *span)
 {
 	int x;
+	unsigned long flags;
 
 	span->alarms &= ~DAHDI_ALARM_LOOPBACK;
 	/* Determine maint status */
@@ -3519,23 +3536,31 @@ void dahdi_alarm_notify(struct dahdi_span *span)
 	   as ((!a) != (!b)) */
 	/* if change in general state */
 	if ((!span->alarms) != (!span->lastalarms)) {
+		struct dahdi_span *s;
 		span->lastalarms = span->alarms;
 		for (x = 0; x < span->channels; x++)
 			dahdi_alarm_channel(span->chans[x], span->alarms);
 
 		/* Switch to other master if current master in alarm */
-		for (x=1; x<maxspans; x++) {
-			struct dahdi_span *const s = spans[x];
-			if (s && !s->alarms && (s->flags & DAHDI_FLAG_RUNNING)) {
-				if (debug && (master != s)) {
-					module_printk(KERN_NOTICE,
-						"Master changed to %s\n",
-						s->name);
-				}
-				master = s;
-				break;
+		read_lock_irqsave(&chan_lock, flags);
+		list_for_each_entry(s, &span_list, node) {
+			if (s->alarms)
+				continue;
+			if (!test_bit(DAHDI_FLAGBIT_RUNNING, &s->flags))
+				continue;
+			if (master == s)
+				continue;
+
+			if (debug) {
+				module_printk(KERN_NOTICE,
+					      "Master changed to %s\n",
+					      s->name);
 			}
+			master = s;
+			break;
 		}
+		read_unlock_irqrestore(&chan_lock, flags);
+
 		/* Report more detailed alarms */
 		if (debug) {
 			if (span->alarms & DAHDI_ALARM_LOS) {
@@ -6086,6 +6111,24 @@ static long dahdi_ioctl_compat(struct file *file, unsigned int cmd,
 }
 #endif
 
+static bool is_span_registered(const struct dahdi_span *const span)
+{
+	unsigned long flags;
+	struct dahdi_span *pos;
+	bool registered = false;
+
+	read_lock_irqsave(&chan_lock, flags);
+	list_for_each_entry(pos, &span_list, node) {
+		if (likely(pos != span))
+			continue;
+
+		registered =  true;
+		break;
+	}
+	read_unlock_irqrestore(&chan_lock, flags);
+	return registered;
+}
+
 /**
  * dahdi_register() - unregister a new DAHDI span
  * @span:	the DAHDI span
@@ -6098,52 +6141,18 @@ static long dahdi_ioctl_compat(struct file *file, unsigned int cmd,
  * master DAHDI span at registration time. If 0: it will only become
  * master if no other span is currently the master (i.e.: it is the
  * first one).
+ *
  */
 int dahdi_register(struct dahdi_span *span, int prefmaster)
 {
-	int x;
+	unsigned int spanno;
+	unsigned int x;
 	int res = 0;
+	struct list_head *loc = &span_list;
+	unsigned long flags;
 
-	if (!span)
+	if (!span || !span->ops || !span->ops->owner)
 		return -EINVAL;
-
-	if (!span->ops)
-		return -EINVAL;
-
-	if (!span->ops->owner)
-		return -EINVAL;
-
-
-	if (test_bit(DAHDI_FLAGBIT_REGISTERED, &span->flags)) {
-		module_printk(KERN_ERR, "Span %s already appears to be registered\n", span->name);
-		return -EBUSY;
-	}
-
-	for (x = 1; x < maxspans; x++) {
-		if (spans[x] == span) {
-			module_printk(KERN_ERR, "Span %s already in list\n", span->name);
-			return -EBUSY;
-		}
-	}
-
-	for (x = 1; x < DAHDI_MAX_SPANS; x++) {
-		if (!spans[x])
-			break;
-	}
-
-	if (x < DAHDI_MAX_SPANS) {
-		spans[x] = span;
-		if (maxspans < x + 1)
-			maxspans = x + 1;
-	} else {
-		module_printk(KERN_ERR, "Too many DAHDI spans registered\n");
-		return -EBUSY;
-	}
-
-	set_bit(DAHDI_FLAGBIT_REGISTERED, &span->flags);
-	span->spanno = x;
-
-	spin_lock_init(&span->lock);
 
 	if (!span->deflaw) {
 		module_printk(KERN_NOTICE, "Span %s didn't specify default law.  "
@@ -6151,6 +6160,37 @@ int dahdi_register(struct dahdi_span *span, int prefmaster)
 		span->deflaw = DAHDI_LAW_MULAW;
 	}
 
+	down(&registration_lock);
+
+	if (unlikely(is_span_registered(span))) {
+		module_printk(KERN_ERR, "Span %s already registered.\n",
+			      span->name);
+		up(&registration_lock);
+		return -EBUSY;
+	}
+
+	INIT_LIST_HEAD(&span->node);
+	spin_lock_init(&span->lock);
+
+	spanno = 1;
+
+	/* Look through the span list to find the first available span number.
+	 * The spans are kept on this list in sorted order. */
+	read_lock_irqsave(&chan_lock, flags);
+	if (!list_empty(&span_list)) {
+		struct dahdi_span *pos;
+		list_for_each_entry(pos, &span_list, node) {
+			loc = &pos->node;
+			if (pos->spanno == spanno) {
+				++spanno;
+				continue;
+			}
+			break;
+		}
+	}
+	read_unlock_irqrestore(&chan_lock, flags);
+
+	span->spanno = spanno;
 	for (x = 0; x < span->channels; x++) {
 		span->chans[x]->span = span;
 		res = dahdi_chan_reg(span->chans[x]);
@@ -6194,10 +6234,16 @@ int dahdi_register(struct dahdi_span *span, int prefmaster)
 		}
 	}
 
+	write_lock_irqsave(&chan_lock, flags);
+	list_add(&span->node, loc);
+	write_unlock_irqrestore(&chan_lock, flags);
+	set_bit(DAHDI_FLAGBIT_REGISTERED, &span->flags);
+	up(&registration_lock);
+
 	return 0;
 
 unreg_channels:
-	spans[span->spanno] = NULL;
+	up(&registration_lock);
 	return res;
 }
 
@@ -6212,26 +6258,25 @@ unreg_channels:
 int dahdi_unregister(struct dahdi_span *span)
 {
 	int x;
-	int new_maxspans;
 	static struct dahdi_span *new_master;
+	unsigned long flags;
 
 #ifdef CONFIG_PROC_FS
 	char tempfile[17];
 #endif /* CONFIG_PROC_FS */
 
-	if (!test_bit(DAHDI_FLAGBIT_REGISTERED, &span->flags)) {
+	if (span != find_span(span->spanno)) {
 		module_printk(KERN_ERR, "Span %s does not appear to be registered\n", span->name);
 		return -1;
 	}
+
+	down(&registration_lock);
+
 	/* Shutdown the span if it's running */
 	if (span->flags & DAHDI_FLAG_RUNNING)
 		if (span->ops->shutdown)
 			span->ops->shutdown(span);
 
-	if (spans[span->spanno] != span) {
-		module_printk(KERN_ERR, "Span %s has spanno %d which is something else\n", span->name, span->spanno);
-		return -1;
-	}
 	if (debug)
 		module_printk(KERN_NOTICE, "Unregistering Span '%s' with %d channels\n", span->name, span->channels);
 #ifdef CONFIG_PROC_FS
@@ -6244,29 +6289,31 @@ int dahdi_unregister(struct dahdi_span *span)
 			CLASS_DEV_DESTROY(dahdi_class, MKDEV(DAHDI_MAJOR, span->chans[x]->channo));
 	}
 
-	spans[span->spanno] = NULL;
+	write_lock_irqsave(&chan_lock, flags);
+	list_del_init(&span->node);
+	write_unlock_irqrestore(&chan_lock, flags);
 	span->spanno = 0;
 	clear_bit(DAHDI_FLAGBIT_REGISTERED, &span->flags);
+
 	for (x=0;x<span->channels;x++)
 		dahdi_chan_unreg(span->chans[x]);
-	new_maxspans = 0;
 	new_master = master; /* FIXME: locking */
 	if (master == span)
 		new_master = NULL;
-	for (x=1;x<DAHDI_MAX_SPANS;x++) {
-		if (spans[x]) {
-			new_maxspans = x+1;
-			if (!new_master)
-				new_master = spans[x];
-		}
+
+	read_lock_irqsave(&chan_lock, flags);
+	if (!list_empty(&span_list)) {
+		new_master = list_entry(span_list.next,
+					struct dahdi_span, node);
 	}
-	maxspans = new_maxspans;
+	read_unlock_irqrestore(&chan_lock, flags);
 	if (master != new_master)
 		if (debug)
 			module_printk(KERN_NOTICE, "%s: Span ('%s') is new master\n", __FUNCTION__,
 				      (new_master)? new_master->name: "no master");
 	master = new_master;
 
+	up(&registration_lock);
 	return 0;
 }
 
@@ -8442,7 +8489,6 @@ static void process_masterspan(void)
 {
 	unsigned long flags;
 	int x, y, z;
-	struct dahdi_chan *chan;
 	struct pseudo_chan *pseudo;
 	struct dahdi_span *s;
 	u_char *data;
@@ -8465,12 +8511,9 @@ static void process_masterspan(void)
 	if (dahdi_dynamic_ioctl)
 		dahdi_dynamic_ioctl(0, 0);
 
-	for (y = 1; y < maxspans; ++y) {
-		s = spans[y];
-		if (!s)
-			continue;
-		for (x = 0; x < s->channels; x++) {
-			chan = s->chans[x];
+	list_for_each_entry(s, &span_list, node) {
+		for (x = 0; x < s->channels; ++x) {
+			struct dahdi_chan *const chan = s->chans[x];
 			if (!chan->confmode)
 				continue;
 			spin_lock(&chan->lock);
@@ -8521,13 +8564,10 @@ static void process_masterspan(void)
 		spin_unlock(&pseudo->chan.lock);
 	}
 
-	for (y = 1; y < maxspans; ++y) {
-		s = spans[y];
-		if (!s)
-			continue;
+	list_for_each_entry(s, &span_list, node) {
 		for (x = 0; x < s->channels; x++) {
-			chan = s->chans[x];
-			if (!chan->confmode)
+			struct dahdi_chan *const chan = s->chans[x];
+			if (!chan->confmode) 
 				continue;
 			spin_lock(&chan->lock);
 			data = __buf_pushpeek(&chan->confout);
@@ -8815,14 +8855,13 @@ static struct timer_list watchdogtimer;
 
 static void watchdog_check(unsigned long ignored)
 {
-	int x;
 	unsigned long flags;
 	static int wdcheck=0;
+	struct dahdi_span *s;
 
-	local_irq_save(flags);
-	for (x=0;x<maxspans;x++) {
-		s = spans[x];
-		if (s && (s->flags & DAHDI_FLAG_RUNNING)) {
+	spin_lock_irqsave(&span_list_lock, flags);
+	list_for_each_entry(s, &span_list, node) {
+		if (s->flags & DAHDI_FLAG_RUNNING) {
 			if (s->watchcounter == DAHDI_WATCHDOG_INIT) {
 				/* Whoops, dead card */
 				if ((s->watchstate == DAHDI_WATCHSTATE_OK) ||
@@ -8845,7 +8884,7 @@ static void watchdog_check(unsigned long ignored)
 			s->watchcounter = DAHDI_WATCHDOG_INIT;
 		}
 	}
-	local_irq_restore(flags);
+	spin_unlock_irqrestore(&span_list_lock, flags);
 	if (!wdcheck) {
 		module_printk(KERN_NOTICE, "watchdog on duty!\n");
 		wdcheck=1;
