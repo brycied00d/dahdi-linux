@@ -83,58 +83,6 @@ static int span_hotplug(struct device *dev, char **envp, int envnum,
 		DAHDI_ADD_UEVENT_VAR("SPAN_NAME=%s", span->name);	\
 	} while (0)
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 24)
-#define DAHDI_ADD_UEVENT_VAR(fmt, val...)			\
-	do {							\
-		int err = add_uevent_var(envp, num_envp, &i,	\
-				buffer, buffer_size, &len,	\
-				fmt, val);			\
-		if (err)					\
-			return err;				\
-	} while (0)
-
-static int span_uevent(struct device *dev, char **envp, int num_envp,
-		char *buffer, int buffer_size)
-{
-	struct dahdi_span	*span;
-	int			i = 0;
-	int			len = 0;
-
-	if (!dev)
-		return -ENODEV;
-	span = kobj_to_span(dev);
-	dahdi_dbg(GENERAL, "SYFS dev_name=%s span=%s\n",
-			dev_name(dev), span->name);
-	SPAN_VAR_BLOCK;
-	envp[i] = NULL;
-	return 0;
-}
-
-#else
-#define DAHDI_ADD_UEVENT_VAR(fmt, val...)			\
-	do {							\
-		int err = add_uevent_var(kenv, fmt, val);	\
-		if (err)					\
-			return err;				\
-	} while (0)
-
-#if 0
-static int span_uevent(struct kobject *kobj, struct kobj_uevent_env *kenv)
-{
-	struct dahdi_span *span;
-
-	if (!kobj)
-		return -ENODEV;
-	span = kobj_to_span(kobj);
-	dahdi_dbg(GENERAL, "SYFS dev_name=%s span=%s\n",
-			kobject_name(kobj), span->name);
-	SPAN_VAR_BLOCK;
-	return 0;
-}
-#endif
-
-#endif
-
 #endif	/* OLD_HOTPLUG_SUPPORT */
 
 #define span_attr(field, format_string)				\
@@ -412,7 +360,7 @@ int span_sysfs_create(struct dahdi_span *span)
 	kobject_init(&span->kobj->kobj, &dahdi_span_ktype);
 
 	res = kobject_add(&span->kobj->kobj, &span->parent->dev.kobj,
-			  "%d", span->spanno);
+			  "%d", span->offset);
 	if (res) {
 		span_err(span, "%s: device_register failed: %d\n", __func__,
 				res);
