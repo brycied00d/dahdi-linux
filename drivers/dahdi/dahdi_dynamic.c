@@ -652,10 +652,9 @@ static int create_dynamic(struct dahdi_dynamic_span *zds)
 	/* Remember the driver */
 	z->driver = ztd;
 
-	dahdi_device_initialize(&z->dev);
-	/* TODO need to implement a release method */
 	z->dev.dev.init_name = z->span.name;
 	z->dev.dev.release = ztd_device_release;
+	dahdi_device_initialize(&z->dev);
 	/* We don't want this module to unload until all the callbacks are
 	 * cleaned up. */
 	__module_get(THIS_MODULE);
