@@ -857,9 +857,6 @@ struct dahdi_span_ops {
 			      struct dahdi_echocanparams *ecp,
 			      struct dahdi_echocanparam *p,
 			      struct dahdi_echocan_state **ec);
-
-	void (*span_release)(struct dahdi_span *span);
-	void (*chan_release)(struct dahdi_chan *chan);
 };
 
 struct dahdi_span_kobject;

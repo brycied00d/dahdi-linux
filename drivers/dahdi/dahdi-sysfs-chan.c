@@ -98,6 +98,8 @@ static ATTR_READER(field##_show, kobj, buf)			\
 	struct dahdi_chan	*chan;				\
 								\
 	chan = kobj_to_chan(kobj);				\
+	if (!chan)						\
+		return -ENODEV;					\
 	return sprintf(buf, format_string, chan->field);	\
 }
 
@@ -184,17 +186,13 @@ static struct class_simple *chan_class;
 
 static void chan_release(struct kobject *kobj)
 {
-	struct dahdi_chan	*chan;
-	struct dahdi_span 	*s;
-
-	BUG_ON(!kobj);
-	chan = kobj_to_chan(kobj);
-	chan_dbg(DEVICES, chan, "SYSFS\n");
-	s = span_from_chan(chan);
-	if (s && s->ops->chan_release)
-		s->ops->chan_release(chan);
+	struct dahdi_chan_kobject *dkobj;
+	dkobj = container_of(kobj, struct dahdi_chan_kobject, kobj);
+	/* The chan should have already been unlinked before this release is
+	 * called.... */
+	WARN_ON(dkobj->chan);
+	kfree(dkobj);
 }
-
 
 static struct kobj_type dahdi_chan_ktype = {
 	.release = chan_release,
@@ -216,8 +214,8 @@ create_dahdi_chan_kobject(struct dahdi_chan *chan, struct dahdi_span *span)
 
 int chan_sysfs_create(struct dahdi_chan *chan, struct dahdi_span *span)
 {
-	int			res;
 	struct dahdi_chan_kobject *kobj;
+	int			res;
 
 	BUG_ON(!chan);
 	BUG_ON(!span);
@@ -247,12 +245,16 @@ int chan_sysfs_create(struct dahdi_chan *chan, struct dahdi_span *span)
 
 void chan_sysfs_remove(struct dahdi_chan *chan)
 {
+	struct dahdi_chan_kobject *dkobj;
 	chan_dbg(DEVICES, chan, "SYSFS\n");
 	chan_dbg(DEVICES, chan, "Destroying channel %d\n", chan->channo);
 	/* FIXME: should have been done earlier in dahdi_chan_unreg */
 	dahdi_uevent_send(&chan->kobj->kobj, KOBJ_REMOVE);
 	chan->channo = -1;
-	kobject_put(&chan->kobj->kobj);
+	dkobj = chan->kobj;
+	chan->kobj = NULL;
+	dkobj->chan = NULL;
+	kobject_put(&dkobj->kobj);
 }
 
 int dahdi_register_chardev(struct dahdi_chardev *dev)

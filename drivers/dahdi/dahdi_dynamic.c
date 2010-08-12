@@ -527,23 +527,17 @@ static void ztd_device_release(struct device *dev)
 {
 	struct dahdi_dynamic *z;
 	struct dahdi_device *ddev;
+	int idx;
+
 	HERE();
 	ddev = container_of(dev, struct dahdi_device, dev);
 	z = container_of(ddev, struct dahdi_dynamic, dev);
+
+	for (idx = 0; idx < z->span.channels; ++idx)
+		kfree(z->chans[idx]);
+
 	kfree(z);
 	module_put(THIS_MODULE);
-}
-
-/* Nothing to do...the span will be released when the device is released */
-static void ztd_span_release(struct dahdi_span *span)
-{
-	HERE();
-}
-
-static void ztd_chan_release(struct dahdi_chan *chan)
-{
-	HERE();
-	kfree(chan);
 }
 
 static const struct dahdi_span_ops dynamic_ops = {
@@ -552,8 +546,6 @@ static const struct dahdi_span_ops dynamic_ops = {
 	.open = ztd_open,
 	.close = ztd_close,
 	.chanconfig = ztd_chanconfig,
-	.span_release = ztd_span_release,
-	.chan_release = ztd_chan_release,
 };
 
 static int create_dynamic(struct dahdi_dynamic_span *zds)

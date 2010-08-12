@@ -143,6 +143,8 @@ static ATTR_READER(field##_show, kobj, buf)			\
 	struct dahdi_span *span;				\
 								\
 	span = kobj_to_span(kobj);				\
+	if (!span)						\
+		return -ENODEV;					\
 	return sprintf(buf, format_string, span->field);	\
 }
 
@@ -309,12 +311,12 @@ static void span_uevent_send(struct dahdi_span *span, enum kobject_action act)
 	dahdi_uevent_send(&span->kobj->kobj, act);
 }
 
-static void span_release(struct kobject *kobj)
+static void span_kobj_release(struct kobject *kobj)
 {
-	struct dahdi_span *s = kobj_to_span(kobj);
-	dahdi_dbg(DEVICES, "%s: %s\n", __func__, kobject_name(kobj));
-	if (s->ops && s->ops->span_release)
-		s->ops->span_release(s);
+	struct dahdi_span_kobject *dkobj;
+	dkobj = container_of(kobj, struct dahdi_span_kobject, kobj);
+	WARN_ON(dkobj->span);
+	kfree(dkobj);
 }
 
 ssize_t dahdi_attr_show(struct kobject *kobj, struct attribute *attr,
@@ -367,7 +369,7 @@ static struct attribute *dahdi_span_attrs[] = {
 };
 
 static struct kobj_type dahdi_span_ktype = {
-	.release = span_release,
+	.release = span_kobj_release,
 	.sysfs_ops = &dahdi_sysfs_ops,
 	.default_attrs = dahdi_span_attrs,
 };
@@ -386,6 +388,7 @@ static struct kset_uevent_ops dahdi_span_kset_ops = {
 
 void span_sysfs_remove(struct dahdi_span *span)
 {
+	struct dahdi_span_kobject *dkobj;
 	int		x;
 	char		*link_name;
 
@@ -405,7 +408,10 @@ void span_sysfs_remove(struct dahdi_span *span)
 	}
 
 	span_uevent_send(span, KOBJ_REMOVE);
-	kobject_put(&span->kobj->kobj);
+	dkobj = span->kobj;
+	span->kobj = NULL;
+	dkobj->span = NULL;
+	kobject_put(&dkobj->kobj);
 }
 
 int span_sysfs_create(struct dahdi_span *span)

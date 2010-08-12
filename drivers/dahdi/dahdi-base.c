@@ -6052,6 +6052,8 @@ void dahdi_unregister(struct dahdi_span *span)
 	int new_maxspans;
 	static struct dahdi_span *new_master;
 
+	if (span->ops)
+
 	if (!test_bit(DAHDI_FLAGBIT_REGISTERED, &span->flags)) {
 		module_printk(KERN_ERR, "Span %s does not appear to be registered\n", span->name);
 		return;
@@ -6082,7 +6084,6 @@ void dahdi_unregister(struct dahdi_span *span)
 		dahdi_chan_unreg(span->chans[x]);
 
 	span_sysfs_remove(span);
-	/* The memory backing the span may be gone at this point... */
 
 	new_maxspans = 0;
 	new_master = master; /* FIXME: locking */
