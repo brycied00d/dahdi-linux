@@ -1060,7 +1060,6 @@ int dahdi_device_register(struct dahdi_device *dev);
 static inline void dahdi_device_unregister(struct dahdi_device *dev)
 {
 	device_unregister(&dev->dev);
-	put_device(&dev->dev);
 }
 
 /*! Allocate / free memory for a transcoder */
