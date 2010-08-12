@@ -435,7 +435,7 @@ static struct dahdi_dynamic *find_dynamic(struct dahdi_dynamic_span *zds)
 	rcu_read_lock();
 	list_for_each_entry_rcu(z, &dspan_list, list) {
 		printk(KERN_DEBUG "'%s':'%s' and '%s':'%s'\n",
-			z->dname, ztd->driver, z->addr, zds->addr);
+			z->dname, zds->driver, z->addr, zds->addr);
 		if (!strcmp(z->dname, zds->driver) &&
 				!strcmp(z->addr, zds->addr)) {
 			found = z;
