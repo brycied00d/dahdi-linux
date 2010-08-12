@@ -179,9 +179,9 @@ static struct attribute *chan_attrs[] = {
 };
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 13)
-static struct class *chan_class;
+struct class *dahdi_class;
 #else
-static struct class_simple *chan_class;
+struct class_simple *dahdi_class;
 #define class_create class_simple_create
 #define class_destroy class_simple_destroy
 #endif
@@ -267,7 +267,7 @@ void chan_sysfs_remove(struct dahdi_chan *chan)
 int dahdi_register_chardev(struct dahdi_chardev *dev)
 {
 	/* FIXME: Error handling */
-	create_dev_file(chan_class, MKDEV(DAHDI_MAJOR, dev->minor),
+	create_dev_file(dahdi_class, MKDEV(DAHDI_MAJOR, dev->minor),
 			"dahdi!%s", dev->name);
 	return 0;
 }
@@ -275,7 +275,7 @@ EXPORT_SYMBOL(dahdi_register_chardev);
 
 int dahdi_unregister_chardev(struct dahdi_chardev *dev)
 {
-	destroy_dev_file(chan_class, MKDEV(DAHDI_MAJOR, dev->minor));
+	destroy_dev_file(dahdi_class, MKDEV(DAHDI_MAJOR, dev->minor));
 	return 0;
 }
 EXPORT_SYMBOL(dahdi_unregister_chardev);
@@ -287,9 +287,9 @@ int __init dahdi_driver_chan_init(const struct file_operations *fops)
 	int	res;
 
 	dahdi_dbg(DEVICES, "SYSFS\n");
-	chan_class = class_create(THIS_MODULE, "dahdi");
-	if (IS_ERR(chan_class)) {
-		res = PTR_ERR(chan_class);
+	dahdi_class = class_create(THIS_MODULE, "dahdi");
+	if (IS_ERR(dahdi_class)) {
+		res = PTR_ERR(dahdi_class);
 		dahdi_err("%s: class_create(dahi_chan) failed. Error: %d\n",
 			__func__, res);
 		goto failed_class;
@@ -323,20 +323,20 @@ int __init dahdi_driver_chan_init(const struct file_operations *fops)
 	}
 
 	/* FIXME: error handling */
-	create_dev_file(chan_class, MKDEV(DAHDI_MAJOR, DAHDI_TIMER),
+	create_dev_file(dahdi_class, MKDEV(DAHDI_MAJOR, DAHDI_TIMER),
 			"dahdi!timer");
-	create_dev_file(chan_class, MKDEV(DAHDI_MAJOR, DAHDI_CHANNEL),
+	create_dev_file(dahdi_class, MKDEV(DAHDI_MAJOR, DAHDI_CHANNEL),
 			"dahdi!channel");
-	create_dev_file(chan_class, MKDEV(DAHDI_MAJOR, DAHDI_PSEUDO),
+	create_dev_file(dahdi_class, MKDEV(DAHDI_MAJOR, DAHDI_PSEUDO),
 			"dahdi!pseudo");
-	create_dev_file(chan_class, MKDEV(DAHDI_MAJOR, DAHDI_CTL),
+	create_dev_file(dahdi_class, MKDEV(DAHDI_MAJOR, DAHDI_CTL),
 			"dahdi!ctl");
 	return 0;
 
 failed_cdev_add:
 	unregister_chrdev_region(dahdi_channels_devt, DAHDI_MAX_CHANNELS);
 failed_chrdev_region:
-	class_destroy(chan_class);
+	class_destroy(dahdi_class);
 failed_class:
 	return res;
 }
@@ -344,21 +344,21 @@ failed_class:
 void dahdi_driver_chan_exit(void)
 {
 	dahdi_dbg(DEVICES, "SYSFS\n");
-	destroy_dev_file(chan_class, MKDEV(DAHDI_MAJOR, DAHDI_CTL));
-	destroy_dev_file(chan_class, MKDEV(DAHDI_MAJOR, DAHDI_PSEUDO));
-	destroy_dev_file(chan_class, MKDEV(DAHDI_MAJOR, DAHDI_CHANNEL));
-	destroy_dev_file(chan_class, MKDEV(DAHDI_MAJOR, DAHDI_TIMER));
+	destroy_dev_file(dahdi_class, MKDEV(DAHDI_MAJOR, DAHDI_CTL));
+	destroy_dev_file(dahdi_class, MKDEV(DAHDI_MAJOR, DAHDI_PSEUDO));
+	destroy_dev_file(dahdi_class, MKDEV(DAHDI_MAJOR, DAHDI_CHANNEL));
+	destroy_dev_file(dahdi_class, MKDEV(DAHDI_MAJOR, DAHDI_TIMER));
 	cdev_del(&dahdi_channels_cdev);
 	unregister_chrdev_region(dahdi_channels_devt, DAHDI_MAX_CHANNELS);
 	/*
 	kset_unregister(dahdi_chan_kset);
 	*/
-	class_destroy(chan_class);
+	class_destroy(dahdi_class);
 }
 
 int dahdi_device_register(struct dahdi_device *dev)
 {
-	dev->dev.class = chan_class;
+	dev->dev.class = dahdi_class;
 	return device_register(&dev->dev);
 }
 EXPORT_SYMBOL(dahdi_device_register);

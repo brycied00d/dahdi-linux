@@ -22,6 +22,14 @@ enum kobject_action {
 };
 #endif
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 13)
+extern struct class *dahdi_class;
+#else
+extern struct class_simple *dahdi_class;
+#define class_create class_simple_create
+#define class_destroy class_simple_destroy
+#endif
+
 struct dahdi_span_kobject {
 	struct kobject	kobj;
 	struct dahdi_span *span;
