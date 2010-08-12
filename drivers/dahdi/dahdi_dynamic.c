@@ -569,8 +569,11 @@ static int create_dynamic(struct dahdi_dynamic_span *zds)
 	}
 
 	z = find_dynamic(zds);
-	if (z)
+	if (z) {
+		HERE();
 		return -EEXIST;
+	}
+	HERE();
 
 	/* Allocate memory */
 	z = kzalloc(sizeof(*z), GFP_KERNEL);
@@ -709,8 +712,10 @@ static int ztdynamic_ioctl(unsigned int cmd, unsigned long data)
 		if (debug)
 			printk(KERN_DEBUG "Dynamic Create\n");
 		res = create_dynamic(&zds);
-		if (res < 0)
+		if (res < 0) {
+			HERE();
 			return res;
+		}
 		zds.spanno = res;
 		/* Let them know the new span number */
 		if (copy_to_user((__user void *) data, &zds, sizeof(zds)))
