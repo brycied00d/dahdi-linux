@@ -1124,6 +1124,10 @@ static void b4xxp_set_sync_src(struct b4xxp *b4, int port)
 {
 	int b;
 
+#if 0
+	printk("Setting sync to be port %d\n", (port >= 0) ? port + 1 : port);
+#endif
+
 	if (port == -1) 		/* automatic */
 		b = 0;
 	else
@@ -1151,7 +1155,10 @@ static int b4xxp_find_sync(struct b4xxp *b4)
 		}
 	}
 
-	return src - 1;
+	if (src >= 0)
+		return src - 1;
+	else
+		return src;
 }
 
 /*
@@ -1284,8 +1291,7 @@ static void hfc_update_st_timers(struct b4xxp *b4)
 				dahdi_alarm_notify(&s->span);
 				if (DBG_ALARM)
 					dev_info(b4->dev, "span %d: alarm %d debounced\n", i + 1, s->newalarm);
-				if (!s->te_mode)
-					b4xxp_set_sync_src(b4, b4xxp_find_sync(b4));
+				b4xxp_set_sync_src(b4, b4xxp_find_sync(b4));
 			}
 		}
 	}
@@ -2192,11 +2198,12 @@ static int b4xxp_spanconfig(struct dahdi_span *span, struct dahdi_lineconfig *lc
 		dev_info(b4->dev, "Configuring span %d\n", span->spanno);
 
 #if 0
-	if (lc->sync > 0 && bspan->te_mode) {
+	if (lc->sync > 0 && !bspan->te_mode) {
 		dev_info(b4->dev, "Span %d is not in NT mode, removing from sync source list\n", span->spanno);
 		lc->sync = 0;
 	}
 #endif
+
 	if (lc->sync < 0 || lc->sync > 4) {
 		dev_info(b4->dev, "Span %d has invalid sync priority (%d), removing from sync source list\n", span->spanno, lc->sync);
 		lc->sync = 0;
