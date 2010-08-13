@@ -1067,6 +1067,9 @@ static inline void dahdi_device_unregister(struct dahdi_device *dev)
 	device_unregister(&dev->dev);
 }
 
+int dahdi_device_online(struct dahdi_device *dev);
+int dahdi_device_offline(struct dahdi_device *dev);
+
 /*! Allocate / free memory for a transcoder */
 struct dahdi_transcoder *dahdi_transcoder_alloc(int numchans);
 void dahdi_transcoder_free(struct dahdi_transcoder *ztc);

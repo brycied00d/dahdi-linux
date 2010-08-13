@@ -88,8 +88,6 @@ struct dahdi_chan_kobject {
 
 #define to_chan(_kobj) (container_of((_kobj), struct dahdi_chan_kobject, kobj)->chan)
 
-static struct kset *dahdi_chan_kset;
-
 /*--------- Sysfs channel handling ----*/
 
 #define chan_attr(field, format_string)				\
@@ -210,7 +208,6 @@ create_dahdi_chan_kobject(struct dahdi_chan *chan, struct dahdi_span *span)
 	if (!dkobj)
 		return NULL;
 	kobject_init(&dkobj->kobj, &dahdi_chan_ktype);
-	dkobj->kobj.kset = dahdi_chan_kset;
 	dkobj->devt = MKDEV(MAJOR(dahdi_channels_devt), chan->channo);
 	dkobj->chan = chan;
 	return dkobj;
@@ -302,14 +299,6 @@ int __init dahdi_driver_chan_init(const struct file_operations *fops)
 		goto failed_chrdev_region;
 	}
 
-	/*
-	dahdi_chan_kset = kset_create_and_add("dahdi_channels", NULL, NULL);
-	if (!dahdi_chan_kset) {
-		res = -ENOMEM;
-		goto failed_chrdev_region;
-	}
-	*/
-
 #if LINUX_VERSION_CODE <= KERNEL_VERSION(2, 6, 17)
 	cdev_init(&dahdi_channels_cdev, (struct file_operations *)fops);
 #else
@@ -350,9 +339,6 @@ void dahdi_driver_chan_exit(void)
 	destroy_dev_file(chan_class, MKDEV(DAHDI_MAJOR, DAHDI_TIMER));
 	cdev_del(&dahdi_channels_cdev);
 	unregister_chrdev_region(dahdi_channels_devt, DAHDI_MAX_CHANNELS);
-	/*
-	kset_unregister(dahdi_chan_kset);
-	*/
 	class_destroy(chan_class);
 }
 
@@ -362,3 +348,15 @@ int dahdi_device_register(struct dahdi_device *dev)
 	return device_register(&dev->dev);
 }
 EXPORT_SYMBOL(dahdi_device_register);
+
+int dahdi_device_online(struct dahdi_device *dev)
+{
+	return kobject_uevent(&dev->dev.kobj, KOBJ_ONLINE);
+}
+EXPORT_SYMBOL(dahdi_device_online);
+
+int dahdi_device_offline(struct dahdi_device *dev)
+{
+	return kobject_uevent(&dev->dev.kobj, KOBJ_OFFLINE);
+}
+EXPORT_SYMBOL(dahdi_device_offline);

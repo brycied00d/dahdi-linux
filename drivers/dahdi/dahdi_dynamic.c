@@ -416,8 +416,10 @@ static void dynamic_destroy(struct dahdi_dynamic *z)
 
 	HERE();
 	/* Unregister span if appropriate */
-	if (test_bit(DAHDI_FLAGBIT_REGISTERED, &z->span.flags))
+	if (test_bit(DAHDI_FLAGBIT_REGISTERED, &z->span.flags)) {
+		dahdi_device_offline(&z->dev);
 		dahdi_unregister(&z->span);
+	}
 
 	/* Destroy the pvt stuff if there */
 	if (pvt)
@@ -671,6 +673,8 @@ static int create_dynamic(struct dahdi_dynamic_span *zds)
 		dahdi_device_unregister(&z->dev);
 		return -EINVAL;
 	}
+
+	dahdi_device_online(&z->dev);
 
 	spin_lock_irqsave(&dspan_lock, flags);
 	list_add_rcu(&z->list, &dspan_list);

@@ -228,37 +228,6 @@ DECLARE_ATTR_RO(configured_channels);
 #endif
 
 
-void dahdi_uevent_send(struct kobject *kobj, enum kobject_action act)
-{
-#if defined(OLD_HOTPLUG_SUPPORT_269)
-	{
-		/* Copy from new kernels lib/kobject_uevent.c */
-		static const char	*str[] = {
-			[KOBJ_ADD]	"add",
-			[KOBJ_REMOVE]	"remove",
-			[KOBJ_CHANGE]	"change",
-			[KOBJ_MOUNT]	"mount",
-			[KOBJ_UMOUNT]	"umount",
-			[KOBJ_OFFLINE]	"offline",
-			[KOBJ_ONLINE]	"online"
-		};
-		kobject_hotplug(str[act], kobj);
-	}
-#elif defined(OLD_HOTPLUG_SUPPORT)
-	kobject_hotplug(kobj, act);
-#else
-	kobject_uevent(kobj, act);
-#endif
-}
-
-static void span_uevent_send(struct dahdi_span *span, enum kobject_action act)
-{
-	span_dbg(DEVICES, span, "SYFS dev_name=%s action=%d\n",
-		kobject_name(&span->kobj->kobj), act);
-
-	dahdi_uevent_send(&span->kobj->kobj, act);
-}
-
 static void span_kobj_release(struct kobject *kobj)
 {
 	struct dahdi_span_kobject *dkobj;
@@ -335,7 +304,6 @@ void span_sysfs_remove(struct dahdi_span *span)
 		chan_sysfs_remove(chan);
 	}
 
-	span_uevent_send(span, KOBJ_REMOVE);
 	dkobj = span->kobj;
 	span->kobj = NULL;
 	dkobj->span = NULL;
@@ -377,7 +345,6 @@ int span_sysfs_create(struct dahdi_span *span)
 			goto err_chan_device_register;
 		}
 	}
-	span_uevent_send(span, KOBJ_ADD);
 	return res;
 
 err_chan_device_register:
