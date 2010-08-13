@@ -237,7 +237,6 @@ int chan_sysfs_create(struct dahdi_chan *chan, struct dahdi_span *span)
 	}
 
 	chan_dbg(DEVICES, chan, "SYSFS\n");
-	dahdi_uevent_send(&kobj->kobj, KOBJ_ADD);
 	return res;
 }
 
@@ -248,8 +247,6 @@ void chan_sysfs_remove(struct dahdi_chan *chan)
 
 	chan_dbg(DEVICES, chan, "SYSFS\n");
 	chan_dbg(DEVICES, chan, "Destroying channel %d\n", chan->channo);
-	/* FIXME: should have been done earlier in dahdi_chan_unreg */
-	dahdi_uevent_send(&chan->kobj->kobj, KOBJ_REMOVE);
 	chan->channo = -1;
 	dkobj = chan->kobj;
 
