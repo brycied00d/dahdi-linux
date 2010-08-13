@@ -342,8 +342,6 @@ void span_sysfs_remove(struct dahdi_span *span)
 	kobject_put(&dkobj->kobj);
 }
 
-static struct kset *dahdi_spans_kset;
-
 int span_sysfs_create(struct dahdi_span *span)
 {
 	int		res = 0;
@@ -419,12 +417,6 @@ int __init dahdi_driver_init(const struct file_operations *fops)
 	if (res < 0)
 		goto failed_chan_bus;
 
-	dahdi_spans_kset = kset_create_and_add("spans", NULL, dahdi_class->dev_kobj);
-	if (!dahdi_spans_kset) {
-		res = -ENOMEM;
-		goto failed_chan_bus;
-	}
-
 	return 0;
 failed_chan_bus:
 #if 0
@@ -439,7 +431,6 @@ failed_bus:
 void dahdi_driver_exit(void)
 {
 	dahdi_dbg(DEVICES, "SYSFS\n");
-	kset_unregister(dahdi_spans_kset);
 	dahdi_driver_chan_exit();
 #if 0
 	driver_unregister(&dahdi_driver);
