@@ -5047,6 +5047,7 @@ __wctdm_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 		}
 	}
 
+	dahdi_device_online(&wc->dev);
 	wc->initialized = 1;
 
 	dev_info(&wc->vb.pdev->dev,
