@@ -206,11 +206,6 @@ static inline bool is_hx8(const struct wctdm *wc)
 	return (&wcha80000 == wc->desc) || (&wchb80000 == wc->desc);
 }
 
-static inline bool is_digital_span(const struct wctdm_span *wspan)
-{
-	return (wspan->span.linecompat > 0);
-}
-
 struct wctdm *ifaces[WC_MAX_IFACES];
 DECLARE_MUTEX(ifacelock);
 
@@ -3754,7 +3749,7 @@ static struct wctdm_chan *wctdm_init_chan(struct wctdm *wc, struct wctdm_span *s
 		return NULL;
 
 	/* Do not change the procfs representation for non-hx8 cards. */
-	if (is_digital_span(s)) {
+	if (dahdi_is_digital_span(&s->span)) {
 		sprintf(c->chan.name, "WCBRI/%d/%d/%d", wc->pos, s->spanno,
 			channo);
 	} else {
