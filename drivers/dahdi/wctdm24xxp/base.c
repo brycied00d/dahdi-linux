@@ -5030,6 +5030,7 @@ __wctdm_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 #endif
 
 	wc->dev.dev.parent = &pdev->dev;
+	wc->dev.dev.init_name = dev_name(&pdev->dev);
 	dahdi_device_register(&wc->dev);
 
 	/* We should be ready for DAHDI to come in now. */
