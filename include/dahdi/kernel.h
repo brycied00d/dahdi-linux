@@ -843,7 +843,8 @@ struct dahdi_span {
 	int irq;			/*!< IRQ for this span's hardware */
 	int lbo;			/*!< Span Line-Buildout */
 	int lineconfig;			/*!< Span line configuration */
-	int linecompat;			/*!< Span line compatibility */
+	int linecompat;			/*!< Span line compatibility (0 for
+					     analog spans)*/
 	int channels;			/*!< Number of channels in span */
 	int txlevel;			/*!< Tx level */
 	int rxlevel;			/*!< Rx level */
@@ -871,6 +872,11 @@ struct dahdi_span {
 	int watchstate;
 #endif	
 };
+
+static inline bool dahdi_is_digital_span(const struct dahdi_span *s)
+{
+	return (s->linecompat > 0);
+}
 
 struct dahdi_transcoder_channel {
 	void *pvt;

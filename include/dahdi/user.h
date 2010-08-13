@@ -571,7 +571,8 @@ struct dahdi_spaninfo {
 	char	manufacturer[40]; /* manufacturer of span's device */
 	char	devicetype[40];	/* span's device type */
 	int	irq;		/* span's device IRQ */
-	int	linecompat;	/* signaling modes possible on this span */
+	int	linecompat;	/* span global signaling or 0 for
+				   analog spans.*/
 	char	spantype[6];	/* type of span in text form */
 } __attribute__((packed));
 
