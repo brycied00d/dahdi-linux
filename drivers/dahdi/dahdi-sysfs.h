@@ -30,6 +30,7 @@ struct dahdi_span_kobject {
 	(container_of(_kobj, struct dahdi_span_kobject, kobj)->span)
 
 extern int debug;
+extern int default_ordering;
 
 /*
  * Hotplug replaced with uevent in 2.6.16

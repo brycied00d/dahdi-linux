@@ -189,6 +189,7 @@ static struct proc_dir_entry *root_proc_entry;
 static int deftaps = 64;
 
 int debug;
+int default_ordering = 1;
 
 /*!
  * \brief states for transmit signalling
@@ -8624,6 +8625,21 @@ int dahdi_receive(struct dahdi_span *span)
 	return 0;
 }
 
+/**
+ * dadhi_core_assigns_span_numbers() - True if spanno is automatic.
+ *
+ * If false it's expected that user space will respond to hotplug events
+ * and assign the span numbers.  This means that board drivers can register
+ * all their supported devices in parallel and user space will sort out the
+ * order.
+ *
+ */
+bool dahdi_core_assigns_span_numbers(void)
+{
+	return !(default_ordering == 0);
+}
+EXPORT_SYMBOL(dahdi_core_assigns_span_numbers);
+
 MODULE_AUTHOR("Mark Spencer <markster@digium.com>");
 MODULE_DESCRIPTION("DAHDI Telephony Interface");
 MODULE_LICENSE("GPL v2");
@@ -8635,6 +8651,8 @@ MODULE_VERSION(DAHDI_VERSION);
 
 module_param(debug, int, 0644);
 module_param(deftaps, int, 0644);
+module_param(default_ordering, int, 0444);
+MODULE_PARM_DESC(default_ordering, "1: spans/channels are numbered in registration order. 0: User space numbers spans. Default=1");
 
 static struct file_operations dahdi_fops = {
 	.owner   = THIS_MODULE,

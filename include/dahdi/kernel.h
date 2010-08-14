@@ -1065,10 +1065,11 @@ int dahdi_device_register(struct dahdi_device *dev);
 static inline void dahdi_device_unregister(struct dahdi_device *dev)
 {
 	device_unregister(&dev->dev);
-}
+} 
 
 int dahdi_device_online(struct dahdi_device *dev);
 int dahdi_device_offline(struct dahdi_device *dev);
+bool dahdi_core_assigns_span_numbers(void);
 
 /*! Allocate / free memory for a transcoder */
 struct dahdi_transcoder *dahdi_transcoder_alloc(int numchans);
