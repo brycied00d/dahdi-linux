@@ -768,11 +768,13 @@ struct dahdi_count {
  * represent a device that may implement one or more spans that have a
  * relationship to one another.
  *
- * TODO: this may not be necessary.
- *
  */
 struct dahdi_device {
 	struct device dev;
+	const char *manufacturer;	/*!< span's device manufacturer */
+	char location[40];		/*!< span device's location in system */
+	char hardware_id[40];		/*!< span device's unique id (serial) */
+	char devicetype[80];		/*!< span's device type */
 };
 
 static inline const char *dahdi_dev_name(const struct dahdi_device *dev)
@@ -865,10 +867,6 @@ struct dahdi_span {
 	char name[40];			/*!< Span name */
 	char desc[80];			/*!< Span description */
 	const char *spantype;		/*!< span type in text form */
-	const char *manufacturer;	/*!< span's device manufacturer */
-	char devicetype[80];		/*!< span's device type */
-	char location[40];		/*!< span device's location in system */
-	char hardware_id[40];		/*!< span device's unique id (serial) */
 	int span_id;			/*!< span unique number on its device */
 	int user_ready;			/*!< Got confirmation from user-space */
 	wait_queue_head_t wait_user;	/*!< wait until span->user_ready == 1 */

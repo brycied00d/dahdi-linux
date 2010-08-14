@@ -99,10 +99,6 @@ static ATTR_READER(field##_show, kobj, buf)			\
 span_attr(name, "%s\n");
 span_attr(desc, "%s\n");
 span_attr(spantype, "%s\n");
-span_attr(manufacturer, "%s\n");
-span_attr(devicetype, "%s\n");
-span_attr(location, "%s\n");
-span_attr(hardware_id, "%s\n");
 span_attr(span_id, "%02d\n");
 span_attr(alarms, "0x%x\n");
 span_attr(irq, "%d\n");
@@ -207,10 +203,6 @@ static ATTR_READER(user_ready_show, kobj, buf)
 DECLARE_ATTR_RO(name);
 DECLARE_ATTR_RO(desc);
 DECLARE_ATTR_RO(spantype);
-DECLARE_ATTR_RO(manufacturer);
-DECLARE_ATTR_RO(devicetype);
-DECLARE_ATTR_RO(location);
-DECLARE_ATTR_RO(hardware_id);
 DECLARE_ATTR_RO(span_id);
 DECLARE_ATTR_RO(alarms);
 DECLARE_ATTR_RO(irq);
@@ -269,10 +261,6 @@ static struct attribute *dahdi_span_attrs[] = {
 	__ATTR_PTR(name),
 	__ATTR_PTR(desc),
 	__ATTR_PTR(spantype),
-	__ATTR_PTR(manufacturer),
-	__ATTR_PTR(devicetype),
-	__ATTR_PTR(location),
-	__ATTR_PTR(hardware_id),
 	__ATTR_PTR(span_id),
 	__ATTR_PTR(alarms),
 	__ATTR_PTR(irq),

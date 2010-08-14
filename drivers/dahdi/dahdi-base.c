@@ -3949,12 +3949,12 @@ static int dahdi_common_ioctl(struct file *file, unsigned int cmd, unsigned long
 		stack.spaninfo.irq = s->irq;
 		stack.spaninfo.linecompat = s->linecompat;
 		dahdi_copy_string(stack.spaninfo.lboname, dahdi_lboname(s->lbo), sizeof(stack.spaninfo.lboname));
-		if (s->manufacturer)
-			dahdi_copy_string(stack.spaninfo.manufacturer, s->manufacturer,
+		if (s->parent->manufacturer)
+			dahdi_copy_string(stack.spaninfo.manufacturer, s->parent->manufacturer,
 				sizeof(stack.spaninfo.manufacturer));
-		if (s->devicetype)
-			dahdi_copy_string(stack.spaninfo.devicetype, s->devicetype, sizeof(stack.spaninfo.devicetype));
-		dahdi_copy_string(stack.spaninfo.location, s->location, sizeof(stack.spaninfo.location));
+		if (s->parent->devicetype)
+			dahdi_copy_string(stack.spaninfo.devicetype, s->parent->devicetype, sizeof(stack.spaninfo.devicetype));
+		dahdi_copy_string(stack.spaninfo.location, s->parent->location, sizeof(stack.spaninfo.location));
 		if (s->spantype)
 			dahdi_copy_string(stack.spaninfo.spantype, s->spantype, sizeof(stack.spaninfo.spantype));
 
@@ -4008,16 +4008,16 @@ static int dahdi_common_ioctl(struct file *file, unsigned int cmd, unsigned long
 		dahdi_copy_string(stack.spaninfo_v1.lboname,
 				  dahdi_lboname(s->lbo),
 				  sizeof(stack.spaninfo_v1.lboname));
-		if (s->manufacturer)
+		if (s->parent->manufacturer)
 			dahdi_copy_string(stack.spaninfo_v1.manufacturer,
-				s->manufacturer,
+				s->parent->manufacturer,
 				sizeof(stack.spaninfo_v1.manufacturer));
-		if (s->devicetype)
+		if (s->parent->devicetype)
 			dahdi_copy_string(stack.spaninfo_v1.devicetype,
-					  s->devicetype,
+					  s->parent->devicetype,
 					  sizeof(stack.spaninfo_v1.devicetype));
 		dahdi_copy_string(stack.spaninfo_v1.location,
-				  s->location,
+				  s->parent->location,
 				  sizeof(stack.spaninfo_v1.location));
 		if (s->spantype)
 			dahdi_copy_string(stack.spaninfo_v1.spantype,

@@ -3794,11 +3794,6 @@ static struct wctdm_span *wctdm_init_span(struct wctdm *wc, int spanno, int chan
 		sprintf(s->span.name, "WCTDM/%d", wc->pos);
 
 	snprintf(s->span.desc, sizeof(s->span.desc) - 1, "%s Board %d", wc->desc->name, wc->pos + 1);
-	snprintf(s->span.location, sizeof(s->span.location) - 1,
-		 "PCI%s Bus %02d Slot %02d", (wc->flags[0] & FLAG_EXPRESS) ? " Express" : "",
-		 pdev->bus->number, PCI_SLOT(pdev->devfn) + 1);
-	s->span.manufacturer = "Digium";
-	strncpy(s->span.devicetype, wc->desc->name, sizeof(s->span.devicetype) - 1);
 
 	if (alawoverride) {
 		s->span.deflaw = DAHDI_LAW_ALAW;
@@ -3881,10 +3876,6 @@ static void wctdm_fixup_analog_span(struct wctdm *wc, int spanno)
 	for (x = 0; x < MAX_SPANS; x++) {
 		if (!wc->spans[x])
 			continue;
-		if (wc->vpm100)
-			strncat(wc->spans[x]->span.devicetype, " (VPM100M)", sizeof(wc->spans[x]->span.devicetype) - 1);
-		else if (wc->vpmadt032)
-			strncat(wc->spans[x]->span.devicetype, " (VPMADT032)", sizeof(wc->spans[x]->span.devicetype) - 1);
 	}
 }
 
@@ -4944,6 +4935,12 @@ __wctdm_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
  */
 	anamods = digimods = 0;
 	curchan = curspan = 0;
+
+	snprintf(wc->dev.location, sizeof(wc->dev.location) - 1,
+		 "PCI%s Bus %02d Slot %02d", (wc->flags[0] & FLAG_EXPRESS) ? " Express" : "",
+		 pdev->bus->number, PCI_SLOT(pdev->devfn) + 1);
+	wc->dev.manufacturer = "Digium";
+	strncpy(wc->dev.devicetype, wc->desc->name, sizeof(wc->dev.devicetype) - 1);
 	
 	for (i = 0; i < wc->mods_per_board; i++) {
 		struct b400m *b4;
@@ -5028,6 +5025,10 @@ __wctdm_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 #ifdef USE_ASYNC_INIT
 		async_synchronize_cookie(cookie);
 #endif
+	if (wc->vpm100)
+		strncat(wc->dev.devicetype, " (VPM100M)", sizeof(wc->dev.devicetype) - 1);
+	else if (wc->vpmadt032)
+		strncat(wc->dev.devicetype, " (VPMADT032)", sizeof(wc->dev.devicetype) - 1);
 
 	wc->dev.dev.parent = &pdev->dev;
 	wc->dev.dev.init_name = dev_name(&pdev->dev);
