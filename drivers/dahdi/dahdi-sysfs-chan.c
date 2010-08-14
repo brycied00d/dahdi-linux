@@ -229,7 +229,9 @@ int chan_sysfs_create(struct dahdi_chan *chan, struct dahdi_span *span)
 	/*
 	 * WARNING: the name cannot be longer than KOBJ_NAME_LEN
 	 */
-	res = kobject_add(&kobj->kobj, &span->kobj->kobj, "chan:%d", chan->chanpos);
+	BUG_ON(chan->chanpos == 0);
+	res = kobject_add(&kobj->kobj, &span->kobj->kobj, "chan:%d",
+			  chan->chanpos - 1);
 	if (res) {
 		chan_err(chan, "%s: device_register failed: %d\n",
 				__func__, res);
