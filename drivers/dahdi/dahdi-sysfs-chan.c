@@ -341,10 +341,13 @@ void dahdi_driver_chan_exit(void)
 	class_destroy(chan_class);
 }
 
-int dahdi_device_register(struct dahdi_device *dev)
+int dahdi_device_register(struct dahdi_device *dev, struct device *parent)
 {
+	int ret;
+	dev->dev.parent = parent;
 	dev->dev.class = chan_class;
-	return device_register(&dev->dev);
+	ret = device_register(&dev->dev);
+	return ret;
 }
 EXPORT_SYMBOL(dahdi_device_register);
 

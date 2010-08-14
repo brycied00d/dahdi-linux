@@ -5030,9 +5030,7 @@ __wctdm_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 	else if (wc->vpmadt032)
 		strncat(wc->dev.devicetype, " (VPMADT032)", sizeof(wc->dev.devicetype) - 1);
 
-	wc->dev.dev.parent = &pdev->dev;
-	wc->dev.dev.init_name = dev_name(&pdev->dev);
-	dahdi_device_register(&wc->dev);
+	dahdi_device_register(&wc->dev, &pdev->dev);
 
 	/* We should be ready for DAHDI to come in now. */
 	for (i = 0; i < MAX_SPANS; ++i) {
@@ -5049,7 +5047,6 @@ __wctdm_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 		}
 	}
 
-	dahdi_device_online(&wc->dev);
 	wc->initialized = 1;
 
 	dev_info(&wc->vb.pdev->dev,
@@ -5060,6 +5057,8 @@ __wctdm_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 	ret = 0;
 
 	voicebus_unlock_latency(&wc->vb);
+
+	dahdi_device_online(&wc->dev);
 	return 0;
 }
 
