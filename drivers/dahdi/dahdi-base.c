@@ -2842,29 +2842,29 @@ static int dahdi_specchan_open(struct dahdi_chan *chan, struct file *file)
 	return res;
 }
 
-static int dahdi_specchan_release(struct file *file, int unit)
+static int dahdi_specchan_release(struct file *file)
 {
-	int res=0;
+	int res = 0;
 	unsigned long flags;
-	struct dahdi_chan *const chan = chans[unit];
+	struct dahdi_chan *const chan = file->private_data;
+	struct dahdi_span *s;
 
-	if (chan) {
-		/* Chan lock protects contents against potentially non atomic accesses.
-		 * So if the pointer setting is not atomic, we should protect */
-		spin_lock_irqsave(&chan->lock, flags);
-		chan->file = NULL;
-		spin_unlock_irqrestore(&chan->lock, flags);
-		close_channel(chan);
-		if (to_span(chan)) {
-			if (to_span(chan)->ops->close)
-				res = to_span(chan)->ops->close(chan);
-			module_put(to_span(chan)->ops->owner);
-		}
-		/* The channel might be destroyed by low-level driver span->close() */
-		if (chans[unit])
-			clear_bit(DAHDI_FLAGBIT_OPEN, &chans[unit]->flags);
-	} else
-		res = -ENXIO;
+	if (!chan)
+		return -ENXIO;
+
+	/* Chan lock protects contents against potentially non atomic accesses.
+	 * So if the pointer setting is not atomic, we should protect */
+	spin_lock_irqsave(&chan->lock, flags);
+	chan->file = NULL;
+	spin_unlock_irqrestore(&chan->lock, flags);
+	close_channel(chan);
+	s = to_span(chan);
+	if (s) {
+		if (s->ops->close)
+			res = s->ops->close(chan);
+		module_put(s->ops->owner);
+	}
+	clear_bit(DAHDI_FLAGBIT_OPEN, &chan->flags);
 	return res;
 }
 
@@ -3479,7 +3479,6 @@ static void __do_dtmf(struct dahdi_chan *chan)
 
 static int dahdi_release(struct inode *inode, struct file *file)
 {
-	int unit = UNIT(file);
 	int res;
 	struct dahdi_chan *chan;
 
@@ -3499,12 +3498,12 @@ static int dahdi_release(struct inode *inode, struct file *file)
 		if (!chan)
 			return dahdi_chan_release(file);
 		else
-			return dahdi_specchan_release(file, chan->channo);
+			return dahdi_specchan_release(file);
 	}
 	if (IS_UNIT(file, DAHDI_PSEUDO)) {
 		chan = file->private_data;
 		if (chan) {
-			res = dahdi_specchan_release(file, chan->channo);
+			res = dahdi_specchan_release(file);
 			dahdi_free_pseudo(chan);
 		} else {
 			module_printk(KERN_NOTICE, "Pseudo release and no private data??\n");
@@ -3512,7 +3511,7 @@ static int dahdi_release(struct inode *inode, struct file *file)
 		}
 		return res;
 	}
-	return dahdi_specchan_release(file, unit);
+	return dahdi_specchan_release(file);
 }
 
 #if 0
