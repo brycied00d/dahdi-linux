@@ -419,16 +419,11 @@ static struct dahdi_chan *find_chan_by_dev(dev_t dev)
 	unsigned long flags;
 	int x;
 	
-	trace_printk("looking for %x\n", dev);
 	spin_lock_irqsave(&span_list_lock, flags);
 	list_for_each_entry(s, &span_list,  node) {
 		for (x = 0; x < s->channels; ++x) {
-			if (s->chans[x]->devt != dev) {
-				trace_printk("%x does not match %x\n",
-					s->chans[x]->devt, dev);
+			if (s->chans[x]->devt != dev)
 				continue;
-			}
-			trace_printk("Found match!");
 			c = s->chans[x];
 			break;
 		}
@@ -2843,10 +2838,6 @@ static int dahdi_specchan_open(struct dahdi_chan *chan, struct file *file)
 		} else {
 			res = -EBUSY;
 		}
-	} else {
-		trace_printk("chan: %p\n", chan);
-		if (chan)
-			trace_printk("chan->sig: %x\n", chan->sig);
 	}
 	return res;
 }
@@ -2960,6 +2951,8 @@ static int dahdi_open(struct inode *inode, struct file *file)
 		return dahdi_chan_open(file);
 	if (IS_UNIT(file, DAHDI_PSEUDO)) {
 		chan = dahdi_alloc_pseudo();
+		if (!chan)
+			return -ENOMEM;
 		return dahdi_specchan_open(chan, file);
 	}
 	chan = find_chan_by_dev(file->f_dentry->d_inode->i_rdev);
