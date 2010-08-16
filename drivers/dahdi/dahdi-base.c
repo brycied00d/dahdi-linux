@@ -1664,7 +1664,7 @@ static int dahdi_chan_reg(struct dahdi_chan *chan)
 		chan->readchunk = chan->sreadchunk;
 	if (!chan->writechunk)
 		chan->writechunk = chan->swritechunk;
-	dahdi_set_law(chan, 0);
+	dahdi_set_law(chan, DAHDI_LAW_DEFAULT);
 	close_channel(chan);
 
 	write_lock_irqsave(&chan_lock, flags);
@@ -2712,7 +2712,7 @@ static int initialize_channel(struct dahdi_chan *chan)
 	chan->txgain = defgain;
 	chan->gainalloc = 0;
 	chan->eventinidx = chan->eventoutidx = 0;
-	dahdi_set_law(chan,0);
+	dahdi_set_law(chan, DAHDI_LAW_DEFAULT);
 	dahdi_hangup(chan);
 
 	/* Make sure that the audio flag is cleared on a clear channel */
