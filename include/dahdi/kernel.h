@@ -594,6 +594,7 @@ struct dahdi_chan {
 	unsigned char *lin2x;
 #endif
 	struct dahdi_chan_kobject *kobj; /*!< Kernel object for this chan. */
+	dev_t 	devt;
 };
 
 static inline struct dahdi_span *span_from_chan(struct dahdi_chan *c)
@@ -1217,6 +1218,10 @@ static inline short dahdi_txtone_nextsample(struct dahdi_chan *ss)
 #define DAHDI_LIN2X(a,c) ((c)->lin2x[((unsigned short)(a)) >> 2])
 
 #endif /* CONFIG_CALC_XLAW */
+
+#ifndef DEFINE_SPINLOCK
+#define DEFINE_SPINLOCK(x) spinlock_t x = SPIN_LOCK_UNLOCKED
+#endif
 
 /* Data formats for capabilities and frames alike (from Asterisk) */
 /*! G.723.1 compression */

@@ -81,7 +81,6 @@ static struct cdev dahdi_channels_cdev;
 #endif
 
 struct dahdi_chan_kobject {
-	dev_t 	devt;
 	struct kobject kobj;
 	struct dahdi_chan *chan;
 };
@@ -143,8 +142,8 @@ static ATTR_READER(dev_show, kobj, buf)
 		return -ENODEV;
 
 	return snprintf(buf, PAGE_SIZE, "%d:%d\n",
-			MAJOR(chan->kobj->devt),
-			MINOR(chan->kobj->devt));
+			MAJOR(chan->devt),
+			MINOR(chan->devt));
 }
 
 DECLARE_ATTR_RO(name);
@@ -208,8 +207,8 @@ create_dahdi_chan_kobject(struct dahdi_chan *chan, struct dahdi_span *span)
 	if (!dkobj)
 		return NULL;
 	kobject_init(&dkobj->kobj, &dahdi_chan_ktype);
-	dkobj->devt = MKDEV(MAJOR(dahdi_channels_devt), chan->channo);
 	dkobj->chan = chan;
+	chan->devt = MKDEV(MAJOR(dahdi_channels_devt), chan->channo);
 	return dkobj;
 }
 
