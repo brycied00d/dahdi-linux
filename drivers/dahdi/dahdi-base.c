@@ -423,10 +423,11 @@ static struct dahdi_chan *find_chan_by_dev(dev_t dev)
 	spin_lock_irqsave(&span_list_lock, flags);
 	list_for_each_entry(s, &span_list,  node) {
 		for (x = 0; x < s->channels; ++x) {
-			trace_printk("%x does not match %x\n",
-			s->chans[x]->devt, dev);
-			if (s->chans[x]->devt != dev)
+			if (s->chans[x]->devt != dev) {
+				trace_printk("%x does not match %x\n",
+					s->chans[x]->devt, dev);
 				continue;
+			}
 			trace_printk("Found match!");
 			c = s->chans[x];
 			break;
@@ -2840,7 +2841,9 @@ static int dahdi_specchan_open(struct dahdi_chan *chan)
 			res = -EBUSY;
 		}
 	} else {
-		HERE();
+		trace_printk("chan: %p\n", chan);
+		if (chan)
+			trace_printk("chan->sig: %x\n", chan->sig);
 	}
 	return res;
 }
