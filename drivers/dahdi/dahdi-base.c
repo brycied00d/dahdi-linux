@@ -8081,10 +8081,10 @@ static unsigned int dahdi_timer_poll(struct file *file, struct poll_table_struct
 
 /* device poll routine */
 static unsigned int
-dahdi_chan_poll(struct file *file, struct poll_table_struct *wait_table, int unit)
+dahdi_chan_poll(struct file *file, struct poll_table_struct *wait_table)
 {
 
-	struct dahdi_chan *chan = chans[unit];
+	struct dahdi_chan *chan = file->private_data;
 	int	ret;
 	unsigned long flags;
 
@@ -8120,7 +8120,6 @@ static int dahdi_mmap(struct file *file, struct vm_area_struct *vm)
 
 static unsigned int dahdi_poll(struct file *file, struct poll_table_struct *wait_table)
 {
-	int unit = UNIT(file);
 	struct dahdi_chan *chan;
 
 	if (IS_UNIT(file, DAHDI_CTL))
@@ -8136,7 +8135,7 @@ static unsigned int dahdi_poll(struct file *file, struct poll_table_struct *wait
 		chan = file->private_data;
 		if (!chan)
 			return -EINVAL;
-		return dahdi_chan_poll(file, wait_table,chan->channo);
+		return dahdi_chan_poll(file, wait_table);
 	}
 	if (IS_UNIT(file, DAHDI_PSEUDO)) {
 		chan = file->private_data;
@@ -8144,9 +8143,9 @@ static unsigned int dahdi_poll(struct file *file, struct poll_table_struct *wait
 			module_printk(KERN_NOTICE, "No pseudo channel structure to read?\n");
 			return -EINVAL;
 		}
-		return dahdi_chan_poll(file, wait_table, chan->channo);
+		return dahdi_chan_poll(file, wait_table);
 	}
-	return dahdi_chan_poll(file, wait_table, unit);
+	return dahdi_chan_poll(file, wait_table);
 }
 
 static void __dahdi_transmit_chunk(struct dahdi_chan *chan, unsigned char *buf)
