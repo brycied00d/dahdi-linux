@@ -399,14 +399,16 @@ static struct dahdi_span *find_span(int spanno)
 {
 	struct dahdi_span *found = NULL;
 	struct dahdi_span *s;
-	spin_lock(&span_list_lock);
+	unsigned long flags;
+
+	spin_lock_irqsave(&span_list_lock, flags);
 	list_for_each_entry(s, &span_list, node) {
 		if (s->spanno == spanno) {
 			found = s;
 			break;
 		}
 	}
-	spin_unlock(&span_list_lock);
+	spin_unlock_irqrestore(&span_list_lock, flags);
 	return found;
 }
 
@@ -414,9 +416,10 @@ static struct dahdi_chan *find_chan_by_dev(dev_t dev)
 {
 	struct dahdi_span *s;
 	struct dahdi_chan *c = NULL;
+	unsigned long flags;
 	int x;
 
-	spin_lock(&span_list_lock);
+	spin_lock_irqsave(&span_list_lock, flags);
 	list_for_each_entry(s, &span_list,  node) {
 		for (x = 0; x < s->channels; ++x) {
 			if (s->chans[x]->devt != dev)
@@ -427,7 +430,7 @@ static struct dahdi_chan *find_chan_by_dev(dev_t dev)
 		if (c)
 			break;
 	}
-	spin_unlock(&span_list_lock);
+	spin_unlock_irqrestore(&span_list_lock, flags);
 	return c;
 }
 
@@ -435,9 +438,10 @@ static struct dahdi_chan *find_chan_by_number(unsigned int channo)
 {
 	struct dahdi_span *s;
 	struct dahdi_chan *c = NULL;
+	unsigned long flags;
 	int x;
 
-	spin_lock(&span_list_lock);
+	spin_lock_irqsave(&span_list_lock, flags);
 	list_for_each_entry(s, &span_list,  node) {
 		for (x = 0; x < s->channels; ++x) {
 			if (s->chans[x]->channo != channo)
@@ -448,7 +452,7 @@ static struct dahdi_chan *find_chan_by_number(unsigned int channo)
 		if (c)
 			break;
 	}
-	spin_unlock(&span_list_lock);
+	spin_unlock_irqrestore(&span_list_lock, flags);
 	return c;
 }
 
