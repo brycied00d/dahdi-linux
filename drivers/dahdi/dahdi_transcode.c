@@ -396,10 +396,12 @@ static long dahdi_tc_unlocked_ioctl(struct file *file, unsigned int cmd, unsigne
 	};
 }
 
+#ifndef HAVE_UNLOCKED_IOCTL
 static int dahdi_tc_ioctl(struct inode *inode, struct file *file, unsigned int cmd, unsigned long data)
 {
 	return (int)dahdi_tc_unlocked_ioctl(file, cmd, data);
 }
+#endif
 
 static int dahdi_tc_mmap(struct file *file, struct vm_area_struct *vma)
 {
@@ -430,14 +432,15 @@ static struct file_operations __dahdi_transcode_fops = {
 	.owner =   THIS_MODULE,
 	.open =    dahdi_tc_open,
 	.release = dahdi_tc_release,
-	.ioctl =   dahdi_tc_ioctl,
+#ifdef HAVE_UNLOCKED_IOCTL
+	.unlocked_ioctl  = dahdi_tc_unlocked_ioctl,
+#else
+	.ioctl   = dahdi_tc_ioctl,
+#endif
 	.read =    dahdi_tc_read,
 	.write =   dahdi_tc_write,
 	.poll =    dahdi_tc_poll,
 	.mmap =    dahdi_tc_mmap,
-#if HAVE_UNLOCKED_IOCTL
-	.unlocked_ioctl = dahdi_tc_unlocked_ioctl,
-#endif
 };
 
 static struct dahdi_chardev transcode_chardev = {
