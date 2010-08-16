@@ -2239,7 +2239,7 @@ int b400m_spanconfig(struct dahdi_span *span, struct dahdi_lineconfig *lc)
 int b400m_chanconfig(struct dahdi_chan *chan, int sigtype)
 {
 	int alreadyrunning;
-	struct b400m_span *bspan = container_of(span_from_chan(chan), struct b400m_span, span);
+	struct b400m_span *bspan = container_of(to_span(chan), struct b400m_span, span);
 	struct b400m *b4 = bspan->parent;
 	int res;
 
@@ -2509,7 +2509,7 @@ void wctdm_hdlc_hard_xmit(struct dahdi_chan *chan)
 	struct dahdi_span *dspan;
 	int span;
 
-	dspan = span_from_chan(chan);
+	dspan = to_span(chan);
 	bspan = container_of(dspan, struct b400m_span, span);
 	b4 = bspan->parent;
 	wc = b4->wc;

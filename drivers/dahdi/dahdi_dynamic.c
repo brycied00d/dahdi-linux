@@ -505,7 +505,7 @@ static int ztd_rbsbits(struct dahdi_chan *chan, int bits)
 
 static int ztd_open(struct dahdi_chan *chan)
 {
-	struct dahdi_dynamic *z = dynamic_from_span(span_from_chan(chan));
+	struct dahdi_dynamic *z = dynamic_from_span(to_span(chan));
 	if (likely(z)) {
 		if (unlikely(z->dead))
 			return -ENODEV;
@@ -521,7 +521,7 @@ static int ztd_chanconfig(struct dahdi_chan *chan, int sigtype)
 
 static int ztd_close(struct dahdi_chan *chan)
 {
-	struct dahdi_dynamic *z = dynamic_from_span(span_from_chan(chan));
+	struct dahdi_dynamic *z = dynamic_from_span(to_span(chan));
 	if (z) {
 		z->usecount--;
 		if (z->dead && !z->usecount)

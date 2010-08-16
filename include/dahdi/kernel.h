@@ -597,7 +597,7 @@ struct dahdi_chan {
 	dev_t 	devt;
 };
 
-static inline struct dahdi_span *span_from_chan(struct dahdi_chan *c)
+static inline struct dahdi_span *to_span(struct dahdi_chan *c)
 {
 	return c->_span;
 }
