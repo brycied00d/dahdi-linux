@@ -2803,7 +2803,7 @@ static int dahdi_timer_release(struct file *file)
 
 #define HERE() do { trace_printk("HERE %s:%d\n", __func__, __LINE__); } while (0)
 
-static int dahdi_specchan_open(struct dahdi_chan *chan)
+static int dahdi_specchan_open(struct dahdi_chan *chan, struct file *file)
 {
 	int res = -ENXIO;
 
@@ -2832,11 +2832,14 @@ static int dahdi_specchan_open(struct dahdi_chan *chan)
 				else if (to_span(chan)->ops->open)
 					res = to_span(chan)->ops->open(chan);
 			}
-			spin_unlock_irqrestore(&chan->lock, flags);
 			if (res) {
 				close_channel(chan);
 				clear_bit(DAHDI_FLAGBIT_OPEN, &chan->flags);
+			} else {
+				file->private_data = chan;
+				chan->file = file;
 			}
+			spin_unlock_irqrestore(&chan->lock, flags);
 		} else {
 			res = -EBUSY;
 		}
@@ -2919,9 +2922,7 @@ static void dahdi_free_pseudo(struct dahdi_chan *pseudo)
 
 static int dahdi_open(struct inode *inode, struct file *file)
 {
-	int res;
 	struct dahdi_chan *chan;
-	unsigned long flags;
 
 	/* Minor 0: Special "control" descriptor */
 	if (IS_UNIT(file, DAHDI_CTL))
@@ -2959,27 +2960,10 @@ static int dahdi_open(struct inode *inode, struct file *file)
 		return dahdi_chan_open(file);
 	if (IS_UNIT(file, DAHDI_PSEUDO)) {
 		chan = dahdi_alloc_pseudo();
-		if (chan) {
-			res = dahdi_specchan_open(chan);
-			if (!res) {
-				spin_lock_irqsave(&chan->lock, flags);
-				chan->file = file;
-				file->private_data = chan;
-				spin_unlock_irqrestore(&chan->lock, flags);
-			}
-		} else {
-			return -ENXIO;
-		}
+		return dahdi_specchan_open(chan, file);
 	}
 	chan = find_chan_by_dev(file->f_dentry->d_inode->i_rdev);
-	res = dahdi_specchan_open(chan);
-	if (!res) {
-		spin_lock_irqsave(&chan->lock, flags);
-		chan->file = file;
-		file->private_data = chan;
-		spin_unlock_irqrestore(&chan->lock, flags);
-	}
-	return res;
+	return dahdi_specchan_open(chan, file);
 }
 
 #if 0
@@ -5884,9 +5868,7 @@ static int dahdi_chan_ioctl(struct file *file, unsigned int cmd, unsigned long d
 static int dahdi_prechan_ioctl(struct file *file, unsigned int cmd, unsigned long data, int unit)
 {
 	struct dahdi_chan *chan = file->private_data;
-	unsigned long flags;
 	int channo;
-	int res;
 
 	if (chan) {
 		module_printk(KERN_NOTICE,
@@ -5902,15 +5884,7 @@ static int dahdi_prechan_ioctl(struct file *file, unsigned int cmd, unsigned lon
 		if (channo > DAHDI_MAX_CHANNELS)
 			return -EINVAL;
 		chan = find_chan_by_number(channo);
-		res = dahdi_specchan_open(chan);
-		if (!res) {
-			spin_lock_irqsave(&chan->lock, flags);
-			file->private_data = chan;
-			chan->file = file;
-			spin_unlock_irqrestore(&chan->lock, flags);
-			return 0;
-		}
-		return res;
+		return dahdi_specchan_open(chan, file);
 	default:
 		return -ENOSYS;
 	}
