@@ -2972,7 +2972,14 @@ static int dahdi_open(struct inode *inode, struct file *file)
 		}
 	}
 	chan = find_chan_by_dev(file->f_dentry->d_inode->i_rdev);
-	return dahdi_specchan_open(chan);
+	res = dahdi_specchan_open(chan);
+	if (!res) {
+		spin_lock_irqsave(&chan->lock, flags);
+		chan->file = file;
+		file->private_data = chan;
+		spin_unlock_irqrestore(&chan->lock, flags);
+	}
+	return res;
 }
 
 #if 0
