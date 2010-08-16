@@ -2632,21 +2632,6 @@ static int wctdm_init_voicedaa(struct wctdm *wc, int card, int fast, int manual,
 	/* Wait just a bit */
 	wait_just_a_bit(HZ/10);
 
-	if (wc->companding == DAHDI_LAW_DEFAULT) {
-		if (wc->digi_mods)
-			/* If we have a BRI module, Auto set to alaw */
-			wctdm_setreg(wc, card, 33, 0x20);
-		else
-			/* Auto set to ulaw */
-			wctdm_setreg(wc, card, 33, 0x28);
-	} else if (wc->companding == DAHDI_LAW_ALAW) {
-		/* Force everything to alaw */
-		wctdm_setreg(wc, card, 33, 0x20);
-	} else {
-		/* Auto set to ulaw */
-		wctdm_setreg(wc, card, 33, 0x28);
-	}
-
 	/* Set On-hook speed, Ringer impedence, and ringer threshold */
 	reg16 |= (fxo_modes[_opermode].ohs << 6);
 	reg16 |= (fxo_modes[_opermode].rz << 1);
@@ -2874,21 +2859,6 @@ static int wctdm_init_proslic(struct wctdm *wc, int card, int fast, int manual, 
 		 return -1;
 	}
 #endif
-
-	if (wc->companding == DAHDI_LAW_DEFAULT) {
-		if (wc->digi_mods)
-			/* If we have a BRI module, Auto set to alaw */
-			wctdm_setreg(wc, card, 1, 0x20);
-		else
-			/* Auto set to ulaw */
-			wctdm_setreg(wc, card, 1, 0x28);
-	} else if (wc->companding == DAHDI_LAW_ALAW) {
-		/* Force everything to alaw */
-		wctdm_setreg(wc, card, 1, 0x20);
-	} else {
-		/* Auto set to ulaw */
-		wctdm_setreg(wc, card, 1, 0x28);
-	}
 
 	/* U-Law 8-bit interface */
     wctdm_proslic_set_ts(wc, card, card);
@@ -3868,6 +3838,22 @@ static struct wctdm_span *wctdm_init_span(struct wctdm *wc, int spanno, int chan
 	return s;
 }
 
+/**
+ * should_set_alaw() - Should be called after all the spans are initialized.
+ *
+ * Returns true if the module companding should be set to alaw, otherwise
+ * false.
+ */
+static bool should_set_alaw(const struct wctdm *wc)
+{
+	if (DAHDI_LAW_DEFAULT == wc->companding)
+		return (wc->digi_mods > 0);
+	else if (DAHDI_LAW_ALAW == wc->companding)
+		return true;
+	else
+		return false;
+}
+
 static void wctdm_fixup_analog_span(struct wctdm *wc, int spanno)
 {
 	struct dahdi_span *s;
@@ -3884,14 +3870,19 @@ static void wctdm_fixup_analog_span(struct wctdm *wc, int spanno)
 				 "s->chans[%d]=%p\n", x, y, wc->modtype[x],
 				 y, s->chans[y]);
 		}
-		if (wc->modtype[x] == MOD_TYPE_FXO)
+		if (wc->modtype[x] == MOD_TYPE_FXO) {
 			s->chans[y++]->sigcap = DAHDI_SIG_FXSKS | DAHDI_SIG_FXSLS | DAHDI_SIG_SF | DAHDI_SIG_CLEAR;
-		else if (wc->modtype[x] == MOD_TYPE_FXS)
+			wctdm_setreg(wc, x, 33,
+				     (should_set_alaw(wc) ? 0x20 : 0x28));
+		} else if (wc->modtype[x] == MOD_TYPE_FXS) {
 			s->chans[y++]->sigcap = DAHDI_SIG_FXOKS | DAHDI_SIG_FXOLS | DAHDI_SIG_FXOGS | DAHDI_SIG_SF | DAHDI_SIG_EM | DAHDI_SIG_CLEAR;
-		else if (wc->modtype[x] == MOD_TYPE_QRV)
+			wctdm_setreg(wc, x, 1,
+				     (should_set_alaw(wc) ? 0x20 : 0x28));
+		} else if (wc->modtype[x] == MOD_TYPE_QRV) {
 			s->chans[y++]->sigcap = DAHDI_SIG_SF | DAHDI_SIG_EM | DAHDI_SIG_CLEAR;
-		else
+		} else {
 			s->chans[y++]->sigcap = 0;
+		}
 	}
 
 	for (x = 0; x < MAX_SPANS; x++) {
