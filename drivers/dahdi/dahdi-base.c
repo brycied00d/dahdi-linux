@@ -1411,7 +1411,7 @@ static void close_channel(struct dahdi_chan *chan)
 	chan->eventinidx = chan->eventoutidx = 0;
 	chan->flags &= ~(DAHDI_FLAG_LOOPED | DAHDI_FLAG_LINEAR | DAHDI_FLAG_PPP | DAHDI_FLAG_SIGFREEZE);
 
-	dahdi_set_law(chan,0);
+	dahdi_set_law(chan, DAHDI_LAW_DEFAULT);
 
 	memset(chan->conflast, 0, sizeof(chan->conflast));
 	memset(chan->conflast1, 0, sizeof(chan->conflast1));
