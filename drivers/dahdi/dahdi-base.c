@@ -303,7 +303,9 @@ static struct dahdi_dialparams global_dialparams = {
 	.mfr2_tonelen = DEFAULT_MFR2_LENGTH,
 };
 
-static int dahdi_chan_ioctl(struct file *file, unsigned int cmd, unsigned long data, int unit);
+static int dahdi_chan_ioctl(struct file *file, unsigned int cmd, unsigned long data);
+static int _dahdi_chan_ioctl(struct file *file, unsigned int cmd,
+			     unsigned long data, struct dahdi_chan *chan);
 
 #if defined(CONFIG_DAHDI_MMX) || defined(ECHO_CAN_FP)
 #if (defined(CONFIG_X86) && !defined(CONFIG_X86_64)) || defined(CONFIG_I386)
@@ -432,6 +434,14 @@ static struct dahdi_chan *find_chan_by_dev(dev_t dev)
 	}
 	spin_unlock_irqrestore(&span_list_lock, flags);
 	return c;
+}
+
+static struct dahdi_chan *find_chan_by_file(const struct file *file)
+{
+	if (file->private_data)
+		return file->private_data;
+	else
+		return find_chan_by_dev(file->f_dentry->d_inode->i_rdev);
 }
 
 static struct dahdi_chan *find_chan_by_number(unsigned int channo)
@@ -2955,7 +2965,7 @@ static int dahdi_open(struct inode *inode, struct file *file)
 			return -ENOMEM;
 		return dahdi_specchan_open(chan, file);
 	}
-	chan = find_chan_by_dev(file->f_dentry->d_inode->i_rdev);
+	chan = find_chan_by_file(file);
 	return dahdi_specchan_open(chan, file);
 }
 
@@ -3615,13 +3625,6 @@ void dahdi_alarm_notify(struct dahdi_span *span)
 	}
 }
 
-#define VALID_CHANNEL(j) do { \
-	if ((j >= DAHDI_MAX_CHANNELS) || (j < 1)) \
-		return -EINVAL; \
-	if (!chans[j]) \
-		return -ENXIO; \
-} while(0)
-
 static int dahdi_timer_ioctl(struct file *file, unsigned int cmd, unsigned long data, struct dahdi_timer *timer)
 {
 	int j;
@@ -3672,11 +3675,12 @@ static int dahdi_timer_ioctl(struct file *file, unsigned int cmd, unsigned long 
 }
 
 static int dahdi_ioctl_getgains(struct file *file,
-				unsigned int cmd, unsigned long data, int unit)
+				unsigned int cmd, unsigned long data)
 {
 	int res = 0;
 	struct dahdi_gains *gain;
 	int i, j;
+	struct dahdi_chan *chan;
 	void __user * const user_data = (void __user *)data;
 
 	gain = kzalloc(sizeof(*gain), GFP_KERNEL);
@@ -3689,23 +3693,20 @@ static int dahdi_ioctl_getgains(struct file *file,
 	}
 	i = gain->chan;  /* get channel no */
 	   /* if zero, use current channel no */
-	if (!i)
-		i = unit;
-
-	  /* make sure channel number makes sense */
-	if ((i < 0) || (i > DAHDI_MAX_CHANNELS) || !chans[i]) {
+	chan = (!i) ? find_chan_by_file(file) : find_chan_by_number(i);
+	if (!chan) {
 		res = -EINVAL;
 		goto cleanup;
 	}
 
-	if (!(chans[i]->flags & DAHDI_FLAG_AUDIO)) {
+	if (!(chan->flags & DAHDI_FLAG_AUDIO)) {
 		res = -EINVAL;
 		goto cleanup;
 	}
 	gain->chan = i; /* put the span # in here */
 	for (j = 0; j < 256; ++j)  {
-		gain->txgain[j] = chans[i]->txgain[j];
-		gain->rxgain[j] = chans[i]->rxgain[j];
+		gain->txgain[j] = chan->txgain[j];
+		gain->rxgain[j] = chan->rxgain[j];
 	}
 	if (copy_to_user(user_data, gain, sizeof(*gain))) {
 		res = -EFAULT;
@@ -3718,7 +3719,7 @@ cleanup:
 }
 
 static int dahdi_ioctl_setgains(struct file *file,
-				unsigned int cmd, unsigned long data, int unit)
+				unsigned int cmd, unsigned long data)
 {
 	int res = 0;
 	struct dahdi_gains *gain;
@@ -3726,6 +3727,7 @@ static int dahdi_ioctl_setgains(struct file *file,
 	int i, j;
 	unsigned long flags;
 	const int GAIN_TABLE_SIZE = sizeof(defgain);
+	struct dahdi_chan *chan;
 	void __user * const user_data = (void __user *)data;
 
 	gain = kzalloc(sizeof(*gain), GFP_KERNEL);
@@ -3738,14 +3740,13 @@ static int dahdi_ioctl_setgains(struct file *file,
 	}
 	i = gain->chan;  /* get channel no */
 	   /* if zero, use current channel no */
-	if (!i)
-		i = unit;
-	  /* make sure channel number makes sense */
-	if ((i < 0) || (i > DAHDI_MAX_CHANNELS) || !chans[i]) {
+	chan = (!i) ? find_chan_by_file(file) : find_chan_by_number(i);
+	if (chan) {
 		res = -EINVAL;
 		goto cleanup;
 	}
-	if (!(chans[i]->flags & DAHDI_FLAG_AUDIO)) {
+
+	if (!(chan->flags & DAHDI_FLAG_AUDIO)) {
 		res = -EINVAL;
 		goto cleanup;
 	}
@@ -3767,22 +3768,22 @@ static int dahdi_ioctl_setgains(struct file *file,
 	if (!memcmp(rxgain, defgain, GAIN_TABLE_SIZE) &&
 	    !memcmp(txgain, defgain, GAIN_TABLE_SIZE)) {
 		kfree(rxgain);
-		spin_lock_irqsave(&chans[i]->lock, flags);
-		if (chans[i]->gainalloc)
-			kfree(chans[i]->rxgain);
-		chans[i]->gainalloc = 0;
-		chans[i]->rxgain = defgain;
-		chans[i]->txgain = defgain;
-		spin_unlock_irqrestore(&chans[i]->lock, flags);
+		spin_lock_irqsave(&chan->lock, flags);
+		if (chan->gainalloc)
+			kfree(chan->rxgain);
+		chan->gainalloc = 0;
+		chan->rxgain = defgain;
+		chan->txgain = defgain;
+		spin_unlock_irqrestore(&chan->lock, flags);
 	} else {
 		/* This is a custom gain setting */
-		spin_lock_irqsave(&chans[i]->lock, flags);
-		if (chans[i]->gainalloc)
-			kfree(chans[i]->rxgain);
-		chans[i]->gainalloc = 1;
-		chans[i]->rxgain = rxgain;
-		chans[i]->txgain = txgain;
-		spin_unlock_irqrestore(&chans[i]->lock, flags);
+		spin_lock_irqsave(&chan->lock, flags);
+		if (chan->gainalloc)
+			kfree(chan->rxgain);
+		chan->gainalloc = 1;
+		chan->rxgain = rxgain;
+		chan->txgain = txgain;
+		spin_unlock_irqrestore(&chan->lock, flags);
 	}
 
 	if (copy_to_user(user_data, gain, sizeof(*gain))) {
@@ -3795,7 +3796,7 @@ cleanup:
 	return res;
 }
 
-static int dahdi_common_ioctl(struct file *file, unsigned int cmd, unsigned long data, int unit)
+static int dahdi_common_ioctl(struct file *file, unsigned int cmd, unsigned long data)
 {
 	union {
 		struct dahdi_spaninfo_v1 spaninfo_v1;
@@ -3825,13 +3826,12 @@ static int dahdi_common_ioctl(struct file *file, unsigned int cmd, unsigned long
 			stack.param.channo &= ~DAHDI_GET_PARAMS_RETURN_MASTER;
 		}
 
-		/* Pick the right channo's */
-		if (!stack.param.channo || unit) {
-			stack.param.channo = unit;
-		}
-		/* Check validity of channel */
-		VALID_CHANNEL(stack.param.channo);
-		chan = chans[stack.param.channo];
+		chan = find_chan_by_file(file);
+		if (!chan)
+			chan = find_chan_by_number(stack.param.channo);
+
+		if (!chan)
+			return -EINVAL;
 
 		/* point to relevant structure */
 		stack.param.sigtype = chan->sig;  /* get signalling type */
@@ -3906,13 +3906,13 @@ static int dahdi_common_ioctl(struct file *file, unsigned int cmd, unsigned long
 
 		stack.param.chan_alarms = 0; /* be explicit about the above */
 
-		/* Pick the right channo's */
-		if (!stack.param.channo || unit) {
-			stack.param.channo = unit;
-		}
-		/* Check validity of channel */
-		VALID_CHANNEL(stack.param.channo);
-		chan = chans[stack.param.channo];
+		chan = find_chan_by_file(file);
+		if (!chan)
+			chan = find_chan_by_number(stack.param.channo);
+		if (!chan)
+			return -EINVAL;
+		
+		spin_lock_irqsave(&chan->lock, flags);
 		  /* point to relevant structure */
 		/* NOTE: sigtype is *not* included in this */
 		  /* get timing stack.paramters */
@@ -3930,22 +3930,23 @@ static int dahdi_common_ioctl(struct file *file, unsigned int cmd, unsigned long
 		chan->pulsemaketime = stack.param.pulsemaketime;
 		chan->pulsebreaktime = stack.param.pulsebreaktime;
 		chan->pulseaftertime = stack.param.pulseaftertime;
+		spin_unlock_irqrestore(&chan->lock, flags);
 		break;
 	case DAHDI_GETGAINS_V1: /* Intentional drop through. */
 	case DAHDI_GETGAINS:  /* get gain stuff */
-		return dahdi_ioctl_getgains(file, cmd, data, unit);
+		return dahdi_ioctl_getgains(file, cmd, data);
 	case DAHDI_SETGAINS:  /* set gain stuff */
-		return dahdi_ioctl_setgains(file, cmd, data, unit);
+		return dahdi_ioctl_setgains(file, cmd, data);
 	case DAHDI_SPANSTAT:
 		size_to_copy = sizeof(struct dahdi_spaninfo);
 		if (copy_from_user(&stack.spaninfo, user_data, size_to_copy))
 			return -EFAULT;
 		i = stack.spaninfo.spanno; /* get specified span number */
 		if (i == 0) {
-			/* if to figure it out for this chan */
-			if (!chans[unit])
+			chan = find_chan_by_file(file);
+			if (!chan)
 				return -EINVAL;
-			i = to_span(chans[unit])->spanno;
+			i = to_span(chan)->spanno;
 		}
 		s = find_span(i);
 		if (!s)
@@ -4001,10 +4002,10 @@ static int dahdi_common_ioctl(struct file *file, unsigned int cmd, unsigned long
 			return -EFAULT;
 		i = stack.spaninfo_v1.spanno; /* get specified span number */
 		if (i == 0) {
-			/* if to figure it out for this chan */
-			if (!chans[unit])
+			chan = find_chan_by_file(file);
+			if (!chan)
 				return -EINVAL;
-			i = to_span(chans[unit])->spanno;
+			i = to_span(chan)->spanno;
 		}
 		s = find_span(i);
 		if (!s)
@@ -4181,11 +4182,12 @@ static int dahdi_ctl_ioctl(struct file *file, unsigned int cmd, unsigned long da
 	int sigcap;
 	int res = 0;
 	int x,y;
+	struct dahdi_span *s;
+	struct dahdi_chan *chan;
 	struct dahdi_chan *newmaster;
 	unsigned long flags;
 	void __user * const user_data = (void __user *)data;
 	int rv;
-	struct dahdi_span *s;
 	switch(cmd) {
 	case DAHDI_INDIRECT:
 	{
@@ -4193,8 +4195,8 @@ static int dahdi_ctl_ioctl(struct file *file, unsigned int cmd, unsigned long da
 
 		if (copy_from_user(&ind, user_data, sizeof(ind)))
 			return -EFAULT;
-		VALID_CHANNEL(ind.chan);
-		return dahdi_chan_ioctl(file, ind.op, (unsigned long) ind.data, ind.chan);
+		chan = find_chan_by_number(ind.chan);
+		return _dahdi_chan_ioctl(file, ind.op, (unsigned long) ind.data, chan);
 	}
 	case DAHDI_SPANCONFIG:
 	{
@@ -4271,7 +4273,9 @@ static int dahdi_ctl_ioctl(struct file *file, unsigned int cmd, unsigned long da
 		if (copy_from_user(&ae, user_data, sizeof(ae)))
 			return -EFAULT;
 
-		VALID_CHANNEL(ae.chan);
+		chan = find_chan_by_number(ae.chan);
+		if (!chan)
+			return -EINVAL;
 
 		ae.echocan[sizeof(ae.echocan) - 1] = 0;
 		if (ae.echocan[0]) {
@@ -4297,7 +4301,10 @@ static int dahdi_ctl_ioctl(struct file *file, unsigned int cmd, unsigned long da
 
 		if (copy_from_user(&ch, user_data, sizeof(ch)))
 			return -EFAULT;
-		VALID_CHANNEL(ch.chan);
+		chan = find_chan_by_number(ch.chan);
+		if (!chan)
+			return -EINVAL;
+
 		if (ch.sigtype == DAHDI_SIG_SLAVE) {
 			/* We have to use the master's sigtype */
 			if ((ch.master < 1) || (ch.master >= DAHDI_MAX_CHANNELS))
@@ -4488,29 +4495,32 @@ static int dahdi_ctl_ioctl(struct file *file, unsigned int cmd, unsigned long da
 
 		if (copy_from_user(&sf, user_data, sizeof(sf)))
 			return -EFAULT;
-		VALID_CHANNEL(sf.chan);
-		if (chans[sf.chan]->sig != DAHDI_SIG_SF) return -EINVAL;
-		spin_lock_irqsave(&chans[sf.chan]->lock, flags);
-		chans[sf.chan]->rxp1 = sf.rxp1;
-		chans[sf.chan]->rxp2 = sf.rxp2;
-		chans[sf.chan]->rxp3 = sf.rxp3;
-		chans[sf.chan]->txtone = sf.txtone;
-		chans[sf.chan]->tx_v2 = sf.tx_v2;
-		chans[sf.chan]->tx_v3 = sf.tx_v3;
-		chans[sf.chan]->toneflags = sf.toneflag;
+		chan = find_chan_by_number(sf.chan);
+		if (!chan)
+			return -EINVAL;
+
+		if (chan->sig != DAHDI_SIG_SF) return -EINVAL;
+		spin_lock_irqsave(&chan->lock, flags);
+		chan->rxp1 = sf.rxp1;
+		chan->rxp2 = sf.rxp2;
+		chan->rxp3 = sf.rxp3;
+		chan->txtone = sf.txtone;
+		chan->tx_v2 = sf.tx_v2;
+		chan->tx_v3 = sf.tx_v3;
+		chan->toneflags = sf.toneflag;
 		if (sf.txtone) /* if set to make tone for tx */
 		{
-			if ((chans[sf.chan]->txhooksig && !(sf.toneflag & DAHDI_REVERSE_TXTONE)) ||
-			 ((!chans[sf.chan]->txhooksig) && (sf.toneflag & DAHDI_REVERSE_TXTONE)))
+			if ((chan->txhooksig && !(sf.toneflag & DAHDI_REVERSE_TXTONE)) ||
+			 ((!chan->txhooksig) && (sf.toneflag & DAHDI_REVERSE_TXTONE)))
 			{
-				set_txtone(chans[sf.chan],sf.txtone,sf.tx_v2,sf.tx_v3);
+				set_txtone(chan, sf.txtone, sf.tx_v2, sf.tx_v3);
 			}
 			else
 			{
-				set_txtone(chans[sf.chan],0,0,0);
+				set_txtone(chan,0,0,0);
 			}
 		}
-		spin_unlock_irqrestore(&chans[sf.chan]->lock, flags);
+		spin_unlock_irqrestore(&chan->lock, flags);
 		return res;
 	}
 	case DAHDI_DEFAULTZONE:
@@ -4704,7 +4714,7 @@ static int dahdi_ctl_ioctl(struct file *file, unsigned int cmd, unsigned long da
 		}
 		return -ENOSYS;
 	default:
-		return dahdi_common_ioctl(file, cmd, data, 0);
+		return dahdi_common_ioctl(file, cmd, data);
 	}
 	return 0;
 }
@@ -4769,9 +4779,9 @@ static int ioctl_dahdi_dial(struct dahdi_chan *chan, unsigned long data)
 
 static int
 dahdi_chanandpseudo_ioctl(struct file *file, unsigned int cmd,
-			  unsigned long data, int unit)
+			  unsigned long data)
 {
-	struct dahdi_chan *chan = chans[unit];
+	struct dahdi_chan *chan = file->private_data;
 	union {
 		struct dahdi_bufferinfo bi;
 		struct dahdi_confinfo conf;
@@ -5200,7 +5210,7 @@ dahdi_chanandpseudo_ioctl(struct file *file, unsigned int cmd,
 		break;
 	case DAHDI_CHANNO:  /* get channel number of stream */
 		/* return unit/channel number */
-		put_user(unit, (int __user *)data);
+		put_user(chan->channo, (int __user *)data);
 		break;
 	case DAHDI_SETLAW:
 		get_user(j, (int __user *)data);
@@ -5258,7 +5268,7 @@ dahdi_chanandpseudo_ioctl(struct file *file, unsigned int cmd,
 		break;
 	default:
 		/* Check for common ioctl's and private ones */
-		rv = dahdi_common_ioctl(file, cmd, data, unit);
+		rv = dahdi_common_ioctl(file, cmd, data);
 		/* if no span, just return with value */
 		if (!to_span(chan)) return rv;
 		if ((rv == -ENOTTY) && to_span(chan)->ops->ioctl)
@@ -5465,18 +5475,14 @@ static void set_echocan_fax_mode(struct dahdi_chan *chan, unsigned int channo, c
 	}
 }
 
-static int dahdi_chan_ioctl(struct file *file, unsigned int cmd, unsigned long data, int unit)
+static int _dahdi_chan_ioctl(struct file *file, unsigned int cmd,
+			     unsigned long data, struct dahdi_chan *chan)
 {
-	struct dahdi_chan *chan = chans[unit];
 	unsigned long flags;
 	int j, rv;
 	int ret;
 	int oldconf;
 	void *rxgain=NULL;
-
-	WARN_ON(!chan->master);
-	if (!chan)
-		return -ENOSYS;
 
 	switch(cmd) {
 	case DAHDI_SETSIGFREEZE:
@@ -5852,12 +5858,25 @@ static int dahdi_chan_ioctl(struct file *file, unsigned int cmd, unsigned long d
 		break;
 #endif
 	default:
-		return dahdi_chanandpseudo_ioctl(file, cmd, data, unit);
+		return dahdi_chanandpseudo_ioctl(file, cmd, data);
 	}
 	return 0;
 }
 
-static int dahdi_prechan_ioctl(struct file *file, unsigned int cmd, unsigned long data, int unit)
+/* TODO check these calls */
+static int dahdi_chan_ioctl(struct file *file, unsigned int cmd, unsigned long data)
+{
+	struct dahdi_chan *chan = find_chan_by_file(file);
+
+	if (!chan)
+		return -ENXIO;
+
+	WARN_ON(!chan->master);
+
+	return _dahdi_chan_ioctl(file, cmd, data, chan);
+}
+
+static int dahdi_prechan_ioctl(struct file *file, unsigned int cmd, unsigned long data)
 {
 	struct dahdi_chan *chan = file->private_data;
 	int channo;
@@ -5890,8 +5909,6 @@ static int dahdi_ioctl(struct inode *inode, struct file *file,
 		unsigned int cmd, unsigned long data)
 #endif
 {
-	int unit = UNIT(file);
-	struct dahdi_chan *chan;
 	struct dahdi_timer *timer;
 	int ret;
 
@@ -5921,30 +5938,23 @@ static int dahdi_ioctl(struct inode *inode, struct file *file,
 		goto unlock_exit;
 	}
 	if (IS_UNIT(file, DAHDI_CHANNEL)) {
-		chan = file->private_data;
-		if (chan)
-			ret = dahdi_chan_ioctl(file, cmd, data, chan->channo);
+		if (file->private_data)
+			ret = dahdi_chan_ioctl(file, cmd, data);
 		else
-			ret = dahdi_prechan_ioctl(file, cmd, data, unit);
+			ret = dahdi_prechan_ioctl(file, cmd, data);
 		goto unlock_exit;
 	}
 	if (IS_UNIT(file, DAHDI_PSEUDO)) {
-		chan = file->private_data;
-		if (!chan) {
+		if (!file->private_data) {
 			module_printk(KERN_NOTICE, "No pseudo channel structure to read?\n");
 			ret = -EINVAL;
 			goto unlock_exit;
 		}
-		ret = dahdi_chanandpseudo_ioctl(file, cmd, data, chan->channo);
+		ret = dahdi_chanandpseudo_ioctl(file, cmd, data);
 		goto unlock_exit;
 	}
 
-	if (!file->private_data) {
-		ret = -ENXIO;
-		goto unlock_exit;
-	}
-
-	ret = dahdi_chan_ioctl(file, cmd, data, unit);
+	ret = dahdi_chan_ioctl(file, cmd, data);
 
 unlock_exit:
 #ifdef HAVE_UNLOCKED_IOCTL
