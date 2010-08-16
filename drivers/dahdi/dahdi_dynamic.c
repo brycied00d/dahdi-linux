@@ -411,6 +411,7 @@ void dahdi_dynamic_receive(struct dahdi_span *span, unsigned char *msg, int msgl
 
 static void dynamic_destroy(struct dahdi_dynamic *z)
 {
+	int x;
 	void *pvt = z->pvt;
 	struct dahdi_dynamic_driver *driver = z->driver;
 
@@ -428,6 +429,10 @@ static void dynamic_destroy(struct dahdi_dynamic *z)
 	checkmaster();
 	HERE();
 	dahdi_device_unregister(&z->dev);
+	for (x = 0; x < z->span.channels; ++x)
+		kfree(z->chans[x]);
+
+	kfree(z);
 }
 
 static struct dahdi_dynamic *find_dynamic(struct dahdi_dynamic_span *zds)
@@ -525,24 +530,6 @@ static int ztd_close(struct dahdi_chan *chan)
 	return 0;
 }
 
-
-/* TODO change this... */
-static void ztd_device_release(struct device *dev)
-{
-	struct dahdi_dynamic *z;
-	struct dahdi_device *ddev;
-	int idx;
-
-	HERE();
-	ddev = container_of(dev, struct dahdi_device, dev);
-	z = container_of(ddev, struct dahdi_dynamic, dev);
-
-	for (idx = 0; idx < z->span.channels; ++idx)
-		kfree(z->chans[idx]);
-
-	kfree(z);
-	module_put(THIS_MODULE);
-}
 
 static const struct dahdi_span_ops dynamic_ops = {
 	.owner = THIS_MODULE,
@@ -654,15 +641,9 @@ static int create_dynamic(struct dahdi_dynamic_span *zds)
 	/* Remember the driver */
 	z->driver = ztd;
 
-	z->dev.dev.release = ztd_device_release;
-	/* We don't want this module to unload until all the callbacks are
-	 * cleaned up. */
-	__module_get(THIS_MODULE);
-	res = dahdi_device_register(&z->dev, ztd_device_release, NULL, z->span.name);
-	if (res) {
-		put_device(&z->dev.dev);
+	res = dahdi_device_register(&z->dev, NULL, z->span.name);
+	if (res) 
 		return res;
-	}
 
 	/* Whee!  We're created.  Now register the span */
 	z->span.parent = &z->dev;

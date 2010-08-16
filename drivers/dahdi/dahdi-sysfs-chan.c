@@ -341,24 +341,36 @@ void dahdi_driver_chan_exit(void)
 	class_destroy(chan_class);
 }
 
-int dahdi_device_register(struct dahdi_device *dev, struct device *parent)
+int dahdi_device_register(struct dahdi_device *dev, struct device *parent,
+			  const char *fmt, ...)
 {
-	int ret;
-	dev->dev.parent = parent;
-	dev->dev.class = chan_class;
-	ret = device_register(&dev->dev);
+	int ret = 0;
+	va_list vargs;
+	va_start(vargs, fmt);
+	dev->dev = device_create(chan_class, parent, 0, dev, fmt, vargs);
+	va_end(vargs);
 	return ret;
 }
 EXPORT_SYMBOL(dahdi_device_register);
 
+void dahdi_device_unregister(struct dahdi_device *dev)
+{
+	struct device *_dev;
+	_dev = dev->dev;
+	dev->dev = NULL;
+	dev_set_drvdata(_dev, NULL);
+	device_unregister(_dev);
+}
+EXPORT_SYMBOL(dahdi_device_unregister);
+
 int dahdi_device_online(struct dahdi_device *dev)
 {
-	return kobject_uevent(&dev->dev.kobj, KOBJ_ONLINE);
+	return kobject_uevent(&dev->dev->kobj, KOBJ_ONLINE);
 }
 EXPORT_SYMBOL(dahdi_device_online);
 
 int dahdi_device_offline(struct dahdi_device *dev)
 {
-	return kobject_uevent(&dev->dev.kobj, KOBJ_OFFLINE);
+	return kobject_uevent(&dev->dev->kobj, KOBJ_OFFLINE);
 }
 EXPORT_SYMBOL(dahdi_device_offline);

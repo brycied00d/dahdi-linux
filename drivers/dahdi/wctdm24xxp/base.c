@@ -5030,7 +5030,11 @@ __wctdm_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 	else if (wc->vpmadt032)
 		strncat(wc->dev.devicetype, " (VPMADT032)", sizeof(wc->dev.devicetype) - 1);
 
-	dahdi_device_register(&wc->dev, &pdev->dev);
+	ret = dahdi_device_register(&wc->dev, &pdev->dev, dev_name(&pdev->dev));
+	if (ret) {
+		wctdm_back_out_gracefully(wc);
+		return -1;
+	}
 
 	/* We should be ready for DAHDI to come in now. */
 	for (i = 0; i < MAX_SPANS; ++i) {

@@ -770,7 +770,8 @@ struct dahdi_count {
  *
  */
 struct dahdi_device {
-	struct device dev;
+	struct device *dev;
+	spinlock_t lock;
 	const char *manufacturer;	/*!< span's device manufacturer */
 	char location[40];		/*!< span device's location in system */
 	char hardware_id[40];		/*!< span device's unique id (serial) */
@@ -779,7 +780,7 @@ struct dahdi_device {
 
 static inline const char *dahdi_dev_name(const struct dahdi_device *dev)
 {
-	return dev_name(&dev->dev);
+	return dev_name(dev->dev);
 }
 
 struct dahdi_span_ops {
@@ -1058,12 +1059,9 @@ int dahdi_hdlc_getbuf(struct dahdi_chan *ss, unsigned char *bufptr, unsigned int
    we should have preference in being the master device */
 int dahdi_register(struct dahdi_span *span, int prefmaster);
 
-int dahdi_device_register(struct dahdi_device *dev, struct device *parent);
-
-static inline void dahdi_device_unregister(struct dahdi_device *dev)
-{
-	device_unregister(&dev->dev);
-} 
+int dahdi_device_register(struct dahdi_device *dev, struct device *parent,
+			  const char *fmt, ...);
+void dahdi_device_unregister(struct dahdi_device *dev);
 
 int dahdi_device_online(struct dahdi_device *dev);
 int dahdi_device_offline(struct dahdi_device *dev);
