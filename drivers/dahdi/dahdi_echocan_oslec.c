@@ -56,7 +56,7 @@ static const struct dahdi_echocan_ops my_ops = {
 	.echocan_free = echo_can_free,
 	.echocan_process = echo_can_process,
 	.echocan_traintap = echo_can_traintap,
-        .echocan_hpf_tx = echo_can_hpf_tx,
+        .echocan_process_tx = echo_can_hpf_tx,
 };
 
 struct ec_pvt {
