@@ -943,6 +943,13 @@ static inline void wctdm_transmitprep(struct wctdm *wc, unsigned char *writechun
 			}
 		}
 		insert_tdm_data(wc, writechunk);
+#ifdef CONFIG_VOICEBUS_ECREFERENCE
+		for (x = 0; x < wc->avchannels; ++x) {
+			__dahdi_fifo_put(wc->ec_reference[x],
+					 wc->chans[x]->chan.writechunk,
+					 DAHDI_CHUNKSIZE);
+		}
+#endif
 	}
 
 	for (x = 0; x < DAHDI_CHUNKSIZE; x++) {
@@ -1192,7 +1199,14 @@ static inline void wctdm_receiveprep(struct wctdm *wc, const u8 *readchunk)
 	if (likely(wc->initialized)) {
 		for (x = 0; x < wc->avchannels; x++) {
 			struct dahdi_chan *c = &wc->chans[x]->chan;
+#ifdef CONFIG_VOICEBUS_ECREFERENCE
+			unsigned char buffer[DAHDI_CHUNKSIZE];
+			__dahdi_fifo_get(wc->ec_reference[x], buffer,
+				    ARRAY_SIZE(buffer));
+			dahdi_ec_chunk(c, c->readchunk, buffer);
+#else
 			dahdi_ec_chunk(c, c->readchunk, c->writechunk);
+#endif
 		}
 
 		for (x = 0; x < MAX_SPANS; x++) {
@@ -4317,6 +4331,12 @@ static void wctdm_back_out_gracefully(struct wctdm *wc)
 	LIST_HEAD(local_list);
 
 	voicebus_release(&wc->vb);
+#ifdef CONFIG_VOICEBUS_ECREFERENCE
+	for (i = 0; i < ARRAY_SIZE(wc->ec_reference); ++i) {
+		if (wc->ec_reference[i])
+			dahdi_fifo_free(wc->ec_reference[i]);
+	}
+#endif
 
 	for (i = 0; i < ARRAY_SIZE(wc->spans); ++i) {
 		if (wc->spans[i] && wc->spans[i]->span.chans)
@@ -4871,6 +4891,22 @@ __wctdm_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 		}
 	}
 	up(&ifacelock);
+
+#ifdef CONFIG_VOICEBUS_ECREFERENCE
+	for (i = 0; i < ARRAY_SIZE(wc->ec_reference); ++i) {
+		/* 256 is the smallest power of 2 that will contains the
+		 * maximum possible amount of latency. */
+		wc->ec_reference[i] = dahdi_fifo_alloc(256, GFP_KERNEL);
+
+		if (IS_ERR(wc->ec_reference[i])) {
+			ret = PTR_ERR(wc->ec_reference[i]);
+			wc->ec_reference[i] = NULL;
+			wctdm_back_out_gracefully(wc);
+			return ret;
+		}
+	}
+#endif
+
 
 	wc->desc = (struct wctdm_desc *)ent->driver_data;
 

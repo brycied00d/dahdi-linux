@@ -94,6 +94,111 @@
 
 #define OWN_BIT (1 << 31)
 
+#ifdef CONFIG_VOICEBUS_ECREFERENCE
+
+/*
+ * These dahdi_fifo_xxx functions are currently only used by the voicebus
+ * drivers, but are named more generally to facilitate moving out in the
+ * future.  They probably also could stand to be changed in order to use a
+ * kfifo implementation from the kernel if one is available.
+ *
+ */
+
+struct dahdi_fifo {
+	size_t total_size;
+	u32 start;
+	u32 end;
+	u8 data[0];
+};
+
+static unsigned int dahdi_fifo_used_space(struct dahdi_fifo *fifo)
+{
+	return (fifo->end >= fifo->start) ? fifo->end - fifo->start :
+			    fifo->total_size - fifo->start + fifo->end;
+}
+
+unsigned int __dahdi_fifo_put(struct dahdi_fifo *fifo, u8 *data, size_t size)
+{
+	int newinsertposition;
+	int cpy_one_len, cpy_two_len;
+
+	if ((size + dahdi_fifo_used_space(fifo)) > (fifo->total_size - 1))
+		return -1;
+
+	if ((fifo->end + size) >= fifo->total_size) {
+		cpy_one_len = fifo->total_size - fifo->end;
+		cpy_two_len = fifo->end + size - fifo->total_size;
+		newinsertposition = cpy_two_len;
+	} else {
+		cpy_one_len = size;
+		cpy_two_len = 0;
+		newinsertposition = fifo->end + size;
+	}
+
+	memcpy(&fifo->data[fifo->end], data, cpy_one_len);
+
+	if (cpy_two_len)
+		memcpy(&fifo->data[0], &data[cpy_one_len], cpy_two_len);
+
+	fifo->end = newinsertposition;
+
+	return size;
+}
+EXPORT_SYMBOL(__dahdi_fifo_put);
+
+unsigned int __dahdi_fifo_get(struct dahdi_fifo *fifo, u8 *data, size_t size)
+{
+	int newbegin;
+	int cpy_one_len, cpy_two_len;
+
+	if (size > dahdi_fifo_used_space(fifo))
+		return 0;
+
+	if ((fifo->start + size) >= fifo->total_size) {
+		cpy_one_len = fifo->total_size - fifo->start;
+		cpy_two_len = fifo->start + size - fifo->total_size;
+		newbegin = cpy_two_len;
+	} else {
+		cpy_one_len = size;
+		cpy_two_len = 0;
+		newbegin = fifo->start + size;
+	}
+
+	memcpy(&data[0], &fifo->data[fifo->start], cpy_one_len);
+
+	if (cpy_two_len)
+		memcpy(&data[cpy_one_len], &fifo->data[0], cpy_two_len);
+
+	fifo->start = newbegin;
+
+	return size;
+}
+EXPORT_SYMBOL(__dahdi_fifo_get);
+
+void dahdi_fifo_free(struct dahdi_fifo *fifo)
+{
+	kfree(fifo);
+}
+EXPORT_SYMBOL(dahdi_fifo_free);
+
+struct dahdi_fifo *dahdi_fifo_alloc(u32 maxsize, gfp_t alloc_flags)
+{
+	struct dahdi_fifo *fifo;
+
+	fifo = kmalloc(maxsize + sizeof(*fifo) + 1, alloc_flags);
+
+	if (!fifo)
+		return NULL;
+
+	fifo->start = fifo->end = 0;
+	fifo->total_size = maxsize + 1;
+
+	return fifo;
+}
+EXPORT_SYMBOL(dahdi_fifo_alloc);
+#endif /* CONFIG_VOICEBUS_ECREFERENCE */
+
+
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 20)
 kmem_cache_t *voicebus_vbb_cache;
 #else

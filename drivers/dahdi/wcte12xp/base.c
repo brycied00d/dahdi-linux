@@ -710,6 +710,13 @@ static void free_wc(struct t1 *wc)
 	if (wc->wq)
 		destroy_workqueue(wc->wq);
 
+#ifdef CONFIG_VOICEBUS_ECREFERENCE
+	for (x = 0; x < ARRAY_SIZE(wc->ec_reference); ++x) {
+		if (wc->ec_reference[x])
+			dahdi_fifo_free(wc->ec_reference[x]);
+	}
+#endif
+
 	kfree(wc);
 }
 
@@ -952,16 +959,20 @@ static void set_span_devicetype(struct t1 *wc)
 static int t1xxp_startup(struct dahdi_span *span)
 {
 	struct t1 *wc = container_of(span, struct t1, span);
-	int i;
+#ifndef CONFIG_VOICEBUS_ECREFERENCE
+	unsigned int i;
+#endif
 
 	check_and_load_vpm(wc);
 	set_span_devicetype(wc);
 
+#ifndef CONFIG_VOICEBUS_ECREFERENCE
 	/* initialize the start value for the entire chunk of last ec buffer */
 	for (i = 0; i < span->channels; i++) {
 		memset(wc->ec_chunk1[i], DAHDI_LIN2X(0, span->chans[i]), DAHDI_CHUNKSIZE);
 		memset(wc->ec_chunk2[i], DAHDI_LIN2X(0, span->chans[i]), DAHDI_CHUNKSIZE);
 	}
+#endif
 
 	/* Reset framer with proper parameters and start */
 	t1xxp_framer_start(wc, span);
@@ -1901,6 +1912,13 @@ static inline void t1_transmitprep(struct t1 *wc, u8 *writechunk)
 		dahdi_transmit(&wc->span);
 	}
 
+#ifdef CONFIG_VOICEBUS_ECREFERENCE
+	for (chan = 0; chan < wc->span.channels; chan++) {
+		__dahdi_fifo_put(wc->ec_reference[chan],
+			    wc->chans[chan]->writechunk, DAHDI_CHUNKSIZE);
+	}
+#endif
+
 	for (x = 0; x < DAHDI_CHUNKSIZE; x++) {
 		if (likely(test_bit(INITIALIZED, &wc->bit_flags))) {
 			for (chan = 0; chan < wc->span.channels; chan++)
@@ -1924,6 +1942,8 @@ static inline void t1_transmitprep(struct t1 *wc, u8 *writechunk)
 		}
 		writechunk += (EFRAME_SIZE + EFRAME_GAP);
 	}
+
+
 }
 
 /**
@@ -1978,11 +1998,23 @@ static inline void t1_receiveprep(struct t1 *wc, const u8* readchunk)
 	
 	/* echo cancel */
 	if (likely(test_bit(INITIALIZED, &wc->bit_flags))) {
+#ifdef CONFIG_VOICEBUS_ECREFERENCE
+		unsigned char buffer[DAHDI_CHUNKSIZE];
+		for (x = 0; x < wc->span.channels; x++) {
+			__dahdi_fifo_get(wc->ec_reference[x], buffer,
+				    ARRAY_SIZE(buffer));
+			dahdi_ec_chunk(wc->chans[x], wc->chans[x]->readchunk,
+				       buffer);
+		}
+#else
 		for (x = 0; x < wc->span.channels; x++) {
 			dahdi_ec_chunk(wc->chans[x], wc->chans[x]->readchunk, wc->ec_chunk2[x]);
-			memcpy(wc->ec_chunk2[x],wc->ec_chunk1[x],DAHDI_CHUNKSIZE);
-			memcpy(wc->ec_chunk1[x],wc->chans[x]->writechunk,DAHDI_CHUNKSIZE);
+			memcpy(wc->ec_chunk2[x], wc->ec_chunk1[x],
+				DAHDI_CHUNKSIZE);
+			memcpy(wc->ec_chunk1[x], wc->chans[x]->writechunk,
+				DAHDI_CHUNKSIZE);
 		}
+#endif
 		dahdi_receive(&wc->span);
 	}
 }
@@ -2262,6 +2294,22 @@ static int __devinit te12xp_init_one(struct pci_dev *pdev, const struct pci_devi
 #	else
 	INIT_WORK(&wc->vpm_check_work, vpm_check_func);
 #	endif
+
+#ifdef CONFIG_VOICEBUS_ECREFERENCE
+	for (x = 0; x < ARRAY_SIZE(wc->ec_reference); ++x) {
+		/* 256 is used here since it is the largest power of two that
+		 * will contain 8 * VOICBUS_DEFAULT_LATENCY */
+		wc->ec_reference[x] = dahdi_fifo_alloc(256, GFP_KERNEL);
+
+		if (IS_ERR(wc->ec_reference[x])) {
+			res = PTR_ERR(wc->ec_reference[x]);
+			wc->ec_reference[x] = NULL;
+			free_wc(wc);
+			return res;
+		}
+
+	}
+#endif /* CONFIG_VOICEBUS_ECREFERENCE */
 
 	snprintf(wc->name, sizeof(wc->name)-1, "wcte12xp%d", index);
 	pci_set_drvdata(pdev, wc);

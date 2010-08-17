@@ -62,6 +62,21 @@
  * (and not tasklet). */
 #define CONFIG_VOICEBUS_INTERRUPT
 
+/* Define this to use a FIFO for the software echocan reference.
+ * (experimental) */
+#undef CONFIG_VOICEBUS_ECREFERENCE
+
+#ifdef CONFIG_VOICEBUS_ECREFERENCE
+
+struct dahdi_fifo;
+unsigned int __dahdi_fifo_put(struct dahdi_fifo *fifo, u8 *data, size_t size);
+unsigned int __dahdi_fifo_get(struct dahdi_fifo *fifo, u8 *data, size_t size);
+void dahdi_fifo_free(struct dahdi_fifo *fifo);
+struct dahdi_fifo *dahdi_fifo_alloc(size_t maxsize, gfp_t alloc_flags);
+
+#endif
+
+
 struct voicebus;
 
 struct vbb {

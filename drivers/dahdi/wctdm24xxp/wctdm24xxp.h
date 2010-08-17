@@ -269,6 +269,9 @@ struct wctdm {
 	struct wctdm_span *aspan;			/* pointer to the spans[] holding the analog span */
 	struct wctdm_span *spans[MAX_SPANS];
 	struct wctdm_chan *chans[NUM_MODULES];
+#ifdef CONFIG_VOICEBUS_ECREFERENCE
+	struct dahdi_fifo *ec_reference[NUM_MODULES];
+#endif
 
 	/* Only care about digital spans here */
 	/* int span_timing_prio[MAX_SPANS - 1]; */
