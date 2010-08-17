@@ -2330,6 +2330,15 @@ static ssize_t dahdi_chan_write(struct file *file, const char __user *usrbuf,
 			}
 			chan->writen[res] = amnt;
 		}
+		if (chan->ec_state && (ECHO_MODE_ACTIVE == chan->ec_state->status.mode) &&
+		    chan->ec_state->ops->echocan_hpf_tx) {
+			for (x=0; x < chan->writen[res]; ++x) {
+				short tx;
+				tx = DAHDI_XLAW(chan->writebuf[res][x], chan);
+				chan->ec_state->ops->echocan_hpf_tx(chan->ec_state, &tx, 1);
+				chan->writebuf[res][x] = DAHDI_LIN2X((int) tx, chan);
+			}
+		}
 		chan->writeidx[res] = 0;
 		if (chan->flags & DAHDI_FLAG_FCS)
 			calc_fcs(chan, res);
