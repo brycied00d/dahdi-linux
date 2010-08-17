@@ -159,9 +159,14 @@ struct wctdm_span {
 	struct b400m_span *bspan;
 };
 
+struct wctdm24xxp_ec_state {
+	int tx_1, tx_2;
+	struct dahdi_echocan_state dahdi;
+};
+
 struct wctdm_chan {
 	struct dahdi_chan chan;
-	struct dahdi_echocan_state ec;
+	struct wctdm24xxp_ec_state ec;
 	int timeslot;
 };
 

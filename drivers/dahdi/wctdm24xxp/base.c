@@ -272,9 +272,40 @@ static const struct dahdi_echocan_ops vpm100m_ec_ops = {
 	.echocan_free = echocan_free,
 };
 
+/**
+ * echocan_process_tx() - This is an adaptation of oslec_hpf_tx from Linux
+ *
+ */
+static void echocan_process_tx(struct dahdi_echocan_state *ec, short *tx, u32 size)
+{
+	struct wctdm24xxp_ec_state *pvt;
+	u32 samplenum;
+	pvt = container_of(ec, struct wctdm24xxp_ec_state, dahdi);
+
+	for (samplenum = 0; samplenum < size; samplenum++, tx++) {
+		enum { DC_LOG2BETA = 3 };
+		int tmp, tmp1;
+
+		tmp = *tx << 15;
+		tmp -= ((*tx << 15) >> 4);
+
+		pvt->tx_1 += -(pvt->tx_1 >> DC_LOG2BETA) + tmp - pvt->tx_2;
+		tmp1 = pvt->tx_1 >> 15;
+		if (tmp1 > 32767)
+			tmp1 = 32767;
+		if (tmp1 < -32767)
+			tmp1 = -32767;
+		*tx = tmp1;
+		pvt->tx_2 = tmp;
+
+	}
+}
+
+
 static const struct dahdi_echocan_ops vpm150m_ec_ops = {
 	.name = "VPM150M",
 	.echocan_free = echocan_free,
+	.echocan_process_tx = echocan_process_tx,
 };
 
 static int wctdm_init_proslic(struct wctdm *wc, int card, int fast , int manual, int sane);
@@ -2006,7 +2037,7 @@ static int wctdm_echocan_create(struct dahdi_chan *chan,
 		return -EINVAL;
 	}
 
-	*ec = &wchan->ec;
+	*ec = &wchan->ec.dahdi;
 	(*ec)->ops = ops;
 	(*ec)->features = *features;
 
