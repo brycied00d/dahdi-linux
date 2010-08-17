@@ -1452,12 +1452,13 @@ static int check_and_load_vpm(struct t1 *wc)
 
 	res = vpmadt032_init(wc->vpmadt032, &wc->vb);
 	if (-ENODEV == res) {
+		struct vpmadt032 *vpm = wc->vpmadt032;
 		/* There does not appear to be a VPMADT032 installed. */
 		clear_bit(4, &wc->ctlreg);
 		spin_lock_irqsave(&wc->reglock, flags);
 		wc->vpmadt032 = NULL;
 		spin_unlock_irqrestore(&wc->reglock, flags);
-		vpmadt032_free(wc->vpmadt032);
+		vpmadt032_free(vpm);
 		return res;
 
 	} else if (res) {
