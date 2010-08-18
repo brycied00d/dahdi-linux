@@ -2,6 +2,7 @@
 
 LINUX_DIR=${LINUX_DIR:=.}
 TOOLS_DIR=${TOOLS_DIR:=../dahdi-tools}
+DYNAMIC_LOC="${DYNAMIC_LOC:-no}"
 DESTDIR=$PWD/live
 KVERS=${KVERS:-`uname -r`}
 XPP_SYNC=${XPP_SYNC:-auto}
@@ -56,7 +57,11 @@ export ASTRIBANK_HEXLOAD
 
 # make sure Astribank initialization scripts are from our tree.
 xpp_ARGS="$xpp_ARGS initdir=$FIRMWARE_DIR"
-dahdi_ARGS="$dahdi_ARGS initdir=$FIRMWARE_DIR"
+#dahdi_ARGS="$dahdi_ARGS initdir=$FIRMWARE_DIR"
+
+if [ "$DYNAMIC_LOC" = 'yes' ]; then
+	MODULES_LOAD="$MODULES_LOAD dahdi_dynamic dahdi_dynamic_loc"
+fi
 
 # the same as xpp/utils/dahdi_drivers .
 # With the remote mode, I can't rely on files in the source directory.
@@ -157,12 +162,29 @@ unload_module() {
 	rmmod $module
 }
 
+load_dynamic() {
+	if [ "$DYNAMIC_LOC" != yes ]; then return; fi
+
+	local conf_file="$DESTDIR/etc/dahdi/dynamic.conf"
+	if [ ! -r "$conf_file" ]; then
+		cat <<EOF >"$conf_file"
+dynamic=loc,1:0,5,0
+dynamic=loc,1:1,5,0
+EOF
+	fi
+	
+	dahdi_cfg -c "$conf_file"
+}
+
 genconf() {
 	GENCONF_PARAMETERS=$DESTDIR/etc/dahdi/genconf_parameters \
 	DAHDI_CONF_FILE=$DESTDIR/etc/dahdi/system.conf \
 	DAHDI_MODS_FILE=$DESTDIR/etc/dahdi/modules \
 	CHAN_DAHDI_CHANNELS_FILE=$DESTDIR/etc/asterisk/dahdi-channels.conf \
 		dahdi_genconf
+	if [ "$DYNAMIC_LOC" = yes ]; then
+		cat "$DESTDIR/etc/dahdi/dynamic.conf" >>"$DESTDIR/etc/dahdi/system.conf"
+	fi
 	dahdi_cfg -c $DESTDIR/etc/dahdi/system.conf
 	# TODO: fxotune, hpec
 }
@@ -207,6 +229,12 @@ config)
 	shift
 	cd "$TOOLS_DIR"; make config DESTDIR=$DESTDIR "$@"
 	mkdir -p $DESTDIR/etc/asterisk
+	cat >"$FIRMWARE_DIR/live-init.conf" <<EOF
+PATH="$PATH" # FIXME: add to existing \$PATH?
+export PATH
+dahdiconfdir="${DESTDIR}/etc/dahdi"
+export dahdiconfdir
+EOF
 	;;
 rsync)
 	if [ $# -ne 2 ]; then
@@ -236,6 +264,7 @@ load)
 		insmod $MODULES_DIR/$module.ko $module_args
 	done
 	xpp_startup
+	load_dynamic
 	genconf
 	# or find a way to reuse init.d start sequence.
 
