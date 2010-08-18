@@ -176,6 +176,15 @@ EOF
 	dahdi_cfg -c "$conf_file"
 }
 
+unload_dynamic() {
+	if [ "$DYNAMIC_LOC" != yes ]; then return; fi
+
+	local conf_file="$DESTDIR/etc/dahdi/dynamic.conf"
+	if [ ! -r "$conf_file" ]; then return; fi
+
+	dahdi_cfg -c "$conf_file" -s || :
+}
+
 genconf() {
 	GENCONF_PARAMETERS=$DESTDIR/etc/dahdi/genconf_parameters \
 	DAHDI_CONF_FILE=$DESTDIR/etc/dahdi/system.conf \
@@ -248,6 +257,7 @@ rsync)
 unload)
 	# OK for Asterisk not to be running. TODO: a better test?
 	$AST_SCRIPT stop || :
+	unload_dynamic
 	for mod in $REMOVE_MODULES; do
 		unload_module $mod
 	done
