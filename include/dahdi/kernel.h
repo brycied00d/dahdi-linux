@@ -873,11 +873,6 @@ struct dahdi_span {
 #endif	
 };
 
-static inline bool dahdi_is_digital_span(const struct dahdi_span *s)
-{
-	return (s->linecompat > 0);
-}
-
 struct dahdi_transcoder_channel {
 	void *pvt;
 	struct dahdi_transcoder *parent;
