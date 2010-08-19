@@ -595,6 +595,7 @@ struct dahdi_chan {
 #endif
 	struct dahdi_chan_kobject *kobj; /*!< Kernel object for this chan. */
 	dev_t 	devt;
+	struct list_head span_node;
 };
 
 static inline struct dahdi_span *to_span(struct dahdi_chan *c)
