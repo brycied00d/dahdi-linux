@@ -82,6 +82,8 @@
 
 #include "hpec/hpec_user.h"
 
+#include <stdbool.h>
+
 #if defined(EMPULSE) && defined(EMFLASH)
 #error "You cannot define both EMPULSE and EMFLASH"
 #endif
@@ -507,6 +509,22 @@ static inline void rotate_sums(void)
 	pos = (pos + 1) % 3;
 	memset(conf_sums_next, 0, maxconfs * sizeof(sumtype));
 }
+
+
+/**
+ * can_dacs_chans() - Returns true if it may be possible to dacs two channels.
+ *
+ */
+static bool can_dacs_chans(struct dahdi_chan *dst, struct dahdi_chan *src)
+{
+	if (src && dst && src->span && dst->span && src->span->ops &&
+	    dst->span->ops && src->span->ops->dacs &&
+	    (src->span->ops->dacs == dst->span->ops->dacs))
+		return true;
+	else
+		return false;
+}
+
 /**
  * dahdi_chan_dacs() - Cross (or uncross) connect two channels.
  * @dst:	Channel on which to transmit the src data.
@@ -514,25 +532,17 @@ static inline void rotate_sums(void)
  *		data.
  *
  * This allows those boards that support it to cross connect one channel to
- * another in hardware.
+ * another in hardware.  If the cards cannot be crossed, uncross the
+ * destination channel by default..
  *
  */
 static int dahdi_chan_dacs(struct dahdi_chan *dst, struct dahdi_chan *src)
 {
 	int ret = 0;
-	if (src) {
-		if (dst->span && src->span && dst->span->ops->dacs &&
-		    (dst->span->ops->dacs == src->span->ops->dacs)) {
-			ret = dst->span->ops->dacs(dst, src);
-		} else {
-			module_printk(KERN_ERR, "Unable to cross connect '%s' "
-				      "with '%s'\n", src->name, dst->name);
-			ret = -ENOSYS;
-		}
-	} else {
-		if (dst->span && dst->span->ops->dacs)
-			ret = dst->span->ops->dacs(dst, NULL);
-	}
+	if (can_dacs_chans(dst, src))
+		ret = dst->span->ops->dacs(dst, src);
+	else if (dst->span && dst->span->ops->dacs)
+		ret = dst->span->ops->dacs(dst, NULL);
 	return ret;
 }
 
