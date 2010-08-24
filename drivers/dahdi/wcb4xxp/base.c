@@ -1134,6 +1134,7 @@ static void b4xxp_set_sync_src(struct b4xxp *b4, int port)
 		b = (port & V_SYNC_SEL_MASK) | V_MAN_SYNC;
 
 	b4xxp_setreg8(b4, R_ST_SYNC, b);
+	b4->syncspan = port;
 }
 
 /*
@@ -1160,6 +1161,41 @@ static int b4xxp_find_sync(struct b4xxp *b4)
 	else
 		return src;
 }
+
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 18))
+static ssize_t b4_timing_master_show(struct device *dev,
+				     struct device_attribute *attr,
+				     char *buf)
+{
+	struct b4xxp *b4 = dev_get_drvdata(dev);
+	return sprintf(buf, "%d\n", b4->syncspan);
+}
+
+static DEVICE_ATTR(timing_master, 0400, b4_timing_master_show, NULL);
+
+static void create_sysfs_files(struct b4xxp *b4)
+{
+	int ret;
+	ret = device_create_file(b4->dev,
+				 &dev_attr_timing_master);
+	if (ret) {
+		dev_info(b4->dev,
+			"Failed to create device attributes.\n");
+	}
+}
+
+static void remove_sysfs_files(struct b4xxp *b4)
+{
+	device_remove_file(b4->dev,
+			   &dev_attr_timing_master);
+}
+
+#else
+
+static inline void create_sysfs_files(struct b4xxp *b4) { return; }
+static inline void remove_sysfs_files(struct b4xxp *b4) { return; }
+
+#endif /* LINUX_KERNEL > 2.6.18 */
 
 /*
  * allocates memory and pretty-prints a given S/T state engine state to it.
@@ -1861,6 +1897,8 @@ static void b4xxp_init_stage1(struct b4xxp *b4)
 	flush_pci();
 
 	udelay(100);				/* wait a bit for clock to settle */
+
+	create_sysfs_files(b4);
 }
 
 /*
@@ -2887,6 +2925,7 @@ static void __devexit b4xxp_remove(struct pci_dev *pdev)
 		}
 
 		b4xxp_init_stage1(b4);
+		remove_sysfs_files(b4);
 		free_irq(pdev->irq, b4);
 		pci_set_drvdata(pdev, NULL);
 		pci_iounmap(pdev, b4->ioaddr);
