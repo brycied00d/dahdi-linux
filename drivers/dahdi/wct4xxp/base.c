@@ -3218,8 +3218,8 @@ static void t4_check_alarms(struct t4 *wc, int span)
 			alarms |= DAHDI_ALARM_LMFA;
 	}
 
-	/* Check to ensure the transformer isn't busted */
-	if (unlikely((d & FRS1_XLO) || (d & FRS1_XLS))) {
+	/* Check to ensure the xmit line isn't shorted */
+	if (unlikely(d & FRS1_XLS)) {
 		dev_info(&wc->dev->dev,
 			"Detected a possible hardware malfunction"\
 			" this card may need servicing\n");
