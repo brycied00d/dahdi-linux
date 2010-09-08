@@ -8746,7 +8746,7 @@ int dahdi_receive(struct dahdi_span *span)
 #ifdef CONFIG_DAHDI_WATCHDOG
 	span->watchcounter--;
 #endif
-	for (x=0;x<span->channels;x++) {
+	for (x = 0; x < span->channels; x++) {
 		struct dahdi_chan *const chan = span->chans[x];
 		if (chan->master == chan) {
 			spin_lock_irqsave(&chan->lock, flags);
@@ -8789,13 +8789,10 @@ int dahdi_receive(struct dahdi_span *span)
 						__qevent(chan, DAHDI_EVENT_RINGOFFHOOK);
 				}
 			}
-			if (chan->pulsetimer)
-			{
+			if (chan->pulsetimer) {
 				chan->pulsetimer--;
-				if (chan->pulsetimer <= 0)
-				{
-					if (chan->pulsecount)
-					{
+				if (chan->pulsetimer <= 0) {
+					if (chan->pulsecount) {
 						if (chan->pulsecount > 12) {
 
 							module_printk(KERN_NOTICE, "Got pulse digit %d on %s???\n",
