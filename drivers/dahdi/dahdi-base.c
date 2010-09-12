@@ -434,9 +434,41 @@ static LIST_HEAD(span_list);
 
 static struct dahdi_chan *chans[DAHDI_MAX_CHANNELS];
 
-static inline struct dahdi_chan *chan_from_num(unsigned int channo)
+static struct dahdi_chan *chan_from_num(unsigned int channo)
 {
-	return valid_channo(channo) ? chans[channo] : NULL;
+	struct dahdi_span *s;
+	struct pseudo_chan *pseudo;
+
+	if (!unlikely(valid_channo(channo)))
+		return NULL;
+
+	/* When searching for the channel amongst the spans, we can use the
+	 * fact that channels on a span must be numbered consecutively to skip
+	 * checking each individual channel. */
+	list_for_each_entry(s, &span_list, node) {
+		unsigned int basechan;
+		struct dahdi_chan *chan;
+
+		if (unlikely(!s->channels))
+			continue;
+
+		basechan = s->chans[0]->channo;
+		if (channo >= (basechan + s->channels))
+			continue;
+
+		chan = s->chans[channo - basechan];
+		WARN_ON(chan->channo != channo);
+		return chan;
+	}
+
+	/* If we didn't find the channel on the list of real channels, then
+	 * it's most likely a pseudo channel. */
+	list_for_each_entry(pseudo, &pseudo_chans, node) {
+		if (pseudo->chan.channo == channo)
+			return &pseudo->chan;
+	}
+
+	return NULL;
 }
 
 static inline struct dahdi_chan *chan_from_file(struct file *file)
