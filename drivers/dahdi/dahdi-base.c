@@ -397,6 +397,9 @@ static DEFINE_RWLOCK(zone_lock);
 static rwlock_t zone_lock = RW_LOCK_UNLOCKED;
 #endif
 
+/* Protects the span_list and pseudo_chans lists from concurrent access in
+ * process context.  The spin_lock is needed to synchronize with the interrupt
+ * handler. */
 static DEFINE_SPINLOCK(chan_lock);
 
 struct pseudo_chan {
@@ -409,11 +412,11 @@ static inline struct pseudo_chan *chan_to_pseudo(struct dahdi_chan *chan)
 	return container_of(chan, struct pseudo_chan, chan);
 }
 
-/* This is protected by the chan_lock. */
+/* This list is protected by the chan_lock. */
 static LIST_HEAD(pseudo_chans);
 
 /**
- * is_pseudo_chan() - By definition psuedo channels are not on a span.
+ * is_pseudo_chan() - By definition pseudo channels are not on a span.
  */
 static inline bool is_pseudo_chan(const struct dahdi_chan *chan)
 {
@@ -422,13 +425,10 @@ static inline bool is_pseudo_chan(const struct dahdi_chan *chan)
 
 static bool valid_channo(const int channo)
 {
-	return ((channo >= DAHDI_MAX_CHANNELS) || (channo < 1)) ?
-			false : true;
+	return (channo < 1) ?  false : true;
 }
 
 static LIST_HEAD(span_list);
-
-static struct dahdi_chan *chans[DAHDI_MAX_CHANNELS];
 
 static unsigned long
 __for_each_channel(unsigned long (*func)(struct dahdi_chan *chan,
@@ -528,7 +528,6 @@ static unsigned int span_count(void)
 	return count;
 }
 
-static int maxchans = 0;
 static int maxconfs = 0;
 static int maxlinks = 0;
 
@@ -1401,9 +1400,10 @@ static inline bool is_gain_allocated(const struct dahdi_chan *chan)
  * close_channel - close the channel, resetting any channel variables
  * @chan: the dahdi_chan to close
  *
- * This function might be called before the channel is placed on the global
- * array of channels, (chans), and therefore, neither this function nor it's
- * children should depend on the dahdi_chan.channo member which is not set yet.
+ * This function is called before either the parent span is linked into the
+ * span list, or for pseudos, place on the psuedo_list.  Therefore, this
+ * function nor it's callers should depend on the channel being findable
+ * via those methods.
  */
 static void close_channel(struct dahdi_chan *chan)
 {
@@ -1716,11 +1716,8 @@ static void dahdi_set_law(struct dahdi_chan *chan, int law)
 	}
 }
 
-static int dahdi_chan_reg(struct dahdi_chan *chan)
+static void dahdi_chan_reg(struct dahdi_chan *chan)
 {
-	int x;
-	unsigned long flags;
-
 	might_sleep();
 
 	spin_lock_init(&chan->lock);
@@ -1736,27 +1733,9 @@ static int dahdi_chan_reg(struct dahdi_chan *chan)
 	dahdi_set_law(chan, DAHDI_LAW_DEFAULT);
 	close_channel(chan);
 
-	spin_lock_irqsave(&chan_lock, flags);
-	for (x = 1; x < DAHDI_MAX_CHANNELS; x++) {
-		if (chans[x])
-			continue;
-
-		chans[x] = chan;
-		if (maxchans < x + 1)
-			maxchans = x + 1;
-		chan->channo = x;
-		/* set this AFTER running close_channel() so that
-		   HDLC channels wont cause hangage */
-		set_bit(DAHDI_FLAGBIT_REGISTERED, &chan->flags);
-		break;
-	}
-	spin_unlock_irqrestore(&chan_lock, flags);
-	if (DAHDI_MAX_CHANNELS == x) {
-		module_printk(KERN_ERR, "No more channels available\n");
-		return -ENOMEM;
-	}
-
-	return 0;
+	/* set this AFTER running close_channel() so that
+	   HDLC channels wont cause hangage */
+	set_bit(DAHDI_FLAGBIT_REGISTERED, &chan->flags);
 }
 
 char *dahdi_lboname(int x)
@@ -2092,9 +2071,6 @@ static unsigned long _chan_cleanup(struct dahdi_chan *pos, unsigned long data)
 {
 	unsigned long flags;
 	struct dahdi_chan *const chan = (struct dahdi_chan *)data;
-
-	++maxchans;
-
 	/* Remove anyone pointing to us as master
 	   and make them their own thing */
 	if (pos->master == chan)
@@ -2146,16 +2122,14 @@ static void dahdi_chan_unreg(struct dahdi_chan *chan)
 		chan->hdlcnetdev = NULL;
 	}
 #endif
-	spin_lock_irqsave(&chan_lock, flags);
-	if (test_bit(DAHDI_FLAGBIT_REGISTERED, &chan->flags)) {
-		chans[chan->channo] = NULL;
-		clear_bit(DAHDI_FLAGBIT_REGISTERED, &chan->flags);
-	}
+	clear_bit(DAHDI_FLAGBIT_REGISTERED, &chan->flags);
+
 #ifdef CONFIG_DAHDI_PPP
 	if (chan->ppp) {
 		module_printk(KERN_NOTICE, "HUH???  PPP still attached??\n");
 	}
 #endif
+	spin_lock_irqsave(&chan_lock, flags);
 	__for_each_channel(_chan_cleanup, (unsigned long)chan);
 	spin_unlock_irqrestore(&chan_lock, flags);
 
@@ -2959,33 +2933,67 @@ static struct dahdi_chan *dahdi_alloc_pseudo(void)
 {
 	struct pseudo_chan *pseudo;
 	unsigned long flags;
+	unsigned int channo;
+	struct list_head *pos = &pseudo_chans;
+	static unsigned int first_pseudo_channo;
 
 	/* Don't allow /dev/dahdi/pseudo to open if there is not a timing
 	 * source. */
 	if (!can_open_timer())
 		return NULL;
 
-	if (!(pseudo = kzalloc(sizeof(*pseudo), GFP_KERNEL)))
+	pseudo = kzalloc(sizeof(*pseudo), GFP_KERNEL);
+	if (NULL == pseudo)
 		return NULL;
-
-	INIT_LIST_HEAD(&pseudo->node);
 
 	pseudo->chan.sig = DAHDI_SIG_CLEAR;
 	pseudo->chan.sigcap = DAHDI_SIG_CLEAR;
 	pseudo->chan.flags = DAHDI_FLAG_AUDIO;
 	pseudo->chan.span = NULL; /* No span == psuedo channel */
 
-	if (dahdi_chan_reg(&pseudo->chan)) {
-		kfree(pseudo);
-		return NULL;
+	/* Since we're just reading the lists, the registration lock is
+	 * enough to protect it. */
+	down(&registration_lock);
+
+	if (list_empty(&pseudo_chans)) {
+		/* If there aren't any pseudo channels allocated, we need to
+		 * take the next channel number after all the 'real' channels
+		 * on the spans. */
+		struct dahdi_span *span;
+		channo = 1;
+		list_for_each_entry_reverse(span, &span_list, node) {
+			if (unlikely(!span->channels))
+				continue;
+			channo = span->chans[0]->channo + span->channels;
+			break;
+		}
+		first_pseudo_channo = channo;
+	} else {
+		struct pseudo_chan *p;
+		/* Otherwise, we'll find the first available channo in the list
+		 * of pseudo chans. */
+		channo = first_pseudo_channo;
+		list_for_each_entry(p, &pseudo_chans, node) {
+			if (channo != p->chan.channo)
+				break;
+			pos = &p->node;
+			++channo;
+		}
 	}
 
-	spin_lock_irqsave(&chan_lock, flags);
-	list_add_tail(&pseudo->node, &pseudo_chans);
-	spin_unlock_irqrestore(&chan_lock, flags);
+	pseudo->chan.channo = channo;
+	dahdi_chan_reg(&pseudo->chan);
 
 	snprintf(pseudo->chan.name, sizeof(pseudo->chan.name)-1,
 		 "Pseudo/%d", pseudo->chan.channo);
+
+	/* Once we place the pseudo chan on the list...it's registered and
+	 * live. */
+	spin_lock_irqsave(&chan_lock, flags);
+	list_add(&pseudo->node, pos);
+	spin_unlock_irqrestore(&chan_lock, flags);
+
+	up(&registration_lock);
 
 	return &pseudo->chan;
 }
@@ -6218,9 +6226,9 @@ int dahdi_register(struct dahdi_span *span, int prefmaster)
 {
 	unsigned int spanno;
 	unsigned int x;
-	int res = 0;
 	struct list_head *loc = &span_list;
 	unsigned long flags;
+	unsigned int next_channo = 1;
 
 	if (!span || !span->ops || !span->ops->owner)
 		return -EINVAL;
@@ -6246,30 +6254,30 @@ int dahdi_register(struct dahdi_span *span, int prefmaster)
 	spanno = 1;
 
 	/* Look through the span list to find the first available span number.
-	 * The spans are kept on this list in sorted order. */
-	spin_lock_irqsave(&chan_lock, flags);
+	 * The spans are kept on this list in sorted order. We'll also save
+	 * off the next available channel number to use. */
+
 	if (!list_empty(&span_list)) {
 		struct dahdi_span *pos;
 		list_for_each_entry(pos, &span_list, node) {
 			loc = &pos->node;
 			if (pos->spanno == spanno) {
 				++spanno;
+				if (pos->channels) {
+					next_channo = pos->chans[0]->channo +
+							pos->channels;
+				}
 				continue;
 			}
 			break;
 		}
 	}
-	spin_unlock_irqrestore(&chan_lock, flags);
 
 	span->spanno = spanno;
 	for (x = 0; x < span->channels; x++) {
 		span->chans[x]->span = span;
-		res = dahdi_chan_reg(span->chans[x]);
-		if (res) {
-			for (x--; x >= 0; x--)
-				dahdi_chan_unreg(span->chans[x]);
-			goto unreg_channels;
-		}
+		span->chans[x]->channo = next_channo + x;
+		dahdi_chan_reg(span->chans[x]);
 	}
 
 #ifdef CONFIG_PROC_FS
@@ -6312,10 +6320,6 @@ int dahdi_register(struct dahdi_span *span, int prefmaster)
 	up(&registration_lock);
 
 	return 0;
-
-unreg_channels:
-	up(&registration_lock);
-	return res;
 }
 
 
