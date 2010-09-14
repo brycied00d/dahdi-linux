@@ -430,6 +430,33 @@ static LIST_HEAD(span_list);
 
 static struct dahdi_chan *chans[DAHDI_MAX_CHANNELS];
 
+static unsigned long
+__for_each_channel(unsigned long (*func)(struct dahdi_chan *chan,
+					 unsigned long data),
+		   unsigned long data)
+{
+	int res;
+	struct dahdi_span *s;
+	struct pseudo_chan *pseudo;
+
+	list_for_each_entry(s, &span_list, node) {
+		unsigned long x;
+		for (x = 0; x < s->channels; x++) {
+			struct dahdi_chan *const chan = s->chans[x];
+			res = func(chan, data);
+			if (res)
+				return res;
+		}
+	}
+
+	list_for_each_entry(pseudo, &pseudo_chans, node) {
+		res = func(&pseudo->chan, data);
+		if (res)
+			return res;
+	}
+	return 0;
+}
+
 static struct dahdi_chan *chan_from_num(unsigned int channo)
 {
 	struct dahdi_span *s;
@@ -478,14 +505,14 @@ static struct dahdi_span *find_span(int spanno)
 	struct dahdi_span *found = NULL;
 	struct dahdi_span *s;
 	unsigned long flags;
-	read_lock_irqsave(&chan_lock, flags);
+	spin_lock_irqsave(&chan_lock, flags);
 	list_for_each_entry(s, &span_list, node) {
 		if (s->spanno == spanno) {
 			found = s;
 			break;
 		}
 	}
-	read_unlock_irqrestore(&chan_lock, flags);
+	spin_unlock_irqrestore(&chan_lock, flags);
 	return found;
 }
 
@@ -494,10 +521,10 @@ static unsigned int span_count(void)
 	unsigned int count = 0;
 	struct dahdi_span *s;
 	unsigned long flags;
-	read_lock_irqsave(&chan_lock, flags);
+	spin_lock_irqsave(&chan_lock, flags);
 	list_for_each_entry(s, &span_list, node)
 		++count;
-	read_unlock_irqrestore(&chan_lock, flags);
+	spin_unlock_irqrestore(&chan_lock, flags);
 	return count;
 }
 
@@ -991,9 +1018,21 @@ static int dahdi_get_conf_alias(int x)
 	return a;
 }
 
+static unsigned long _chan_in_conf(struct dahdi_chan *chan, unsigned long x)
+{
+	const int confmode = chan->confmode & DAHDI_CONF_MODE_MASK;
+	return (chan && (chan->confna == x) &&
+	    (confmode == DAHDI_CONF_CONF ||
+	     confmode == DAHDI_CONF_CONFANN ||
+	     confmode == DAHDI_CONF_CONFMON ||
+	     confmode == DAHDI_CONF_CONFANNMON ||
+	     confmode == DAHDI_CONF_REALANDPSEUDO)) ? 1 : 0;
+}
+
 static void dahdi_check_conf(int x)
 {
-	int y;
+	unsigned long res;
+	unsigned long flags;
 
 	/* return if no valid conf number */
 	if (x <= 0)
@@ -1003,21 +1042,11 @@ static void dahdi_check_conf(int x)
 	if (!confalias[x])
 		return;
 
-	for (y = 0; y < maxchans; y++) {
-		struct dahdi_chan *const chan = chan_from_num(y);
-		int confmode;
-		if (!chan)
-			continue;
-		confmode = chan->confmode & DAHDI_CONF_MODE_MASK;
-		if ((chan->confna == x) &&
-		    (confmode == DAHDI_CONF_CONF ||
-		     confmode == DAHDI_CONF_CONFANN ||
-		     confmode == DAHDI_CONF_CONFMON ||
-		     confmode == DAHDI_CONF_CONFANNMON ||
-		     confmode == DAHDI_CONF_REALANDPSEUDO)) {
-			return;
-		}
-	}
+	spin_lock_irqsave(&chan_lock, flags);
+	res = __for_each_channel(_chan_in_conf, x);
+	spin_unlock_irqrestore(&chan_lock, flags);
+	if (res)
+		return;
 
 	/* If we get here, nobody is in the conference anymore.  Clear it out
 	   both forward and reverse */
@@ -2059,10 +2088,41 @@ static bool is_monitor_mode(int confmode)
 	}
 }
 
+static unsigned long _chan_cleanup(struct dahdi_chan *pos, unsigned long data)
+{
+	unsigned long flags;
+	struct dahdi_chan *const chan = (struct dahdi_chan *)data;
+
+	++maxchans;
+
+	/* Remove anyone pointing to us as master
+	   and make them their own thing */
+	if (pos->master == chan)
+		pos->master = pos;
+
+	if (((pos->confna == chan->channo) &&
+	    is_monitor_mode(pos->confmode)) ||
+	    (pos->dacs_chan == chan)) {
+		/* Take them out of conference with us */
+		/* release conference resource if any */
+		if (pos->confna)
+			dahdi_check_conf(pos->confna);
+
+		dahdi_disable_dacs(pos);
+		spin_lock_irqsave(&pos->lock, flags);
+		pos->confna = 0;
+		pos->_confn = 0;
+		pos->confmode = 0;
+		pos->conf_chan = NULL;
+		pos->dacs_chan = NULL;
+		spin_unlock_irqrestore(&pos->lock, flags);
+	}
+
+	return 0;
+}
 
 static void dahdi_chan_unreg(struct dahdi_chan *chan)
 {
-	int x;
 	unsigned long flags;
 
 	might_sleep();
@@ -2096,36 +2156,10 @@ static void dahdi_chan_unreg(struct dahdi_chan *chan)
 		module_printk(KERN_NOTICE, "HUH???  PPP still attached??\n");
 	}
 #endif
-	maxchans = 0;
-	for (x = 1; x < DAHDI_MAX_CHANNELS; x++) {
-		struct dahdi_chan *const pos = chan_from_num(x);
-		if (!pos)
-			continue;
-		maxchans = x + 1;
-		/* Remove anyone pointing to us as master
-		   and make them their own thing */
-		if (pos->master == chan)
-			pos->master = pos;
-
-		if ((pos->confna == chan->channo) &&
-		    (is_monitor_mode(pos->confmode) ||
-		    ((pos->confmode & DAHDI_CONF_MODE_MASK) ==
-		      DAHDI_CONF_DIGITALMON))) {
-			/* Take them out of conference with us */
-			/* release conference resource if any */
-			if (pos->confna)
-				dahdi_check_conf(pos->confna);
-
-			dahdi_disable_dacs(pos);
-			pos->confna = 0;
-			pos->_confn = 0;
-			pos->confmode = 0;
-			pos->dacs_chan = NULL;
-			pos->conf_chan = NULL;
-		}
-	}
-	chan->channo = -1;
+	__for_each_channel(_chan_cleanup, (unsigned long)chan);
 	spin_unlock_irqrestore(&chan_lock, flags);
+
+	chan->channo = -1;
 }
 
 static ssize_t dahdi_chan_read(struct file *file, char __user *usrbuf,
@@ -3559,7 +3593,7 @@ void dahdi_alarm_notify(struct dahdi_span *span)
 			dahdi_alarm_channel(span->chans[x], span->alarms);
 
 		/* Switch to other master if current master in alarm */
-		read_lock_irqsave(&chan_lock, flags);
+		spin_lock_irqsave(&chan_lock, flags);
 		list_for_each_entry(s, &span_list, node) {
 			if (s->alarms)
 				continue;
@@ -3576,7 +3610,7 @@ void dahdi_alarm_notify(struct dahdi_span *span)
 			master = s;
 			break;
 		}
-		read_unlock_irqrestore(&chan_lock, flags);
+		spin_unlock_irqrestore(&chan_lock, flags);
 
 		/* Report more detailed alarms */
 		if (debug) {
@@ -5065,11 +5099,12 @@ static int dahdi_ioctl_conflink(struct file *file, unsigned long data)
 static int dahdi_ioctl_confdiag(struct file *file, unsigned long data)
 {
 	struct dahdi_chan *chan;
+	unsigned long flags;
 	int rv;
 	int i;
 	int j;
 	int c;
-	int k;
+	int k = 0;
 
 	chan = chan_from_file(file);
 	if (!chan)
@@ -5082,39 +5117,48 @@ static int dahdi_ioctl_confdiag(struct file *file, unsigned long data)
 
 	/* loop thru the interesting ones */
 	for (i = ((j) ? j : 1); i <= ((j) ? j : DAHDI_MAX_CONF); i++) {
+		struct dahdi_span *s;
+		struct pseudo_chan *pseudo;
 		c = 0;
-		for (k = 1; k < DAHDI_MAX_CHANNELS; k++) {
-			struct dahdi_chan *const pos = chan_from_num(k);
-			/* skip if no pointer */
-			if (!pos)
-				continue;
-			/* skip if not in this conf */
-			if (pos->confna != i)
-				continue;
-			if (!c) {
-				module_printk(KERN_NOTICE,
-					      "Conf #%d:\n", i);
+		spin_lock_irqsave(&chan_lock, flags);
+		list_for_each_entry(s, &span_list, node) {
+			for (k = 0; k < s->channels; k++) {
+				chan = s->chans[k];
+				if (chan->confna != i)
+					continue;
+				if (!c)
+					module_printk(KERN_NOTICE, "Conf #%d:\n", i);
+				c = 1;
+				module_printk(KERN_NOTICE, "chan %d, mode %x\n",
+					      chan->channo, chan->confmode);
 			}
+		}
+		list_for_each_entry(pseudo, &pseudo_chans, node) {
+			/* skip if not in this conf */
+			if (pseudo->chan.confna != i)
+				continue;
+			if (!c)
+				module_printk(KERN_NOTICE, "Conf #%d:\n", i);
 			c = 1;
 			module_printk(KERN_NOTICE, "chan %d, mode %x\n",
-				      k, pos->confmode);
+				      k, pseudo->chan.confmode);
 		}
+		spin_unlock_irqrestore(&chan_lock, flags);
 		rv = 0;
 		for (k = 1; k <= DAHDI_MAX_CONF; k++) {
-			if (conf_links[k].dst == i) {
-				if (!c) {
-					c = 1;
-					module_printk(KERN_NOTICE,
-						      "Conf #%d:\n", i);
-				}
-				if (!rv) {
-					rv = 1;
-					module_printk(KERN_NOTICE,
-						      "Snooping on:\n");
-				}
-				module_printk(KERN_NOTICE, "conf %d\n",
-					      conf_links[k].src);
+			if (conf_links[k].dst != i)
+				continue;
+
+			if (!c) {
+				c = 1;
+				module_printk(KERN_NOTICE, "Conf #%d:\n", i);
 			}
+			if (!rv) {
+				rv = 1;
+				module_printk(KERN_NOTICE, "Snooping on:\n");
+			}
+			module_printk(KERN_NOTICE, "conf %d\n",
+				      conf_links[k].src);
 		}
 		if (c)
 			module_printk(KERN_NOTICE, "\n");
@@ -6144,7 +6188,7 @@ static bool is_span_registered(const struct dahdi_span *const span)
 	struct dahdi_span *pos;
 	bool registered = false;
 
-	read_lock_irqsave(&chan_lock, flags);
+	spin_lock_irqsave(&chan_lock, flags);
 	list_for_each_entry(pos, &span_list, node) {
 		if (likely(pos != span))
 			continue;
@@ -6152,7 +6196,7 @@ static bool is_span_registered(const struct dahdi_span *const span)
 		registered =  true;
 		break;
 	}
-	read_unlock_irqrestore(&chan_lock, flags);
+	spin_unlock_irqrestore(&chan_lock, flags);
 	return registered;
 }
 
@@ -6203,7 +6247,7 @@ int dahdi_register(struct dahdi_span *span, int prefmaster)
 
 	/* Look through the span list to find the first available span number.
 	 * The spans are kept on this list in sorted order. */
-	read_lock_irqsave(&chan_lock, flags);
+	spin_lock_irqsave(&chan_lock, flags);
 	if (!list_empty(&span_list)) {
 		struct dahdi_span *pos;
 		list_for_each_entry(pos, &span_list, node) {
@@ -6215,7 +6259,7 @@ int dahdi_register(struct dahdi_span *span, int prefmaster)
 			break;
 		}
 	}
-	read_unlock_irqrestore(&chan_lock, flags);
+	spin_unlock_irqrestore(&chan_lock, flags);
 
 	span->spanno = spanno;
 	for (x = 0; x < span->channels; x++) {
@@ -6261,9 +6305,9 @@ int dahdi_register(struct dahdi_span *span, int prefmaster)
 		}
 	}
 
-	write_lock_irqsave(&chan_lock, flags);
+	spin_lock_irqsave(&chan_lock, flags);
 	list_add(&span->node, loc);
-	write_unlock_irqrestore(&chan_lock, flags);
+	spin_unlock_irqrestore(&chan_lock, flags);
 	set_bit(DAHDI_FLAGBIT_REGISTERED, &span->flags);
 	up(&registration_lock);
 
@@ -6316,9 +6360,9 @@ int dahdi_unregister(struct dahdi_span *span)
 			CLASS_DEV_DESTROY(dahdi_class, MKDEV(DAHDI_MAJOR, span->chans[x]->channo));
 	}
 
-	write_lock_irqsave(&chan_lock, flags);
+	spin_lock_irqsave(&chan_lock, flags);
 	list_del_init(&span->node);
-	write_unlock_irqrestore(&chan_lock, flags);
+	spin_unlock_irqrestore(&chan_lock, flags);
 	span->spanno = 0;
 	clear_bit(DAHDI_FLAGBIT_REGISTERED, &span->flags);
 
@@ -6328,12 +6372,12 @@ int dahdi_unregister(struct dahdi_span *span)
 	if (master == span)
 		new_master = NULL;
 
-	read_lock_irqsave(&chan_lock, flags);
+	spin_lock_irqsave(&chan_lock, flags);
 	if (!list_empty(&span_list)) {
 		new_master = list_entry(span_list.next,
 					struct dahdi_span, node);
 	}
-	read_unlock_irqrestore(&chan_lock, flags);
+	spin_unlock_irqrestore(&chan_lock, flags);
 	if (master != new_master)
 		if (debug)
 			module_printk(KERN_NOTICE, "%s: Span ('%s') is new master\n", __FUNCTION__,
