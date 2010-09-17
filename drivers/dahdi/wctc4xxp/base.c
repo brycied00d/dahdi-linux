@@ -2500,7 +2500,7 @@ wctc4xxp_receiveprep(struct wcdte *wc, struct tcb *cmd)
 	}
 }
 
-static inline void service_tx_ring(struct wcdte *wc)
+static void service_tx_ring(struct wcdte *wc)
 {
 	struct tcb *cmd;
 	unsigned long flags;
@@ -2541,7 +2541,7 @@ static inline void service_tx_ring(struct wcdte *wc)
 	}
 }
 
-static inline void service_rx_ring(struct wcdte *wc)
+static void service_rx_ring(struct wcdte *wc)
 {
 	struct tcb *cmd;
 	unsigned long flags;
@@ -2563,7 +2563,7 @@ static inline void service_rx_ring(struct wcdte *wc)
 	wctc4xxp_receive_demand_poll(wc);
 }
 
-static inline void service_dte(struct wcdte *wc)
+static void service_dte(struct wcdte *wc)
 {
 	service_tx_ring(wc);
 	service_rx_ring(wc);
