@@ -2563,13 +2563,6 @@ static void service_rx_ring(struct wcdte *wc)
 	wctc4xxp_receive_demand_poll(wc);
 }
 
-static void service_dte(struct wcdte *wc)
-{
-	service_tx_ring(wc);
-	service_rx_ring(wc);
-}
-
-
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 20)
 static void deferred_work_func(void *param)
 {
@@ -2579,7 +2572,8 @@ static void deferred_work_func(struct work_struct *work)
 {
 	struct wcdte *wc = container_of(work, struct wcdte, deferred_work);
 #endif
-	service_dte(wc);
+	service_tx_ring(wc);
+	service_rx_ring(wc);
 }
 
 DAHDI_IRQ_HANDLER(wctc4xxp_interrupt)
