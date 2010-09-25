@@ -361,8 +361,13 @@ static inline void dahdi_kernel_fpu_end(void)
 #define dahdi_kernel_fpu_begin kernel_fpu_begin
 #define dahdi_kernel_fpu_end   kernel_fpu_end
 #endif
+#else
 
-#endif
+static inline void dahdi_kernel_fpu_begin(void) { return; }
+static inline void dahdi_kernel_fpu_end(void)	{ return; }
+
+#endif /* #if defined(CONFIG_DAHDI_MMX) || defined(ECHO_CAN_FP) */
+
 
 struct dahdi_timer {
 	int ms;			/* Countdown */
@@ -7440,9 +7445,7 @@ static inline void __dahdi_ec_chunk(struct dahdi_chan *ss, unsigned char *rxchun
 
 	/* Perform echo cancellation on a chunk if necessary */
 	if (ss->ec_state) {
-#if defined(CONFIG_DAHDI_MMX) || defined(ECHO_CAN_FP)
 		dahdi_kernel_fpu_begin();
-#endif
 		if (ss->ec_state->status.mode & __ECHO_MODE_MUTE) {
 			/* Special stuff for training the echo can */
 			for (x=0;x<DAHDI_CHUNKSIZE;x++) {
@@ -7488,9 +7491,7 @@ static inline void __dahdi_ec_chunk(struct dahdi_chan *ss, unsigned char *rxchun
 				process_echocan_events(ss);
 
 		}
-#if defined(CONFIG_DAHDI_MMX) || defined(ECHO_CAN_FP)
 		dahdi_kernel_fpu_end();
-#endif
 	}
 }
 
@@ -8371,13 +8372,9 @@ static void __dahdi_transmit_chunk(struct dahdi_chan *chan, unsigned char *buf)
 	__dahdi_getbuf_chunk(chan, buf);
 
 	if ((chan->flags & DAHDI_FLAG_AUDIO) || (chan->confmode)) {
-#ifdef CONFIG_DAHDI_MMX
 		dahdi_kernel_fpu_begin();
-#endif
 		__dahdi_process_getaudio_chunk(chan, buf);
-#ifdef CONFIG_DAHDI_MMX
 		dahdi_kernel_fpu_end();
-#endif
 	}
 }
 
@@ -8456,13 +8453,9 @@ static void __dahdi_receive_chunk(struct dahdi_chan *chan, unsigned char *buf)
 		buf = waste;
 	}
 	if ((chan->flags & DAHDI_FLAG_AUDIO) || (chan->confmode)) {
-#ifdef CONFIG_DAHDI_MMX
 		dahdi_kernel_fpu_begin();
-#endif
 		__dahdi_process_putaudio_chunk(chan, buf);
-#ifdef CONFIG_DAHDI_MMX
 		dahdi_kernel_fpu_end();
-#endif
 	}
 	__dahdi_putbuf_chunk(chan, buf);
 }
@@ -8615,9 +8608,7 @@ static void process_masterspan(void)
 	}
 
 	if (maxlinks) {
-#ifdef CONFIG_DAHDI_MMX
 		dahdi_kernel_fpu_begin();
-#endif
 		/* process all the conf links */
 		for (x = 1; x <= maxlinks; x++) {
 			/* if we have a destination conf */
@@ -8628,9 +8619,7 @@ static void process_masterspan(void)
 					ACSS(conf_sums[z], conf_sums[y]);
 			}
 		}
-#ifdef CONFIG_DAHDI_MMX
 		dahdi_kernel_fpu_end();
-#endif
 	}
 
 	/* do all the pseudo/conferenced channel transmits (putbuf's) */
