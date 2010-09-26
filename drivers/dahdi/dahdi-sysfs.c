@@ -151,15 +151,35 @@ static int configured_channels(struct dahdi_span *span)
 
 static ATTR_READER(configured_channels_show, kobj, buf)
 {
-	struct dahdi_span *span;
-
-	span = kobj_to_span(kobj);
+	const struct dahdi_span *const span = kobj_to_span(kobj);
 	return sprintf(buf, "%d\t%d/%d\t%s\n",
 		span->spanno,
 		configured_channels(span),
 		span->channels,
 		span->name);
 }
+
+static ATTR_READER(set_span_read, kobj, buf)
+{
+	const struct dahdi_span *const span = kobj_to_span(kobj);
+	int ret;
+
+	if (span->channels)
+		ret = sprintf(buf, "%d:%d\n",
+			span->spanno,
+			span->chans[0]->channo);
+	} else {
+		ret = sprintf(buf, "%d", span->spanno);
+	}
+	return ret;
+}
+
+static ATTR_WRITER(set_span_store, kobj, buf, count)
+{
+	struct dahdi_span *span = kobj_to_span(kobj);
+	return count;
+}
+
 
 #if 0
 static ATTR_WRITER(user_ready_store, kobj, buf, count)

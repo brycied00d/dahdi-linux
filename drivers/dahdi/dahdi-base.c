@@ -2963,6 +2963,12 @@ static int can_open_timer(void)
 #endif
 }
 
+/*
+ * The registration lock is used to protect the span_list without actually
+ * blocking the interrupt handler for lengthy registration and unregistration
+ * processes.
+ *
+ */
 static DECLARE_MUTEX(registration_lock);
 
 static struct dahdi_chan *dahdi_alloc_pseudo(void)
@@ -6432,6 +6438,21 @@ void dahdi_unregister(struct dahdi_span *span)
 
 	up(&registration_lock);
 	return;
+}
+
+/**
+ * dahdi_set_span_numbers() - Set the span and channel numbering.
+ *
+ * Called in response to writes from sysfs.
+ */
+int dahdi_set_span_numbers(struct dahdi_span *span, unsigned int spanno,
+			   unsigned int basechan)
+{
+	int res = 0;
+
+	down(&registration_lock);
+	up(&registration_lock);
+	return res;
 }
 
 /*
