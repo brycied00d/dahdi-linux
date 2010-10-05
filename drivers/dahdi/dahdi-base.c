@@ -2861,18 +2861,22 @@ static int dahdi_specchan_release(struct file *file)
 	if (chan) {
 		/* Chan lock protects contents against potentially non atomic accesses.
 		 * So if the pointer setting is not atomic, we should protect */
-
-		if(chan->srcmirror)
-		{
-			spin_lock_irqsave(&chan->srcmirror->lock, flags);
-			if(chan == chan->srcmirror->txmirror)
-			{
-				module_printk(KERN_INFO, "Chan %d tx mirror to %d stopped\n", chan->srcmirror->txmirror->channo, chan->srcmirror->channo);
-				chan->srcmirror->txmirror = NULL;
+		if (chan->srcmirror) {
+			struct dahdi_chan *const srcmirror = chan->srcmirror;
+			spin_lock_irqsave(&srcmirror->lock, flags);
+			if (chan == srcmirror->txmirror) {
+				module_printk(KERN_INFO, "Chan %d tx mirror " \
+					      "to %d stopped\n",
+					      srcmirror->txmirror->channo,
+					      srcmirror->channo);
+				srcmirror->txmirror = NULL;
 			}
-			if(chan == chan->srcmirror->rxmirror)
-			{
-				module_printk(KERN_INFO, "Chan %d rx mirror to %d stopped\n", chan->srcmirror->rxmirror->channo, chan->srcmirror->channo);
+
+			if (chan == srcmirror->rxmirror) {
+				module_printk(KERN_INFO, "Chan %d rx mirror " \
+					      "to %d stopped\n",
+					      srcmirror->rxmirror->channo,
+					      srcmirror->channo);
 				chan->srcmirror->rxmirror = NULL;
 			}
 			spin_unlock_irqrestore(&chan->srcmirror->lock, flags);
@@ -5114,6 +5118,93 @@ static int dahdi_ioctl_getconf(struct file *file, unsigned long data)
 	return 0;
 }
 
+static int dahdi_ioctl_rxmirror(struct file *file, unsigned long data)
+{
+	int res;
+	int i;
+	unsigned long flags;
+	struct dahdi_chan *const chan = chan_from_file(file);
+	struct dahdi_chan *srcmirror;
+
+	if (!chan || chan->srcmirror)
+		return -ENODEV;
+
+	res = get_user(i, (int __user *)data);
+	if (res)
+		return res;
+
+	srcmirror = chan_from_num(i);
+	if (!srcmirror)
+		return -EINVAL;
+
+	module_printk(KERN_INFO, "Chan %d rx mirrored to %d\n",
+		      srcmirror->channo, chan->channo);
+
+	spin_lock_irqsave(&srcmirror->lock, flags);
+	if (srcmirror->rxmirror == NULL)
+		srcmirror->rxmirror = chan;
+
+	spin_unlock_irqrestore(&srcmirror->lock, flags);
+	if (srcmirror->rxmirror != chan) {
+		module_printk(KERN_INFO, "Chan %d cannot be rxmirrored, " \
+			      "already in use\n", srcmirror->channo);
+		return -EFAULT;
+	}
+
+	spin_lock_irqsave(&chan->lock, flags);
+	chan->srcmirror = srcmirror;
+	chan->flags = srcmirror->flags;
+	chan->sig =  srcmirror->sig;
+	clear_bit(DAHDI_FLAGBIT_OPEN, &chan->flags);
+	spin_unlock_irqrestore(&chan->lock, flags);
+
+	return 0;
+}
+
+static int dahdi_ioctl_txmirror(struct file *file, unsigned long data)
+{
+	int res;
+	int i;
+	unsigned long flags;
+	struct dahdi_chan *const chan = chan_from_file(file);
+	struct dahdi_chan *srcmirror;
+
+	if (!chan || chan->srcmirror)
+		return -ENODEV;
+
+	res = get_user(i, (int __user *)data);
+	if (res)
+		return res;
+
+	srcmirror = chan_from_num(i);
+	if (!srcmirror)
+		return -EINVAL;
+
+	module_printk(KERN_INFO, "Chan %d tx mirrored to %d\n",
+		      srcmirror->channo, chan->channo);
+
+	spin_lock_irqsave(&srcmirror->lock, flags);
+	srcmirror->txmirror = chan;
+	if (srcmirror->txmirror == NULL)
+		srcmirror->txmirror = chan;
+	spin_unlock_irqrestore(&srcmirror->lock, flags);
+
+	if (srcmirror->txmirror != chan) {
+		module_printk(KERN_INFO, "Chan %d cannot be txmirrored, " \
+			      "already in use\n", i);
+		return -EFAULT;
+	}
+
+	spin_lock_irqsave(&chan->lock, flags);
+	chan->srcmirror = srcmirror;
+	chan->flags = srcmirror->flags;
+	chan->sig =  srcmirror->sig;
+	clear_bit(DAHDI_FLAGBIT_OPEN, &chan->flags);
+	spin_unlock_irqrestore(&chan->lock, flags);
+
+	return 0;
+}
+
 static int
 dahdi_chanandpseudo_ioctl(struct file *file, unsigned int cmd,
 			  unsigned long data)
@@ -5131,64 +5222,12 @@ dahdi_chanandpseudo_ioctl(struct file *file, unsigned int cmd,
 	if (!chan)
 		return -EINVAL;
 	switch(cmd) {
-	
 	case DAHDI_RXMIRROR:
-		get_user(i,  (int*)data);
-		if(i > 0 && i < DAHDI_MAX_CHANNELS && chans[i] && chans[i] != chan && !chan->srcmirror)
-		{
-			module_printk(KERN_INFO, "Chan %d rxmirrored to %d\n", i, unit);
-			spin_lock_irqsave(&chans[i]->lock, flags);
-			if(chans[i]->rxmirror == NULL)
-			{
-				chans[i]->rxmirror = chan;
-			}
-			spin_unlock_irqrestore(&chans[i]->lock, flags);
-			if(chans[i]->rxmirror != chan)
-			{
-				module_printk(KERN_INFO, "Chan %d cannot be rxmirrored, already in use\n", i);
-				return -EFAULT;
-			}
-			spin_lock_irqsave(&chan->lock, flags);
-			chan->srcmirror = chans[i];
-			chan->flags = chans[i]->flags;
-			chan->sig =  chans[i]->sig;
-			clear_bit(DAHDI_FLAGBIT_OPEN, &chan->flags);
-			spin_unlock_irqrestore(&chan->lock, flags);
-		}
-		else
-		{
-			return -EINVAL;
-		}
-		break;
+		return dahdi_ioctl_rxmirror(file, data);
+
 	case DAHDI_TXMIRROR:
-		get_user(i,  (int*)data);
-		if(i > 0 && i < DAHDI_MAX_CHANNELS && chans[i] && chans[i] != chan && !chan->srcmirror)
-		{
-			module_printk(KERN_INFO, "Chan %d tx mirrored to %d\n", i, unit);
-			spin_lock_irqsave(&chans[i]->lock, flags);
-			chans[i]->txmirror = chan;
-			if(chans[i]->txmirror == NULL)
-			{
-				chans[i]->txmirror = chan;
-			}
-			spin_unlock_irqrestore(&chans[i]->lock, flags);
-			if(chans[i]->txmirror != chan)
-			{
-				module_printk(KERN_INFO, "Chan %d cannot be txmirrored, already in use\n", i);
-				return -EFAULT;
-			}
-			spin_lock_irqsave(&chan->lock, flags);
-			chan->srcmirror = chans[i];
-			chan->flags = chans[i]->flags;
-			chan->sig =  chans[i]->sig;
-			clear_bit(DAHDI_FLAGBIT_OPEN, &chan->flags);
-			spin_unlock_irqrestore(&chan->lock, flags);
-		}
-		else
-		{
-			return -EINVAL;
-		}
-		break;
+		return dahdi_ioctl_txmirror(file, data);
+
 	case DAHDI_DIALING:
 		spin_lock_irqsave(&chan->lock, flags);
 		j = chan->dialing;
@@ -6744,7 +6783,8 @@ static inline void __dahdi_process_getaudio_chunk(struct dahdi_chan *ss, unsigne
 		txb[x] = ms->txgain[txb[x]];
 }
 
-static inline void __putbuf_chunk(struct dahdi_chan *ss, unsigned char *rxb, int bytes);
+static void __putbuf_chunk(struct dahdi_chan *ss, unsigned char *rxb,
+			   int bytes);
 
 static inline void __dahdi_getbuf_chunk(struct dahdi_chan *ss, unsigned char *txb)
 {
@@ -6912,12 +6952,12 @@ out in the later versions, and is put back now. */
 			bytes = 0;
 		}
 	}
-	if(ss->txmirror)
-	{
+
+	if (ss->txmirror) {
 		spin_lock(&ss->txmirror->lock);
 		__putbuf_chunk(ss->txmirror, orig_txb, DAHDI_CHUNKSIZE);
 		spin_unlock(&ss->txmirror->lock);
-	}	
+	}
 }
 
 static inline void rbs_itimer_expire(struct dahdi_chan *chan)
@@ -7796,7 +7836,7 @@ static inline void __dahdi_process_putaudio_chunk(struct dahdi_chan *ss, unsigne
 }
 
 /* HDLC (or other) receiver buffer functions for read side */
-static inline void __putbuf_chunk(struct dahdi_chan *ss, unsigned char *rxb, int bytes)
+static void __putbuf_chunk(struct dahdi_chan *ss, unsigned char *rxb, int bytes)
 {
 	/* We transmit data from our master channel */
 	/* Called with ss->lock held */
@@ -8091,12 +8131,11 @@ static inline void __dahdi_putbuf_chunk(struct dahdi_chan *ss, unsigned char *rx
 {
 	__putbuf_chunk(ss, rxb, DAHDI_CHUNKSIZE);
 
-	if(ss->rxmirror)
-	{
+	if (ss->rxmirror) {
 		spin_lock(&ss->rxmirror->lock);
 		__putbuf_chunk(ss->rxmirror, rxb, DAHDI_CHUNKSIZE);
 		spin_unlock(&ss->rxmirror->lock);
-	}	
+	}
 }
 
 static void __dahdi_hdlc_abort(struct dahdi_chan *ss, int event)
