@@ -681,40 +681,26 @@ static int r1t1_spanconfig(struct dahdi_span *span, struct dahdi_lineconfig *lc)
 
 static int r1t1_software_init(struct r1t1 *rh)
 {
-#if DAHDI_VER >= KERNEL_VERSION(2,4,0)
-	static struct dahdi_span_ops ops = {
-		.spanconfig = r1t1_spanconfig,
-		.chanconfig = r1t1_chanconfig,
-		.startup = r1t1_startup,
-		.shutdown = r1t1_shutdown,
-		.rbsbits = r1t1_rbsbits,
-		.maint = r1t1_maint,
-		.open = r1t1_open,
-		.close = r1t1_close,
-		.ioctl = r1t1_ioctl,
+static struct dahdi_span_ops ops = {
+	.spanconfig = r1t1_spanconfig,
+	.chanconfig = r1t1_chanconfig,
+	.startup = r1t1_startup,
+	.shutdown = r1t1_shutdown,
+	.rbsbits = r1t1_rbsbits,
+	.maint = r1t1_maint,
+	.open = r1t1_open,
+	.close = r1t1_close,
+	.ioctl = r1t1_ioctl,
 #ifdef USE_G168_DSP
 		.echocan_create = r1t1_echocan_create,
 #endif
-		.owner = THIS_MODULE
+	.owner = THIS_MODULE
 	};
-#endif
 
 	int x;
 
 
-#if DAHDI_VER >= KERNEL_VERSION(2,4,0)
-	rh->span.ops = &ops;
-#else
-	rh->span.spanconfig = r1t1_spanconfig;
-	rh->span.chanconfig = r1t1_chanconfig;
-	rh->span.startup = r1t1_startup;
-	rh->span.shutdown = r1t1_shutdown;
-	rh->span.rbsbits = r1t1_rbsbits;
-	rh->span.maint = r1t1_maint;
-	rh->span.open = r1t1_open;
-	rh->span.close = r1t1_close;
-	rh->span.ioctl = r1t1_ioctl;
-#endif
+rh->span.ops = &ops;
 
 	sprintf(rh->span.name, "R1T1/%d", rh->num);
 	snprintf(rh->span.desc, sizeof(rh->span.desc) - 1, "%s Card %d", rh->variety,
@@ -887,8 +873,11 @@ static void __r1t1_check_alarms(struct r1t1 *rh)
 
 	if (rh->span.lineconfig & DAHDI_CONFIG_NOTOPEN) {
 		for (x = 0, j = 0; x < rh->span.channels; x++)
+		/*
 			if ((rh->chans[x]->flags & DAHDI_FLAG_OPEN) ||
 				(rh->chans[x]->flags & DAHDI_FLAG_NETDEV))
+		*/
+			if ((rh->chans[x]->flags & DAHDI_FLAG_OPEN) )
 				j++;
 		if (!j)
 			alarms |= DAHDI_ALARM_NOTOPEN;
@@ -1959,9 +1948,6 @@ static int __devinit r1t1_card_init_dsp(struct r1t1 *rh)
 	printk("R1T1: %d DSP %d: %d channels configured\n", rh->num + 1, 1, chan_count);
 
 	rh->dsp_up = 1;
-#if DAHDI_VER < KERNEL_VERSION(2,4,0)
-	rh->span.echocan_create = r1t1_echocan_create;
-#endif
 
 	if (debug & DEBUG_DSP) {
 

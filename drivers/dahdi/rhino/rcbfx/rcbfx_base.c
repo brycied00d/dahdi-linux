@@ -604,20 +604,18 @@ static int rcb_dahdi_chan_close(struct dahdi_chan *chan)
 
 static int rcb_card_initialize(struct rcb_card_t *rcb_card)
 {
-#if DAHDI_VER >= KERNEL_VERSION(2,4,0)
-	static struct dahdi_span_ops ops = {
-		.rbsbits = rcb_dahdi_chan_rbsbits,
-		.open = rcb_dahdi_chan_open,
-		.close = rcb_dahdi_chan_close,
-		.ioctl = rcb_dahdi_chan_ioctl,
-		.watchdog = rcb_dahdi_span_watchdog,
-		.echocan_create = rcbfx_echocan_create,
-		.owner = THIS_MODULE,
+static struct dahdi_span_ops ops = {
+	.rbsbits = rcb_dahdi_chan_rbsbits,
+	.open = rcb_dahdi_chan_open,
+	.close = rcb_dahdi_chan_close,
+	.ioctl = rcb_dahdi_chan_ioctl,
+	.watchdog = rcb_dahdi_span_watchdog,
+	.echocan_create = rcbfx_echocan_create,
+	.owner = THIS_MODULE,
 	};
-#endif
 
 	int chan_num;
-	/* daddy stuff */
+	/* dahdi stuff */
 
 	sprintf(rcb_card->span.name, "%s/%d", rcb_card->variety, rcb_card->pos + 1);
 	sprintf(rcb_card->span.desc, "%s/%d", rcb_card->variety, rcb_card->pos + 1);
@@ -657,9 +655,7 @@ static int rcb_card_initialize(struct rcb_card_t *rcb_card)
 		}
 
 		rcb_card->chans[chan_num]->chanpos = chan_num + 1;
-#if DAHDI_VER < KERNEL_VERSION(2,4,0)
 		rcb_card->chans[chan_num]->pvt = rcb_card;
-#endif
 	}
 
 	rcb_card->span.manufacturer = "Rhino Equipment Corp.";
@@ -668,17 +664,7 @@ static int rcb_card_initialize(struct rcb_card_t *rcb_card)
 	rcb_card->span.flags = DAHDI_FLAG_RBS;
 	init_waitqueue_head(&rcb_card->span.maintq);
 
-#if DAHDI_VER >= KERNEL_VERSION(2,4,0)
 	rcb_card->span.ops = &ops;
-#else /* DAHDI_VER < KERNEL_VERSION(2,4,0) */
-	rcb_card->span.rbsbits = rcb_dahdi_chan_rbsbits;
-	rcb_card->span.open = rcb_dahdi_chan_open;
-	rcb_card->span.close = rcb_dahdi_chan_close;
-	rcb_card->span.ioctl = rcb_dahdi_chan_ioctl;
-	rcb_card->span.watchdog = rcb_dahdi_span_watchdog;
-	rcb_card->span.pvt = rcb_card;
-	rcb_card->span.owner = THIS_MODULE;
-#endif
 
 	if (dahdi_register(&rcb_card->span, 0)) {
 		printk("rcbfx %d: Unable to register span with Parent\n", rcb_card->pos + 1);
@@ -1624,9 +1610,6 @@ static int rcb_card_dsp_init(struct rcb_card_t *rcb_card)
 	INIT_WORK(&rcb_card->work, echocan_bh);
 #endif
 
-#if DAHDI_VER < KERNEL_VERSION(2,4,0)
-	rcb_card->span.echocan_create = rcbfx_echocan_create;
-#endif
 
 	printk("rcbfx %d: G168 DSP Active and Servicing %d Channels - %x\n",
 		   rcb_card->pos + 1, dsp_in_use, dsp_chans);
