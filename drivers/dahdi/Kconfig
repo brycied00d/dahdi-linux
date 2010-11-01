@@ -292,3 +292,4 @@ config DAHDI_WCTE11XP
 	  If unsure, say Y.
 
 source "drivers/dahdi/xpp/Kconfig"
+source "drivers/dahdi/rhino/Kconfig"

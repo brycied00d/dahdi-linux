@@ -1,0 +1,62 @@
+#
+# Rhino configuration
+#
+
+menuconfig RHINO
+	tristate "Rhino support"
+	select DAHDI
+	default m
+	---help---
+	  Rhino DAHDI drivers.
+
+	  To compile the Rhino PCI drivers as modules, choose M here.
+
+	  If unsure, say Y.
+
+config RHINO_R1T1
+       tristate "Rhino R1T1 T1-E1-J1 Support"
+       depends on DAHDI && PCI && RHINO
+       default RHINO
+	---help---
+	  This driver provides support for the following Rhino
+	  Equipment products:
+
+	  * R1T1 (PCI/PCIe)
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called r1t1.
+
+	  If unsure, say Y.
+
+config RHINO_RCBFX
+	tristate "Rhino Equipment Modular Analog Interface Support"
+	depends on DAHDI && PCI && RHINO
+	default RHINO
+	---help---
+	  This driver provides support for the following Rhino
+	  Equipment products:
+
+	  * RCB4FXO (PCI/PCIe)
+	  * RCB8FXX (PCI/PCIe)
+	  * RCB24FXX/FXO/FXS (PCI/PCIe)
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called rcbfx.
+
+	  If unsure, say Y.
+
+config RHINO_RXT1
+	tristate "Rhino Equipment 1-2-4 Span T1-E1-J1 PCI Support"
+	depends on DAHDI && PCI && RHINO
+	default RHINO
+	---help---
+	  This driver provides support for the following Rhino
+	  Equipment products:
+
+	  * R2T1 (PCI/PCIe)
+	  * R4T1 (PCI/PCIe)
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called rxt1.
+
+	  If unsure, say Y.

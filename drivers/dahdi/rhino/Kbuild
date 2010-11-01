@@ -1,0 +1,36 @@
+EXTRA_CFLAGS+=-Drw_lock_t=rwlock_t
+
+obj-m += r1t1/
+obj-m += rcbfx/
+obj-m += rxt1/
+
+ifdef DEBUG
+  $(info Kernel BUILDVER=$(BUILDVER))
+  $(info Kernel SUBLEVEL=$(SUBLEVEL))
+endif
+
+#Include the config telling us what to compile
+KCONFIG:=$(KSRC)/.config
+MYCONFIG:=$(PWD)/.config
+ifneq (,$(wildcard $(KCONFIG)))
+  include $(KCONFIG)
+endif
+ifneq (,$(wildcard $(MYCONFIG)))
+  include $(MYCONFIG)
+endif
+
+
+all: modules
+
+modules:
+	$(KMAKE) modules
+
+clean:
+	$(MAKE) -C $(KSRC) SUBDIRS=$(PWD) clean
+	
+install: all
+	$(KMAKE) INSTALL_MOD_PATH=$(INSTALL_PREFIX) INSTALL_MOD_DIR=rhino modules_install
+	[ `id -u` = 0 ] && /sbin/depmod -a $(KVER) || :
+
+.PHONY: clean install modules
+
