@@ -1,8 +1,13 @@
 obj-m += rcbfx.o
 
-rcbfx-objs := rcbfx_base.o 
+$(obj)/rcbfx_base.o: $(src)/rcbfx.h $(src)/GpakApi.h $(src)/GpakCust.h
+
+rcbfx-objs := rcbfx_base.o GpakApi.o GpakCust.o
 
 $(obj)/rcbfx_base.o: $(src)/rcbfx.h $(src)/GpakApi.h $(src)/GpakCust.h
+$(obj)/GpakCust.o: $(src)/GpakCust.h $(src)/rcbfx.h
+$(obj)/GpakApi.o: $(src)/GpakApi.h $(src)/GpakCust.h $(src)/rcbfx.h
+
 
 clean:
 	@rm -f *.o

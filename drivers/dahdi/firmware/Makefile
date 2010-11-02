@@ -27,10 +27,11 @@ OCT6114_128_VERSION:=1.05.01
 TC400M_VERSION:=MR6.12
 VPMADT032_VERSION:=1.25.0
 HX8_VERSION:=2.06
+RHINO_VERSION:=1.0.0
 
 FIRMWARE_URL:=http://downloads.digium.com/pub/telephony/firmware/releases
-
-ALL_FIRMWARE=FIRMWARE-OCT6114-064 FIRMWARE-OCT6114-128 FIRMWARE-TC400M FIRMWARE-HX8
+RHINO_FIRMWARE_URL:=http://dist.rhinoequipment.com/firmware
+ALL_FIRMWARE=FIRMWARE-OCT6114-064 FIRMWARE-OCT6114-128 FIRMWARE-TC400M FIRMWARE-HX8 FIRMWARE-RHINO
 
 # Firmware files should use the naming convention: dahdi-fw-<base name>-<sub name>-<version> or dahdi-fw-<base name>-<version>
 # First example: dahdi-fw-oct6114-064-1.05.01
@@ -43,6 +44,7 @@ FIRMWARE:=$(ALL_FIRMWARE:FIRMWARE-OCT6114-064=dahdi-fw-oct6114-064-$(OCT6114_064
 FIRMWARE:=$(FIRMWARE:FIRMWARE-OCT6114-128=dahdi-fw-oct6114-128-$(OCT6114_128_VERSION).tar.gz)
 FIRMWARE:=$(FIRMWARE:FIRMWARE-TC400M=dahdi-fw-tc400m-$(TC400M_VERSION).tar.gz)
 FIRMWARE:=$(FIRMWARE:FIRMWARE-HX8=dahdi-fw-hx8-$(HX8_VERSION).tar.gz)
+FIRMWARE:=$(FIRMWARE:FIRMWARE-RHINO=dahdi-fw-rhino-$(RHINO_VERSION).tar.gz)
 
 FWLOADERS:=dahdi-fwload-vpmadt032-$(VPMADT032_VERSION).tar.gz
 
@@ -69,12 +71,23 @@ dist-clean: clean
 	rm -f dahdi-fw-*.tar.gz
 	rm -f dahdi-fwload-*.tar.gz
 	rm -f make_firmware_object
+	rm -rf fw-rhino
 
 # Clean up anything we built
 clean:
 	rm -f dahdi-fw-*.o
+	rm -f fw-rhino/*.o
 
 # Download and extract firmware tarballs
+#For Rhino firmware, can be removed when added to tree but has to point at current url for files
+dahdi-fw-rhino%.tar.gz:
+	@if ( [ "$(HOTPLUG_FIRMWARE)" = "no" ] ) || ( [ -d $(DESTDIR)/usr/lib/hotplug/firmware ] && ! [ -f $(DESTDIR)/usr/lib/hotplug/firmware/.$(subst .tar.gz,,$*) ] ) || ( [ -d $(DESTDIR)/lib/firmware ] && ! [ -f $(DESTDIR)/lib/firmware/.$(subst .tar.gz,,$*) ] ); then \
+		echo "Attempting to download $@"; \
+		if test ! -f $@; then $(DOWNLOAD) $(WGET_ARGS) $(RHINO_FIRMWARE_URL)/$@; fi; \
+		if test ! -f $@; then exit 1; fi; \
+		(cat $@ | gzip -d | tar --no-same-owner -xf -) \
+	fi
+
 dahdi-fw-%.tar.gz:
 	@if ( [ "$(HOTPLUG_FIRMWARE)" = "no" ] ) || ( [ -d $(DESTDIR)/usr/lib/hotplug/firmware ] && ! [ -f $(DESTDIR)/usr/lib/hotplug/firmware/.$(subst .tar.gz,,$*) ] ) || ( [ -d $(DESTDIR)/lib/firmware ] && ! [ -f $(DESTDIR)/lib/firmware/.$(subst .tar.gz,,$*) ] ); then \
 		echo "Attempting to download $@"; \
@@ -82,6 +95,7 @@ dahdi-fw-%.tar.gz:
 		if test ! -f $@; then exit 1; fi; \
 		(cat $@ | gzip -d | tar --no-same-owner -xf -) \
 	fi
+
 
 firmware-loaders: $(FWLOADERS)
 
