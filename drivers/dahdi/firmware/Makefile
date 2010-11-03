@@ -47,6 +47,7 @@ FIRMWARE:=$(FIRMWARE:FIRMWARE-HX8=dahdi-fw-hx8-$(HX8_VERSION).tar.gz)
 FIRMWARE:=$(FIRMWARE:FIRMWARE-RHINO=dahdi-fw-rhino-$(RHINO_VERSION).tar.gz)
 
 FWLOADERS:=dahdi-fwload-vpmadt032-$(VPMADT032_VERSION).tar.gz
+FWLOADERS:=dahdi-fw-rhino-$(RHINO_VERSION).tar.gz
 
 # Build a list of object files if hotplug will not be used
 OBJECT_FILES:=$(ALL_FIRMWARE:FIRMWARE-OCT6114-064=dahdi-fw-oct6114-064.o)
@@ -80,7 +81,7 @@ clean:
 
 # Download and extract firmware tarballs
 #For Rhino firmware, can be removed when added to tree but has to point at current url for files
-dahdi-fw-rhino%.tar.gz:
+dahdi-fw-rhino-%.tar.gz:
 	@if ( [ "$(HOTPLUG_FIRMWARE)" = "no" ] ) || ( [ -d $(DESTDIR)/usr/lib/hotplug/firmware ] && ! [ -f $(DESTDIR)/usr/lib/hotplug/firmware/.$(subst .tar.gz,,$*) ] ) || ( [ -d $(DESTDIR)/lib/firmware ] && ! [ -f $(DESTDIR)/lib/firmware/.$(subst .tar.gz,,$*) ] ); then \
 		echo "Attempting to download $@"; \
 		if test ! -f $@; then $(DOWNLOAD) $(WGET_ARGS) $(RHINO_FIRMWARE_URL)/$@; fi; \

@@ -72,7 +72,7 @@
 /* Miscellaneous definitions. */
 //#define MSG_BUFFER_SIZE 1000 /* size (words) of Host msg buffer */
 // Why the hell not
-#define MSG_BUFFER_SIZE 500	/* size (words) of Host msg buffer */
+#define MSG_BUFFER_SIZE 1000	/* size (words) of Host msg buffer */
 #define WORD_BUFFER_SIZE 84		/* size of DSP Word buffer (words) */
 
 #ifdef __TMS320C55XX__			// debug sections if not on host
